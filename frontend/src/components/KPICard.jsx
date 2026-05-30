@@ -7,9 +7,9 @@ const iconMap = {
   layers: '📋', star: '⭐', percent: '📐', calendar: '📅',
 };
 
-export default function KPICard({ title, value, subtitle, icon, color, trend }) {
+export default function KPICard({ title, value, subtitle, icon, color, trend, onClick }) {
   return (
-    <div className="kpi-card" style={{ borderTopColor: color || '#3B82F6' }}>
+    <div className="kpi-card" style={{ borderTopColor: color || '#3B82F6', cursor: onClick ? 'pointer' : 'default' }} onClick={onClick}>
       <div className="kpi-card-header">
         <span className="kpi-icon" style={{ backgroundColor: (color || '#3B82F6') + '15', color: color }}>
           {iconMap[icon] || '📊'}

@@ -598,14 +598,14 @@ export default function SuperadminPortal() {
           <div className="portal-page">
             <h2>Admin Dashboard</h2>
             <div className="kpi-grid">
-              <KPICard title="Total Students" value={stats.total_students} icon="users" color="#3B82F6" />
-              <KPICard title="Total Tutors" value={stats.total_tutors} icon="users" color="#10B981" />
-              <KPICard title="Active Courses" value={stats.total_courses} icon="book" color="#8B5CF6" />
-              <KPICard title="Enrollments" value={stats.total_enrollments} icon="layers" color="#F59E0B" />
-              <KPICard title="Active Sessions" value={stats.active_sessions} icon="video" color="#EF4444" />
-              <KPICard title="Total Users" value={stats.total_users} icon="users" color="#06B6D4" />
-              <KPICard title="Advisors" value={stats.total_advisors} icon="users" color="#EC4899" />
-              <KPICard title="Managers" value={stats.total_managers} icon="users" color="#0891B2" />
+              <KPICard title="Total Students" value={stats.total_students} icon="users" color="#3B82F6" onClick={() => setActiveTab('students')} />
+              <KPICard title="Total Tutors" value={stats.total_tutors} icon="users" color="#10B981" onClick={() => setActiveTab('tutors')} />
+              <KPICard title="Active Courses" value={stats.total_courses} icon="book" color="#8B5CF6" onClick={() => setActiveTab('courses')} />
+              <KPICard title="Enrollments" value={stats.total_enrollments} icon="layers" color="#F59E0B" onClick={() => setActiveTab('enrollments')} />
+              <KPICard title="Active Sessions" value={stats.active_sessions} icon="video" color="#EF4444" onClick={() => setActiveTab('sessions')} />
+              <KPICard title="Total Users" value={stats.total_users} icon="users" color="#06B6D4" onClick={() => setActiveTab('users')} />
+              <KPICard title="Advisors" value={stats.total_advisors} icon="users" color="#EC4899" onClick={() => setActiveTab('users')} />
+              <KPICard title="Managers" value={stats.total_managers} icon="users" color="#0891B2" onClick={() => setActiveTab('users')} />
             </div>
           </div>
         )}
