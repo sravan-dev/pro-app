@@ -35,6 +35,7 @@ export const api = {
   createUser: (data) => request('/users', { method: 'POST', body: data }),
   updateUser: (data) => request('/users', { method: 'PUT', body: data }),
   deleteUser: (id) => request(`/users?id=${id}`, { method: 'DELETE' }),
+  permanentDeleteUser: (id) => request(`/users?id=${id}&permanent=true`, { method: 'DELETE' }),
 
   // Courses
   getCourses: () => request('/courses'),

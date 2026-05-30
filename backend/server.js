@@ -606,9 +606,22 @@ app.delete('/api/users', (req, res) => {
   const id = parseInt(req.query.id);
   if (!id) return res.status(400).json({ error: 'ID required' });
   if (id === user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
-  getDB().prepare("UPDATE users SET status='inactive' WHERE id=?").run(id);
-  auditLog(user.id, 'deactivate_user', 'user', id);
-  res.json({ message: 'Deactivated' });
+  const permanent = req.query.permanent === 'true';
+  const d = getDB();
+  if (permanent) {
+    d.prepare("DELETE FROM session_participants WHERE user_id=?").run(id);
+    d.prepare("DELETE FROM enrollments WHERE student_id=?").run(id);
+    d.prepare("DELETE FROM sessions WHERE tutor_id=?").run(id);
+    d.prepare("UPDATE courses SET tutor_id=NULL WHERE tutor_id=?").run(id);
+    d.prepare("DELETE FROM audit_logs WHERE user_id=?").run(id);
+    d.prepare("DELETE FROM users WHERE id=?").run(id);
+    auditLog(user.id, 'delete_user', 'user', id);
+    res.json({ message: 'Permanently deleted' });
+  } else {
+    d.prepare("UPDATE users SET status='inactive' WHERE id=?").run(id);
+    auditLog(user.id, 'deactivate_user', 'user', id);
+    res.json({ message: 'Deactivated' });
+  }
 });
 
 // Password reset

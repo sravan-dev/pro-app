@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
 
-export default function DataTable({ columns, data, onRowClick, searchable = true, pageSize = 10 }) {
+export default function DataTable({ columns, data, onRowClick, searchable = true, pageSize = 10, selectable = false, onBulkAction = null, bulkActionLabel = 'Delete Selected' }) {
   const [search, setSearch] = useState('');
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState('asc');
   const [page, setPage] = useState(0);
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const filtered = useMemo(() => {
     if (!search) return data;
@@ -41,25 +42,72 @@ export default function DataTable({ columns, data, onRowClick, searchable = true
     }
   };
 
+  const getRowId = (row) => row.id || row.enrollment_id || row.session_id;
+
+  const toggleSelect = (row) => {
+    const id = getRowId(row);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const pageIds = paged.map(getRowId);
+    const allSelected = pageIds.every((id) => selectedIds.has(id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        pageIds.forEach((id) => next.delete(id));
+      } else {
+        pageIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleBulkAction = () => {
+    if (onBulkAction && selectedIds.size > 0) {
+      onBulkAction([...selectedIds]);
+      setSelectedIds(new Set());
+    }
+  };
+
+  const allPageSelected = paged.length > 0 && paged.every((r) => selectedIds.has(getRowId(r)));
+
   return (
     <div className="data-table-container">
-      {searchable && (
-        <div className="data-table-toolbar">
-          <input
-            type="text"
-            placeholder="Search..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-            className="data-table-search"
-          />
-          <span className="data-table-count">{filtered.length} records</span>
-        </div>
-      )}
+      <div className="data-table-toolbar">
+        {searchable && (
+          <>
+            <input
+              type="text"
+              placeholder="Search..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+              className="data-table-search"
+            />
+            <span className="data-table-count">{filtered.length} records</span>
+          </>
+        )}
+        {selectable && selectedIds.size > 0 && (
+          <button className="btn btn-sm btn-danger" onClick={handleBulkAction} style={{ marginLeft: 'auto' }}>
+            {bulkActionLabel} ({selectedIds.size})
+          </button>
+        )}
+      </div>
 
       <div className="data-table-wrapper">
         <table className="data-table">
           <thead>
             <tr>
+              {selectable && (
+                <th style={{ width: 40 }}>
+                  <input type="checkbox" checked={allPageSelected} onChange={toggleSelectAll} />
+                </th>
+              )}
               {columns.map((col) => (
                 <th
                   key={col.key}
@@ -76,14 +124,19 @@ export default function DataTable({ columns, data, onRowClick, searchable = true
           </thead>
           <tbody>
             {paged.length === 0 ? (
-              <tr><td colSpan={columns.length} className="no-data">No data found</td></tr>
+              <tr><td colSpan={columns.length + (selectable ? 1 : 0)} className="no-data">No data found</td></tr>
             ) : (
               paged.map((row, i) => (
                 <tr
-                  key={row.id || row.enrollment_id || row.session_id || i}
+                  key={getRowId(row) || i}
                   onClick={() => onRowClick?.(row)}
-                  className={onRowClick ? 'clickable' : ''}
+                  className={`${onRowClick ? 'clickable' : ''} ${selectedIds.has(getRowId(row)) ? 'row-selected' : ''}`}
                 >
+                  {selectable && (
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={selectedIds.has(getRowId(row))} onChange={() => toggleSelect(row)} />
+                    </td>
+                  )}
                   {columns.map((col) => (
                     <td key={col.key}>
                       {col.render

@@ -108,6 +108,28 @@ export default function SuperadminPortal() {
     } catch (err) { showMsg(err.message, 'error'); }
   };
 
+  const permanentDeleteUser = async (userId) => {
+    if (!confirm('Are you sure you want to PERMANENTLY DELETE this user? This action cannot be undone. All associated data (sessions, enrollments, attendance) will be removed.')) return;
+    try {
+      await api.permanentDeleteUser(userId);
+      showMsg('User permanently deleted', 'success');
+      fetchData();
+      api.getStudents().then(setAllStudents);
+      api.getTutors().then(setAllTutors);
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const bulkDeleteUsers = async (ids) => {
+    if (!confirm(`Are you sure you want to PERMANENTLY DELETE ${ids.length} user(s)? This action cannot be undone.`)) return;
+    try {
+      await Promise.all(ids.map((id) => api.permanentDeleteUser(id)));
+      showMsg(`${ids.length} user(s) permanently deleted`, 'success');
+      fetchData();
+      api.getStudents().then(setAllStudents);
+      api.getTutors().then(setAllTutors);
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
   // ===== COURSE CRUD =====
   const openCreateCourse = () => {
     setEditingCourse(null);
@@ -238,11 +260,14 @@ export default function SuperadminPortal() {
     </div>
   );
 
-  const actionBtns = (onEdit, onDelete, deleteLabel = 'Deactivate') => (r) => (
+  const actionBtns = (onEdit, onDelete, deleteLabel = 'Deactivate', onPermanentDelete = null) => (r) => (
     <div className="table-actions">
       <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); onEdit(r); }}>Edit</button>
       {onDelete && r.status !== 'inactive' && r.status !== 'archived' && r.status !== 'dropped' && (
         <button className="btn btn-sm btn-ghost text-danger" onClick={(e) => { e.stopPropagation(); onDelete(r.id || r.enrollment_id); }}>{deleteLabel}</button>
+      )}
+      {onPermanentDelete && (
+        <button className="btn btn-sm btn-ghost text-danger" onClick={(e) => { e.stopPropagation(); onPermanentDelete(r.id); }}>Delete</button>
       )}
     </div>
   );
@@ -264,7 +289,7 @@ export default function SuperadminPortal() {
     { key: 'specialization', label: 'Specialization', accessor: 'specialization' },
     { key: 'courses', label: 'Courses', accessor: 'course_count' },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
-    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser) },
+    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser) },
   ];
 
   const userColumns = [
@@ -274,7 +299,7 @@ export default function SuperadminPortal() {
     { key: 'role', label: 'Role', accessor: 'role', render: roleCol },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
     { key: 'created', label: 'Created', accessor: 'created_at', render: (r) => new Date(r.created_at).toLocaleDateString() },
-    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser) },
+    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser) },
   ];
 
   const courseColumns = [
@@ -614,7 +639,7 @@ export default function SuperadminPortal() {
               <h2>All Users</h2>
               <button className="btn btn-primary" onClick={() => openCreateUser('student')}>+ Add User</button>
             </div>
-            <DataTable columns={userColumns} data={users} pageSize={15} />
+            <DataTable columns={userColumns} data={users} pageSize={15} selectable onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />
           </div>
         )}
 

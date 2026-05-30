@@ -431,6 +431,9 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
 
 .data-table tbody tr:hover { background: rgba(0,0,0,0.02); }
 .data-table tbody tr.clickable { cursor: pointer; }
+.data-table tbody tr.row-selected { background: rgba(79, 70, 229, 0.08); }
+.data-table tbody tr.row-selected:hover { background: rgba(79, 70, 229, 0.12); }
+.data-table input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary); }
 
 .no-data { text-align: center; padding: 2rem !important; color: var(--color-text-secondary); }
 
