@@ -429,8 +429,8 @@ export default function SuperadminPortal() {
     { key: 'ip', label: 'IP', accessor: 'ip_address' },
   ];
 
-  // ===== User Form Modal =====
-  const UserFormModal = () => (
+  // ===== Modal JSX (inline, not component functions — avoids remount/focus-loss) =====
+  const userFormModal = showUserForm && (
     <div className="modal-overlay" onClick={() => setShowUserForm(false)}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3>{editingUser ? 'Edit User' : 'Create User'}</h3>
@@ -490,8 +490,7 @@ export default function SuperadminPortal() {
     </div>
   );
 
-  // ===== Course Form Modal =====
-  const CourseFormModal = () => (
+  const courseFormModal = showCourseForm && (
     <div className="modal-overlay" onClick={() => setShowCourseForm(false)}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3>{editingCourse ? 'Edit Course' : 'Create Course'}</h3>
@@ -559,8 +558,7 @@ export default function SuperadminPortal() {
     </div>
   );
 
-  // ===== Enrollment Form Modal =====
-  const EnrollFormModal = () => (
+  const enrollFormModal = showEnrollForm && (
     <div className="modal-overlay" onClick={() => setShowEnrollForm(false)}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3>{editingEnroll ? 'Edit Enrollment' : 'Enroll Student'}</h3>
@@ -622,8 +620,7 @@ export default function SuperadminPortal() {
     </div>
   );
 
-  // ===== Session Form Modal =====
-  const SessionFormModal = () => (
+  const sessionFormModal = showSessionForm && (
     <div className="modal-overlay" onClick={() => setShowSessionForm(false)}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3>Schedule Session</h3>
@@ -663,10 +660,10 @@ export default function SuperadminPortal() {
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
       <main className="portal-content">
         {message && <div className={`alert alert-${msgType}`} onClick={() => setMessage('')}>{message}</div>}
-        {showUserForm && <UserFormModal />}
-        {showCourseForm && <CourseFormModal />}
-        {showEnrollForm && <EnrollFormModal />}
-        {showSessionForm && <SessionFormModal />}
+        {userFormModal}
+        {courseFormModal}
+        {enrollFormModal}
+        {sessionFormModal}
 
         {/* ===== DASHBOARD ===== */}
         {activeTab === 'dashboard' && (
