@@ -609,14 +609,37 @@ app.delete('/api/users', (req, res) => {
   const permanent = req.query.permanent === 'true';
   const d = getDB();
   if (permanent) {
-    d.prepare("DELETE FROM session_participants WHERE user_id=?").run(id);
-    d.prepare("DELETE FROM enrollments WHERE student_id=?").run(id);
-    d.prepare("DELETE FROM sessions WHERE tutor_id=?").run(id);
-    d.prepare("UPDATE courses SET tutor_id=NULL WHERE tutor_id=?").run(id);
-    d.prepare("DELETE FROM audit_logs WHERE user_id=?").run(id);
-    d.prepare("DELETE FROM users WHERE id=?").run(id);
-    auditLog(user.id, 'delete_user', 'user', id);
-    res.json({ message: 'Permanently deleted' });
+    try {
+      const deleteUser = d.transaction(() => {
+        // Delete attendance logs for sessions this user attended or tutored
+        const tutorSessionIds = d.prepare("SELECT session_id FROM sessions WHERE tutor_id=?").all(id).map(s => s.session_id);
+        for (const sid of tutorSessionIds) {
+          d.prepare("DELETE FROM attendance_logs WHERE session_id=?").run(sid);
+          d.prepare("DELETE FROM meeting_records WHERE session_id=?").run(sid);
+          d.prepare("DELETE FROM signaling WHERE session_id=?").run(sid);
+        }
+        d.prepare("DELETE FROM attendance_logs WHERE student_id=?").run(id);
+        // Delete enrollments
+        d.prepare("DELETE FROM enrollments WHERE student_id=?").run(id);
+        // Delete sessions tutored by this user
+        d.prepare("DELETE FROM sessions WHERE tutor_id=?").run(id);
+        // Delete courses owned by this tutor
+        d.prepare("DELETE FROM courses WHERE tutor_id=?").run(id);
+        // Delete password resets
+        d.prepare("DELETE FROM password_resets WHERE user_id=?").run(id);
+        // Delete audit logs
+        d.prepare("DELETE FROM audit_logs WHERE user_id=?").run(id);
+        // Delete signaling records
+        d.prepare("DELETE FROM signaling WHERE from_user_id=?").run(id);
+        // Finally delete user
+        d.prepare("DELETE FROM users WHERE id=?").run(id);
+      });
+      deleteUser();
+      auditLog(user.id, 'delete_user', 'user', id);
+      res.json({ message: 'Permanently deleted' });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete user: ' + err.message });
+    }
   } else {
     d.prepare("UPDATE users SET status='inactive' WHERE id=?").run(id);
     auditLog(user.id, 'deactivate_user', 'user', id);
