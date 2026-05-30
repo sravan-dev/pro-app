@@ -544,15 +544,37 @@ app.delete('/api/sessions', (req, res) => {
   }
 });
 
+// Test video call
+app.post('/api/test-call', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const d = getDB();
+  // Create or reuse hidden test course
+  let testCourse = d.prepare("SELECT id FROM courses WHERE name='__test_call__'").get();
+  if (!testCourse) {
+    const r = d.prepare("INSERT INTO courses (name,category,tutor_id,status) VALUES ('__test_call__','Test',?,?)").run(user.id, 'draft');
+    testCourse = { id: r.lastInsertRowid };
+  }
+  const room = 'test-' + crypto.randomBytes(8).toString('hex');
+  const now = new Date();
+  const end = new Date(now.getTime() + 3600000); // 1 hour
+  const r = d.prepare("INSERT INTO sessions (course_id,tutor_id,start_time,end_time,room_name) VALUES (?,?,?,?,?)")
+    .run(testCourse.id, user.id, now.toISOString(), end.toISOString(), room);
+  const sessionId = r.lastInsertRowid;
+  const callUrl = `${req.protocol}://${req.get('host')}/call/${sessionId}`;
+  auditLog(user.id, 'create_test_call', 'session', sessionId);
+  res.status(201).json({ session_id: sessionId, room_name: room, url: callUrl });
+});
+
 // Join session
 app.post('/api/join-session', (req, res) => {
   const user = requireAuth(req, res); if (!user) return;
   const { session_id } = req.body;
   if (!session_id) return res.status(400).json({ error: 'Session ID required' });
   const d = getDB();
-  const sess = d.prepare("SELECT s.*,c.name as course_name FROM sessions s JOIN courses c ON c.id=s.course_id WHERE s.session_id=?").get(session_id);
+  const sess = d.prepare("SELECT s.*, CASE WHEN c.name='__test_call__' THEN 'Test Call' ELSE c.name END as course_name FROM sessions s JOIN courses c ON c.id=s.course_id WHERE s.session_id=?").get(session_id);
   if (!sess) return res.status(404).json({ error: 'Not found' });
-  if (user.role === 'student') {
+  const isTestCall = d.prepare("SELECT 1 FROM courses WHERE id=? AND name='__test_call__'").get(sess.course_id);
+  if (!isTestCall && user.role === 'student') {
     const enrolled = d.prepare("SELECT 1 FROM enrollments WHERE student_id=? AND course_id=?").get(user.id, sess.course_id);
     if (!enrolled) return res.status(403).json({ error: 'Not enrolled' });
   }

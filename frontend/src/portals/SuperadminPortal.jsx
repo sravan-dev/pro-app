@@ -48,6 +48,11 @@ export default function SuperadminPortal() {
   const [smtpSaving, setSmtpSaving] = useState(false);
   const [smtpTesting, setSmtpTesting] = useState(false);
 
+  // Test call
+  const [testCallUrl, setTestCallUrl] = useState('');
+  const [testCallCreating, setTestCallCreating] = useState(false);
+  const [testCallCopied, setTestCallCopied] = useState(false);
+
   const showMsg = (msg, type = 'info') => { setMessage(msg); setMsgType(type); setTimeout(() => setMessage(''), 4000); };
 
   const fetchData = useCallback(async () => {
@@ -907,6 +912,59 @@ export default function SuperadminPortal() {
                   >{smtpTesting ? 'Sending...' : 'Send Test'}</button>
                 </div>
               </div>
+            </div>
+
+            {/* Test Video Call */}
+            <div className="settings-section" style={{ marginBottom: '2rem' }}>
+              <h3>Test Video Call</h3>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1.5rem' }}>Create a one-on-one test video call and share the link with another user to verify video/audio.</p>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  className="btn btn-primary"
+                  disabled={testCallCreating}
+                  onClick={async () => {
+                    setTestCallCreating(true);
+                    setTestCallCopied(false);
+                    try {
+                      const result = await api.createTestCall();
+                      const url = `${window.location.origin}/call/${result.session_id}`;
+                      setTestCallUrl(url);
+                      showMsg('Test call created! Share the link below.', 'success');
+                    } catch (err) { showMsg(err.message, 'error'); }
+                    finally { setTestCallCreating(false); }
+                  }}
+                >{testCallCreating ? 'Creating...' : 'Create Test Call'}</button>
+                {testCallUrl && (
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      window.open(testCallUrl, '_blank');
+                    }}
+                  >Join Call</button>
+                )}
+              </div>
+              {testCallUrl && (
+                <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--color-bg-secondary, #f8f9fa)', borderRadius: '8px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--color-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Share this link with the other participant:</label>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      value={testCallUrl}
+                      readOnly
+                      onClick={(e) => e.target.select()}
+                      style={{ flex: 1, fontFamily: 'monospace', fontSize: '13px' }}
+                    />
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => {
+                        navigator.clipboard.writeText(testCallUrl);
+                        setTestCallCopied(true);
+                        setTimeout(() => setTestCallCopied(false), 2000);
+                      }}
+                    >{testCallCopied ? 'Copied!' : 'Copy'}</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="settings-section">

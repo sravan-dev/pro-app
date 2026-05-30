@@ -73,6 +73,9 @@ export const api = {
   // Settings
   clearData: (target) => request('/clear-data', { method: 'POST', body: { target } }),
 
+  // Test Call
+  createTestCall: () => request('/test-call', { method: 'POST' }),
+
   // SMTP Settings
   getSmtpSettings: () => request('/smtp-settings'),
   saveSmtpSettings: (data) => request('/smtp-settings', { method: 'POST', body: data }),
