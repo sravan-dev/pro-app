@@ -67,7 +67,7 @@ export default function Sidebar({ activeTab, onTabChange }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h2 className="sidebar-logo">TijusPro</h2>
+        <img src="/logo.png" alt="Tiju's Academy" className="sidebar-logo" />
       </div>
 
       <div className="sidebar-user">
