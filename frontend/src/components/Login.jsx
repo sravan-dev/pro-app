@@ -35,7 +35,7 @@ export default function Login() {
     <div className="login-page">
       <div className="login-card">
         <div className="login-header">
-          <h1 className="login-logo">TijusPro</h1>
+          <img src="/logo.png" alt="Tiju's Academy" className="login-logo" />
           <p className="login-subtitle">Learning Management System</p>
         </div>
 
