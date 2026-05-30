@@ -169,6 +169,30 @@ export default function SuperadminPortal() {
     } catch (err) { showMsg(err.message, 'error'); }
   };
 
+  const permanentDeleteCourse = async (id) => {
+    if (!confirm('PERMANENTLY DELETE this course? All sessions, enrollments, and attendance for this course will be removed. This cannot be undone.')) return;
+    try {
+      await api.permanentDeleteCourse(id);
+      showMsg('Course permanently deleted', 'success');
+      api.getCourses().then(setAllCourses);
+      api.getEnrollments().then(setAllEnrollments);
+      api.getSessions().then(setAllSessions);
+      fetchData();
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const bulkDeleteCourses = async (ids) => {
+    if (!confirm(`PERMANENTLY DELETE ${ids.length} course(s)? This cannot be undone.`)) return;
+    try {
+      await Promise.all(ids.map((id) => api.permanentDeleteCourse(id)));
+      showMsg(`${ids.length} course(s) permanently deleted`, 'success');
+      api.getCourses().then(setAllCourses);
+      api.getEnrollments().then(setAllEnrollments);
+      api.getSessions().then(setAllSessions);
+      fetchData();
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
   // ===== ENROLLMENT CRUD =====
   const openCreateEnroll = () => {
     setEditingEnroll(null);
@@ -207,6 +231,26 @@ export default function SuperadminPortal() {
     } catch (err) { showMsg(err.message, 'error'); }
   };
 
+  const permanentDeleteEnrollment = async (id) => {
+    if (!confirm('PERMANENTLY DELETE this enrollment? This cannot be undone.')) return;
+    try {
+      await api.permanentDeleteEnrollment(id);
+      showMsg('Enrollment permanently deleted', 'success');
+      api.getEnrollments().then(setAllEnrollments);
+      fetchData();
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const bulkDeleteEnrollments = async (ids) => {
+    if (!confirm(`PERMANENTLY DELETE ${ids.length} enrollment(s)? This cannot be undone.`)) return;
+    try {
+      await Promise.all(ids.map((id) => api.permanentDeleteEnrollment(id)));
+      showMsg(`${ids.length} enrollment(s) permanently deleted`, 'success');
+      api.getEnrollments().then(setAllEnrollments);
+      fetchData();
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
   // ===== SESSION CREATE =====
   const openCreateSession = () => {
     setSessionForm({ course_id: '', tutor_id: '', start_time: '', end_time: '' });
@@ -220,6 +264,26 @@ export default function SuperadminPortal() {
       showMsg('Session created', 'success');
       setShowSessionForm(false);
       api.getSessions().then(setAllSessions);
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const deleteSession = async (id) => {
+    if (!confirm('PERMANENTLY DELETE this session? Attendance records will also be removed. This cannot be undone.')) return;
+    try {
+      await api.deleteSession(id);
+      showMsg('Session permanently deleted', 'success');
+      api.getSessions().then(setAllSessions);
+      fetchData();
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const bulkDeleteSessions = async (ids) => {
+    if (!confirm(`PERMANENTLY DELETE ${ids.length} session(s)? This cannot be undone.`)) return;
+    try {
+      await Promise.all(ids.map((id) => api.deleteSession(id)));
+      showMsg(`${ids.length} session(s) permanently deleted`, 'success');
+      api.getSessions().then(setAllSessions);
+      fetchData();
     } catch (err) { showMsg(err.message, 'error'); }
   };
 
@@ -309,7 +373,7 @@ export default function SuperadminPortal() {
     { key: 'students', label: 'Students', accessor: 'students_count' },
     { key: 'progress', label: 'Progress', accessor: 'progress', render: (r) => progressCol(r, 'progress') },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
-    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditCourse, archiveCourse, 'Archive') },
+    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditCourse, archiveCourse, 'Archive', permanentDeleteCourse) },
   ];
 
   const enrollColumns = [
@@ -321,7 +385,7 @@ export default function SuperadminPortal() {
     { key: 'grade', label: 'Grade', accessor: 'grade', render: (r) => <span className={`grade-badge grade-${(r.grade || 'na')[0]?.toLowerCase()}`}>{r.grade || '-'}</span> },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
     { key: 'date', label: 'Enrolled', accessor: 'enrollment_date', render: (r) => new Date(r.enrollment_date).toLocaleDateString() },
-    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditEnroll, dropEnrollment, 'Drop') },
+    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditEnroll, dropEnrollment, 'Drop', permanentDeleteEnrollment) },
   ];
 
   const sessionColumns = [
@@ -331,8 +395,11 @@ export default function SuperadminPortal() {
     { key: 'end', label: 'End', accessor: 'end_time', render: (r) => new Date(r.end_time).toLocaleString() },
     { key: 'room', label: 'Room', accessor: 'room_name' },
     { key: 'status', label: 'Status', accessor: 'status', render: (r) => <span className={`status-badge status-${r.status}`}>{r.status}</span> },
-    { key: 'actions', label: '', sortable: false, render: (r) => (
-      (r.status === 'scheduled' || r.status === 'live') && <button className="btn btn-sm btn-primary" onClick={() => handleJoinSession(r)}>Join</button>
+    { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
+      <div className="table-actions">
+        {(r.status === 'scheduled' || r.status === 'live') && <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); handleJoinSession(r); }}>Join</button>}
+        <button className="btn btn-sm btn-ghost text-danger" onClick={(e) => { e.stopPropagation(); deleteSession(r.session_id); }}>Delete</button>
+      </div>
     )},
   ];
 
@@ -628,7 +695,7 @@ export default function SuperadminPortal() {
               <h2>Tutor Management</h2>
               <button className="btn btn-primary" onClick={() => openCreateUser('tutor')}>+ Add Tutor</button>
             </div>
-            <DataTable columns={tutorColumns} data={allTutors} pageSize={15} />
+            <DataTable columns={tutorColumns} data={allTutors} pageSize={15} selectable onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />
           </div>
         )}
 
@@ -650,7 +717,7 @@ export default function SuperadminPortal() {
               <h2>Course Management</h2>
               <button className="btn btn-primary" onClick={openCreateCourse}>+ Add Course</button>
             </div>
-            <DataTable columns={courseColumns} data={allCourses} pageSize={15} />
+            <DataTable columns={courseColumns} data={allCourses} pageSize={15} selectable onBulkAction={bulkDeleteCourses} bulkActionLabel="Delete Selected" />
           </div>
         )}
 
@@ -661,7 +728,7 @@ export default function SuperadminPortal() {
               <h2>Enrollment Management</h2>
               <button className="btn btn-primary" onClick={openCreateEnroll}>+ Enroll Student</button>
             </div>
-            <DataTable columns={enrollColumns} data={allEnrollments} pageSize={15} />
+            <DataTable columns={enrollColumns} data={allEnrollments} pageSize={15} selectable onBulkAction={bulkDeleteEnrollments} bulkActionLabel="Delete Selected" />
           </div>
         )}
 
@@ -673,7 +740,7 @@ export default function SuperadminPortal() {
               <button className="btn btn-primary" onClick={openCreateSession}>+ Schedule Session</button>
             </div>
             <Calendar sessions={allSessions} onSessionClick={handleJoinSession} />
-            <DataTable columns={sessionColumns} data={allSessions} pageSize={15} />
+            <DataTable columns={sessionColumns} data={allSessions} pageSize={15} selectable onBulkAction={bulkDeleteSessions} bulkActionLabel="Delete Selected" />
           </div>
         )}
 

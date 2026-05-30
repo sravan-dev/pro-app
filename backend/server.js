@@ -381,9 +381,31 @@ app.delete('/api/courses', (req, res) => {
   const user = requireRole(req, res, ['superadmin']); if (!user) return;
   const id = parseInt(req.query.id);
   if (!id) return res.status(400).json({ error: 'Course ID required' });
-  getDB().prepare("UPDATE courses SET status='archived' WHERE id=?").run(id);
-  auditLog(user.id, 'archive_course', 'course', id);
-  res.json({ message: 'Course archived' });
+  const permanent = req.query.permanent === 'true';
+  const d = getDB();
+  if (permanent) {
+    try {
+      d.transaction(() => {
+        const sids = d.prepare("SELECT session_id FROM sessions WHERE course_id=?").all(id).map(s => s.session_id);
+        for (const sid of sids) {
+          d.prepare("DELETE FROM attendance_logs WHERE session_id=?").run(sid);
+          d.prepare("DELETE FROM meeting_records WHERE session_id=?").run(sid);
+          d.prepare("DELETE FROM signaling WHERE session_id=?").run(sid);
+        }
+        d.prepare("DELETE FROM sessions WHERE course_id=?").run(id);
+        d.prepare("DELETE FROM enrollments WHERE course_id=?").run(id);
+        d.prepare("DELETE FROM courses WHERE id=?").run(id);
+      })();
+      auditLog(user.id, 'delete_course', 'course', id);
+      res.json({ message: 'Course permanently deleted' });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete course: ' + err.message });
+    }
+  } else {
+    d.prepare("UPDATE courses SET status='archived' WHERE id=?").run(id);
+    auditLog(user.id, 'archive_course', 'course', id);
+    res.json({ message: 'Course archived' });
+  }
 });
 
 // Enrollments
@@ -423,9 +445,21 @@ app.delete('/api/enrollments', (req, res) => {
   const user = requireRole(req, res, ['superadmin','manager']); if (!user) return;
   const id = parseInt(req.query.id);
   if (!id) return res.status(400).json({ error: 'ID required' });
-  getDB().prepare("UPDATE enrollments SET status='dropped' WHERE enrollment_id=?").run(id);
-  auditLog(user.id, 'drop_enrollment', 'enrollment', id);
-  res.json({ message: 'Dropped' });
+  const permanent = req.query.permanent === 'true';
+  const d = getDB();
+  if (permanent) {
+    try {
+      d.prepare("DELETE FROM enrollments WHERE enrollment_id=?").run(id);
+      auditLog(user.id, 'delete_enrollment', 'enrollment', id);
+      res.json({ message: 'Enrollment permanently deleted' });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete enrollment: ' + err.message });
+    }
+  } else {
+    d.prepare("UPDATE enrollments SET status='dropped' WHERE enrollment_id=?").run(id);
+    auditLog(user.id, 'drop_enrollment', 'enrollment', id);
+    res.json({ message: 'Dropped' });
+  }
 });
 
 // Sessions
@@ -452,6 +486,25 @@ app.post('/api/sessions', (req, res) => {
   const r = getDB().prepare("INSERT INTO sessions (course_id,tutor_id,start_time,end_time,room_name) VALUES (?,?,?,?,?)").run(course_id, tid, start_time, end_time, room);
   auditLog(user.id, 'create_session', 'session', r.lastInsertRowid);
   res.status(201).json({ session_id: r.lastInsertRowid, room_name: room });
+});
+
+app.delete('/api/sessions', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'Session ID required' });
+  const d = getDB();
+  try {
+    d.transaction(() => {
+      d.prepare("DELETE FROM attendance_logs WHERE session_id=?").run(id);
+      d.prepare("DELETE FROM meeting_records WHERE session_id=?").run(id);
+      d.prepare("DELETE FROM signaling WHERE session_id=?").run(id);
+      d.prepare("DELETE FROM sessions WHERE session_id=?").run(id);
+    })();
+    auditLog(user.id, 'delete_session', 'session', id);
+    res.json({ message: 'Session permanently deleted' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete session: ' + err.message });
+  }
 });
 
 // Join session

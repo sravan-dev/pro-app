@@ -42,12 +42,14 @@ export const api = {
   createCourse: (data) => request('/courses', { method: 'POST', body: data }),
   updateCourse: (data) => request('/courses', { method: 'PUT', body: data }),
   deleteCourse: (id) => request(`/courses?id=${id}`, { method: 'DELETE' }),
+  permanentDeleteCourse: (id) => request(`/courses?id=${id}&permanent=true`, { method: 'DELETE' }),
 
   // Enrollments
   getEnrollments: () => request('/enrollments'),
   createEnrollment: (data) => request('/enrollments', { method: 'POST', body: data }),
   updateEnrollment: (data) => request('/enrollments', { method: 'PUT', body: data }),
   deleteEnrollment: (id) => request(`/enrollments?id=${id}`, { method: 'DELETE' }),
+  permanentDeleteEnrollment: (id) => request(`/enrollments?id=${id}&permanent=true`, { method: 'DELETE' }),
 
   // Students & Tutors
   getStudents: () => request('/students'),
@@ -56,6 +58,7 @@ export const api = {
   // Sessions
   getSessions: () => request('/sessions'),
   createSession: (data) => request('/sessions', { method: 'POST', body: data }),
+  deleteSession: (id) => request(`/sessions?id=${id}`, { method: 'DELETE' }),
   joinSession: (sessionId) => request('/join-session', { method: 'POST', body: { session_id: sessionId } }),
   leaveSession: (sessionId) => request('/leave-session', { method: 'POST', body: { session_id: sessionId } }),
 
