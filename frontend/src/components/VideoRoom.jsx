@@ -144,33 +144,43 @@ export default function VideoRoom({ session, onLeave }) {
     let mounted = true;
 
     const init = async () => {
+      // Try to get camera+mic, fallback gracefully
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         localStreamRef.current = stream;
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      } catch {
+        // Try audio only
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+          localStreamRef.current = stream;
+          setIsVideoOff(true);
+          setError('Camera unavailable. Joined with audio only.');
+        } catch {
+          // No media at all — join as viewer
+          setIsVideoOff(true);
+          setIsMuted(true);
+          setError('Camera/microphone unavailable. Joined as viewer.');
         }
-
-        // Start polling for signals
-        const poll = async () => {
-          if (!mounted) return;
-          try {
-            const signals = await api.pollSignals(session.session_id, lastIdRef.current);
-            if (signals.length > 0) {
-              lastIdRef.current = Math.max(...signals.map((s) => s.id));
-              for (const sig of signals) {
-                await handleSignal(sig);
-              }
-            }
-          } catch {}
-          if (mounted) {
-            pollingRef.current = setTimeout(poll, 2000);
-          }
-        };
-        poll();
-      } catch (err) {
-        setError('Could not access camera/microphone. Please allow permissions.');
       }
+
+      // Always start polling for signals regardless of media access
+      const poll = async () => {
+        if (!mounted) return;
+        try {
+          const signals = await api.pollSignals(session.session_id, lastIdRef.current);
+          if (signals.length > 0) {
+            lastIdRef.current = Math.max(...signals.map((s) => s.id));
+            for (const sig of signals) {
+              await handleSignal(sig);
+            }
+          }
+        } catch {}
+        if (mounted) {
+          pollingRef.current = setTimeout(poll, 2000);
+        }
+      };
+      poll();
     };
 
     init();
