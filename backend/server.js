@@ -1,0 +1,672 @@
+// TijusPro LMS - Node.js Backend (Express + better-sqlite3)
+const express = require('express');
+const session = require('express-session');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
+const Database = require('better-sqlite3');
+const multer = require('multer');
+
+const app = express();
+const PORT = process.env.PORT || 8000;
+const DB_PATH = path.join(__dirname, 'tijuspro.db');
+const UPLOAD_DIR = path.join(__dirname, 'uploads', 'recordings');
+const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist');
+
+// ============================================================
+// Middleware
+// ============================================================
+app.use(express.json());
+
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+];
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'tijuspro-secret-key-change-in-prod',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 86400000,
+    httpOnly: true,
+    sameSite: 'lax',
+  },
+}));
+
+// Serve uploaded files
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Multer for file uploads
+const upload = multer({ dest: UPLOAD_DIR });
+
+// ============================================================
+// Database
+// ============================================================
+let db;
+
+function getDB() {
+  if (db) return db;
+  const isNew = !fs.existsSync(DB_PATH);
+  db = new Database(DB_PATH);
+  db.pragma('journal_mode = WAL');
+  db.pragma('busy_timeout = 5000');
+  db.pragma('foreign_keys = ON');
+  if (isNew) initDB();
+  return db;
+}
+
+function initDB() {
+  const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+  db.exec(schema);
+
+  const insert = (sql, params) => db.prepare(sql).run(...params);
+
+  // Seed superadmin
+  const adminHash = bcrypt.hashSync('admin123', 10);
+  insert(
+    "INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color,must_change_password) VALUES (?,?,?,?,?,?,?)",
+    ['Super Admin', 'admin@tijuspro.com', 'superadmin', 'superadmin', adminHash, '#E97A2B', 0]
+  );
+
+  // Seed tutors
+  const tutorHash = bcrypt.hashSync('tutor123', 10);
+  const tutors = [
+    ['Rahul Sharma', 'rahul@tijuspro.com', '#2563EB', 'Web Development'],
+    ['Priya Patel', 'priya@tijuspro.com', '#7C3AED', 'Digital Marketing'],
+    ['Amit Kumar', 'amit@tijuspro.com', '#059669', 'Data Science'],
+    ['Sneha Reddy', 'sneha@tijuspro.com', '#DC2626', 'Language'],
+  ];
+  const tutorStmt = db.prepare("INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color,specialization) VALUES (?,?,'tutor','tutor',?,?,?)");
+  for (const t of tutors) tutorStmt.run(t[0], t[1], tutorHash, t[2], t[3]);
+
+  // Seed advisor & manager
+  const advHash = bcrypt.hashSync('advisor123', 10);
+  insert("INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color) VALUES (?,?,'advisor','advisor',?,?)",
+    ['Dr. Meena Iyer', 'meena@tijuspro.com', advHash, '#8B5CF6']);
+
+  const mgrHash = bcrypt.hashSync('manager123', 10);
+  insert("INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color) VALUES (?,?,'manager','manager',?,?)",
+    ['Vikram Singh', 'vikram@tijuspro.com', mgrHash, '#0891B2']);
+
+  // Seed courses
+  const courses = [
+    ['Full-Stack Web Development', 'Technology', 2, '#3B82F6', 'code'],
+    ['React & Node.js Masterclass', 'Technology', 2, '#06B6D4', 'monitor'],
+    ['Digital Marketing Fundamentals', 'Marketing', 3, '#8B5CF6', 'trending-up'],
+    ['SEO & Content Strategy', 'Marketing', 3, '#EC4899', 'search'],
+    ['Python for Data Science', 'Technology', 4, '#10B981', 'database'],
+    ['Machine Learning Basics', 'Technology', 4, '#F59E0B', 'cpu'],
+    ['Business English', 'Language', 5, '#EF4444', 'book-open'],
+    ['Japanese N5 Course', 'Language', 5, '#6366F1', 'globe'],
+    ['Advanced JavaScript', 'Technology', 2, '#14B8A6', 'terminal'],
+    ['Social Media Marketing', 'Marketing', 3, '#F97316', 'share-2'],
+    ['SQL & Database Design', 'Technology', 4, '#8B5CF6', 'database'],
+    ['French Beginner', 'Language', 5, '#EC4899', 'globe'],
+    ['UI/UX Design Principles', 'Design', 2, '#6366F1', 'layout'],
+    ['Cloud Computing with AWS', 'Technology', 4, '#0EA5E9', 'cloud'],
+  ];
+  const courseStmt = db.prepare("INSERT OR IGNORE INTO courses (name,category,tutor_id,color,icon,students_count,progress,status) VALUES (?,?,?,?,?,?,?,'active')");
+  for (const c of courses) {
+    courseStmt.run(c[0], c[1], c[2], c[3], c[4], Math.floor(Math.random() * 320) + 80, +(Math.random() * 65 + 20).toFixed(1));
+  }
+
+  // Seed students
+  const studentNames = [
+    'Aarav Mehta', 'Diya Nair', 'Rohan Gupta', 'Ananya Joshi', 'Kabir Verma',
+    'Isha Singh', 'Arjun Rao', 'Mira Desai', 'Vihaan Thakur', 'Saanvi Kapoor',
+    'Aditya Bhat', 'Zara Khan', 'Reyansh Pillai', 'Tara Menon', 'Dev Saxena',
+    'Kiara Malhotra', 'Vivaan Choudhury', 'Anika Banerjee', 'Shivansh Pandey', 'Myra Shetty',
+  ];
+  const studentHash = bcrypt.hashSync('student123', 10);
+  const colors = ['#3B82F6','#EF4444','#10B981','#F59E0B','#8B5CF6','#EC4899','#06B6D4','#F97316'];
+  const studentStmt = db.prepare("INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color) VALUES (?,?,'student','student',?,?)");
+  for (let i = 0; i < studentNames.length; i++) {
+    const email = studentNames[i].toLowerCase().replace(/ /g, '.') + '@student.tijuspro.com';
+    studentStmt.run(studentNames[i], email, studentHash, colors[i % colors.length]);
+  }
+
+  // Seed enrollments
+  const studentIds = db.prepare("SELECT id FROM users WHERE role='student'").all();
+  const courseIds = db.prepare("SELECT id FROM courses").all();
+  const enrollStmt = db.prepare("INSERT OR IGNORE INTO enrollments (student_id,course_id,progress_percentage,grade,status) VALUES (?,?,?,?,?)");
+  const grades = ['A+','A','A-','B+','B','B-','C+','C',''];
+  for (const s of studentIds) {
+    const shuffled = [...courseIds].sort(() => Math.random() - 0.5);
+    const n = Math.floor(Math.random() * 4) + 2;
+    for (let j = 0; j < n && j < shuffled.length; j++) {
+      const prog = +(Math.random() * 90 + 10).toFixed(1);
+      const grade = prog > 70 ? grades[Math.floor(Math.random() * 5)] : (prog > 40 ? grades[Math.floor(Math.random() * 3) + 3] : '');
+      enrollStmt.run(s.id, shuffled[j].id, Math.min(prog, 100), grade, prog >= 100 ? 'completed' : 'active');
+    }
+  }
+
+  // Update course student counts
+  db.exec("UPDATE courses SET students_count = (SELECT COUNT(*) FROM enrollments WHERE enrollments.course_id = courses.id AND enrollments.status IN ('active','completed'))");
+
+  // Seed sessions
+  const courseList = db.prepare("SELECT id, tutor_id FROM courses LIMIT 8").all();
+  const sessStmt = db.prepare("INSERT INTO sessions (course_id,tutor_id,start_time,end_time,room_name,status) VALUES (?,?,?,?,?,?)");
+  for (let i = 0; i < courseList.length; i++) {
+    const c = courseList[i];
+    const now = Date.now();
+    const pastStart = new Date(now - (i + 1) * 86400000).toISOString().replace('T', ' ').slice(0, 19);
+    const pastEnd = new Date(now - (i + 1) * 86400000 + 3600000).toISOString().replace('T', ' ').slice(0, 19);
+    sessStmt.run(c.id, c.tutor_id, pastStart, pastEnd, `room-past-${c.id}-${i}`, 'completed');
+
+    const futStart = new Date(now + (i + 1) * 86400000).toISOString().replace('T', ' ').slice(0, 19);
+    const futEnd = new Date(now + (i + 1) * 86400000 + 3600000).toISOString().replace('T', ' ').slice(0, 19);
+    sessStmt.run(c.id, c.tutor_id, futStart, futEnd, `room-upcoming-${c.id}-${i}`, 'scheduled');
+  }
+
+  // Seed attendance
+  const pastSessions = db.prepare("SELECT session_id, course_id, start_time FROM sessions WHERE status='completed'").all();
+  const attStmt = db.prepare("INSERT INTO attendance_logs (session_id,student_id,join_time,leave_time,duration_minutes) VALUES (?,?,?,?,?)");
+  for (const ps of pastSessions) {
+    const enrolled = db.prepare("SELECT student_id FROM enrollments WHERE course_id=?").all(ps.course_id);
+    for (const es of enrolled) {
+      if (Math.random() > 0.15) {
+        const joinTime = ps.start_time;
+        const dur = Math.floor(Math.random() * 20) + 40;
+        const leave = new Date(new Date(joinTime).getTime() + dur * 60000).toISOString().replace('T', ' ').slice(0, 19);
+        attStmt.run(ps.session_id, es.student_id, joinTime, leave, dur);
+      }
+    }
+  }
+}
+
+// ============================================================
+// Auth helpers
+// ============================================================
+function requireAuth(req, res) {
+  if (!req.session.userId) { res.status(401).json({ error: 'Not authenticated' }); return null; }
+  const user = getDB().prepare("SELECT id,name,email,portal,role,specialization,status,avatar_color,must_change_password FROM users WHERE id=?").get(req.session.userId);
+  if (!user) { req.session.destroy(() => {}); res.status(401).json({ error: 'User not found' }); return null; }
+  return user;
+}
+
+function requireRole(req, res, roles) {
+  const user = requireAuth(req, res);
+  if (!user) return null;
+  if (!roles.includes(user.role)) { res.status(403).json({ error: 'Forbidden' }); return null; }
+  return user;
+}
+
+function auditLog(userId, action, targetType, targetId, details) {
+  getDB().prepare("INSERT INTO audit_logs (user_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)").run(userId, action, targetType || null, targetId || null, details || null, '');
+}
+
+// ============================================================
+// Routes
+// ============================================================
+
+// Health
+app.get('/api/health', (req, res) => {
+  const d = getDB();
+  const count = d.prepare("SELECT COUNT(*) as c FROM users").get().c;
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), database: 'connected', users_count: count });
+});
+
+// Login
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
+  const d = getDB();
+  const user = d.prepare("SELECT * FROM users WHERE email=?").get(email);
+  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    auditLog(0, 'login_failed', 'user', null, `Failed: ${email}`);
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+  if (user.status === 'inactive') return res.status(403).json({ error: 'Account deactivated' });
+
+  req.session.userId = user.id;
+  req.session.role = user.role;
+  auditLog(user.id, 'login', 'user', user.id);
+
+  res.json({ user: { id: user.id, name: user.name, email: user.email, portal: user.portal, role: user.role, specialization: user.specialization, status: user.status, avatar_color: user.avatar_color, must_change_password: !!user.must_change_password } });
+});
+
+// Logout
+app.post('/api/auth/logout', (req, res) => {
+  if (req.session.userId) auditLog(req.session.userId, 'logout', 'user', req.session.userId);
+  req.session.destroy(() => {});
+  res.json({ message: 'Logged out' });
+});
+
+// Session check
+app.get('/api/auth/session', (req, res) => {
+  if (!req.session.userId) return res.json({ authenticated: false });
+  const user = getDB().prepare("SELECT id,name,email,portal,role,specialization,status,avatar_color,must_change_password FROM users WHERE id=?").get(req.session.userId);
+  if (!user) return res.json({ authenticated: false });
+  res.json({ authenticated: true, user });
+});
+
+// Bootstrap
+app.get('/api/bootstrap', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const d = getDB();
+  const data = { user, courses: [], students: [], tutors: [] };
+
+  if (user.role === 'student') {
+    data.courses = d.prepare("SELECT c.*,u.name as tutor_name,e.progress_percentage,e.grade,e.status as enrollment_status FROM courses c JOIN enrollments e ON e.course_id=c.id JOIN users u ON u.id=c.tutor_id WHERE e.student_id=?").all(user.id);
+  } else if (user.role === 'tutor') {
+    data.courses = d.prepare("SELECT c.* FROM courses c WHERE c.tutor_id=?").all(user.id);
+    data.students = d.prepare("SELECT u.id,u.name,u.email,u.status,u.avatar_color,e.course_id,e.progress_percentage,e.grade,c.name as course_name FROM users u JOIN enrollments e ON e.student_id=u.id JOIN courses c ON c.id=e.course_id WHERE c.tutor_id=? ORDER BY u.name").all(user.id);
+  } else {
+    data.courses = d.prepare("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id ORDER BY c.name").all();
+    data.students = d.prepare("SELECT id,name,email,status,avatar_color,specialization FROM users WHERE role='student' ORDER BY name").all();
+    data.tutors = d.prepare("SELECT id,name,email,status,avatar_color,specialization FROM users WHERE role='tutor' ORDER BY name").all();
+  }
+  res.json(data);
+});
+
+// Portal data
+app.get('/api/portal-data', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const d = getDB();
+  const data = {};
+
+  switch (user.role) {
+    case 'student': {
+      data.courses = d.prepare("SELECT c.*,u.name as tutor_name,e.progress_percentage,e.grade,e.status as enrollment_status FROM courses c JOIN enrollments e ON e.course_id=c.id JOIN users u ON u.id=c.tutor_id WHERE e.student_id=? ORDER BY c.name").all(user.id);
+      data.upcoming_sessions = d.prepare("SELECT s.*,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? WHERE s.start_time>datetime('now') AND s.status='scheduled' ORDER BY s.start_time LIMIT 20").all(user.id);
+      data.attendance_stats = d.prepare("SELECT COUNT(*) as total_sessions, SUM(CASE WHEN a.log_id IS NOT NULL THEN 1 ELSE 0 END) as attended FROM sessions s JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? LEFT JOIN attendance_logs a ON a.session_id=s.session_id AND a.student_id=? WHERE s.status='completed'").get(user.id, user.id);
+      break;
+    }
+    case 'tutor': {
+      data.courses = d.prepare("SELECT c.* FROM courses c WHERE c.tutor_id=? ORDER BY c.name").all(user.id);
+      data.students = d.prepare("SELECT DISTINCT u.id,u.name,u.email,u.status,u.avatar_color,e.course_id,e.progress_percentage,e.grade,c.name as course_name FROM users u JOIN enrollments e ON e.student_id=u.id JOIN courses c ON c.id=e.course_id WHERE c.tutor_id=? ORDER BY u.name").all(user.id);
+      data.sessions = d.prepare("SELECT s.*,c.name as course_name FROM sessions s JOIN courses c ON c.id=s.course_id WHERE s.tutor_id=? ORDER BY s.start_time DESC LIMIT 50").all(user.id);
+      data.teaching_stats = d.prepare("SELECT COUNT(*) as total_sessions, SUM(CAST((julianday(s.end_time)-julianday(s.start_time))*24 AS REAL)) as total_hours FROM sessions s WHERE s.tutor_id=? AND s.status='completed'").get(user.id);
+      break;
+    }
+    case 'advisor': {
+      data.students = d.prepare("SELECT u.id,u.name,u.email,u.status,u.avatar_color, COUNT(e.enrollment_id) as enrolled_courses, ROUND(AVG(e.progress_percentage),1) as avg_progress, GROUP_CONCAT(DISTINCT e.grade) as grades FROM users u LEFT JOIN enrollments e ON e.student_id=u.id WHERE u.role='student' GROUP BY u.id ORDER BY u.name").all();
+      data.at_risk = d.prepare("SELECT u.id,u.name,u.email,u.avatar_color, ROUND(AVG(e.progress_percentage),1) as avg_progress FROM users u JOIN enrollments e ON e.student_id=u.id WHERE u.role='student' GROUP BY u.id HAVING avg_progress<40 ORDER BY avg_progress").all();
+      data.courses = d.prepare("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id").all();
+      break;
+    }
+    case 'manager': {
+      data.stats = {
+        total_students: d.prepare("SELECT COUNT(*) as c FROM users WHERE role='student'").get().c,
+        total_tutors: d.prepare("SELECT COUNT(*) as c FROM users WHERE role='tutor'").get().c,
+        total_courses: d.prepare("SELECT COUNT(*) as c FROM courses WHERE status='active'").get().c,
+        total_enrollments: d.prepare("SELECT COUNT(*) as c FROM enrollments WHERE status='active'").get().c,
+        total_sessions: d.prepare("SELECT COUNT(*) as c FROM sessions").get().c,
+        completed_sessions: d.prepare("SELECT COUNT(*) as c FROM sessions WHERE status='completed'").get().c,
+      };
+      data.tutors = d.prepare("SELECT u.id,u.name,u.email,u.status,u.avatar_color,u.specialization, COUNT(DISTINCT c.id) as course_count, SUM(c.students_count) as total_students, COUNT(DISTINCT CASE WHEN s.status='completed' THEN s.session_id END) as sessions_completed FROM users u LEFT JOIN courses c ON c.tutor_id=u.id LEFT JOIN sessions s ON s.tutor_id=u.id WHERE u.role='tutor' GROUP BY u.id ORDER BY u.name").all();
+      data.courses = d.prepare("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id ORDER BY c.category,c.name").all();
+      data.enrollment_by_category = d.prepare("SELECT c.category, COUNT(e.enrollment_id) as count FROM courses c LEFT JOIN enrollments e ON e.course_id=c.id GROUP BY c.category ORDER BY count DESC").all();
+      break;
+    }
+    case 'superadmin': {
+      data.stats = {
+        total_users: d.prepare("SELECT COUNT(*) as c FROM users").get().c,
+        total_students: d.prepare("SELECT COUNT(*) as c FROM users WHERE role='student'").get().c,
+        total_tutors: d.prepare("SELECT COUNT(*) as c FROM users WHERE role='tutor'").get().c,
+        total_advisors: d.prepare("SELECT COUNT(*) as c FROM users WHERE role='advisor'").get().c,
+        total_managers: d.prepare("SELECT COUNT(*) as c FROM users WHERE role='manager'").get().c,
+        total_courses: d.prepare("SELECT COUNT(*) as c FROM courses").get().c,
+        active_sessions: d.prepare("SELECT COUNT(*) as c FROM sessions WHERE status IN ('scheduled','live')").get().c,
+        total_enrollments: d.prepare("SELECT COUNT(*) as c FROM enrollments").get().c,
+      };
+      data.users = d.prepare("SELECT id,name,email,portal,role,status,avatar_color,specialization,created_at FROM users ORDER BY created_at DESC").all();
+      data.courses = d.prepare("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id ORDER BY c.name").all();
+      data.audit_logs = d.prepare("SELECT a.*,u.name as user_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 50").all();
+      break;
+    }
+  }
+  res.json(data);
+});
+
+// Students
+app.get('/api/students', (req, res) => {
+  const user = requireRole(req, res, ['tutor','advisor','manager','superadmin']); if (!user) return;
+  res.json(getDB().prepare("SELECT u.id,u.name,u.email,u.status,u.avatar_color,u.created_at, COUNT(e.enrollment_id) as enrolled_courses, ROUND(AVG(e.progress_percentage),1) as avg_progress FROM users u LEFT JOIN enrollments e ON e.student_id=u.id WHERE u.role='student' GROUP BY u.id ORDER BY u.name").all());
+});
+
+// Tutors
+app.get('/api/tutors', (req, res) => {
+  const user = requireRole(req, res, ['manager','superadmin']); if (!user) return;
+  res.json(getDB().prepare("SELECT u.id,u.name,u.email,u.status,u.avatar_color,u.specialization, COUNT(DISTINCT c.id) as course_count FROM users u LEFT JOIN courses c ON c.tutor_id=u.id WHERE u.role='tutor' GROUP BY u.id ORDER BY u.name").all());
+});
+
+// Courses
+app.get('/api/courses', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  res.json(getDB().prepare("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id ORDER BY c.name").all());
+});
+
+app.post('/api/courses', (req, res) => {
+  const user = requireRole(req, res, ['superadmin','manager']); if (!user) return;
+  const { name, category, tutor_id, color, icon } = req.body;
+  if (!name || !category || !tutor_id) return res.status(400).json({ error: 'Name, category, and tutor required' });
+  const r = getDB().prepare("INSERT INTO courses (name,category,tutor_id,color,icon) VALUES (?,?,?,?,?)").run(name, category, tutor_id, color || '#3B82F6', icon || 'book');
+  auditLog(user.id, 'create_course', 'course', r.lastInsertRowid, `Created: ${name}`);
+  res.status(201).json({ id: r.lastInsertRowid, message: 'Course created' });
+});
+
+app.put('/api/courses', (req, res) => {
+  const user = requireRole(req, res, ['superadmin','manager']); if (!user) return;
+  const { id, ...fields } = req.body;
+  if (!id) return res.status(400).json({ error: 'Course ID required' });
+  const allowed = ['name','category','tutor_id','color','icon','status'];
+  const sets = []; const vals = [];
+  for (const k of allowed) { if (fields[k] !== undefined) { sets.push(`${k}=?`); vals.push(fields[k]); } }
+  if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+  vals.push(id);
+  getDB().prepare(`UPDATE courses SET ${sets.join(',')} WHERE id=?`).run(...vals);
+  auditLog(user.id, 'update_course', 'course', id);
+  res.json({ message: 'Course updated' });
+});
+
+app.delete('/api/courses', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'Course ID required' });
+  getDB().prepare("UPDATE courses SET status='archived' WHERE id=?").run(id);
+  auditLog(user.id, 'archive_course', 'course', id);
+  res.json({ message: 'Course archived' });
+});
+
+// Enrollments
+app.get('/api/enrollments', (req, res) => {
+  const user = requireRole(req, res, ['superadmin','manager','advisor']); if (!user) return;
+  res.json(getDB().prepare("SELECT e.*,u.name as student_name,u.email as student_email,u.avatar_color, c.name as course_name,c.category as course_category,t.name as tutor_name FROM enrollments e JOIN users u ON u.id=e.student_id JOIN courses c ON c.id=e.course_id JOIN users t ON t.id=c.tutor_id ORDER BY e.enrollment_date DESC").all());
+});
+
+app.post('/api/enrollments', (req, res) => {
+  const user = requireRole(req, res, ['superadmin','manager','advisor']); if (!user) return;
+  const { student_id, course_id } = req.body;
+  if (!student_id || !course_id) return res.status(400).json({ error: 'Student and Course required' });
+  const d = getDB();
+  const existing = d.prepare("SELECT 1 FROM enrollments WHERE student_id=? AND course_id=?").get(student_id, course_id);
+  if (existing) return res.status(400).json({ error: 'Already enrolled' });
+  const r = d.prepare("INSERT INTO enrollments (student_id,course_id) VALUES (?,?)").run(student_id, course_id);
+  d.prepare("UPDATE courses SET students_count=(SELECT COUNT(*) FROM enrollments WHERE course_id=courses.id AND status IN ('active','completed')) WHERE id=?").run(course_id);
+  auditLog(user.id, 'create_enrollment', 'enrollment', r.lastInsertRowid);
+  res.status(201).json({ enrollment_id: r.lastInsertRowid, message: 'Enrolled' });
+});
+
+app.put('/api/enrollments', (req, res) => {
+  const user = requireRole(req, res, ['superadmin','manager','advisor']); if (!user) return;
+  const { enrollment_id, ...fields } = req.body;
+  if (!enrollment_id) return res.status(400).json({ error: 'Enrollment ID required' });
+  const allowed = ['progress_percentage','grade','status'];
+  const sets = []; const vals = [];
+  for (const k of allowed) { if (fields[k] !== undefined) { sets.push(`${k}=?`); vals.push(fields[k]); } }
+  if (!sets.length) return res.status(400).json({ error: 'No fields' });
+  vals.push(enrollment_id);
+  getDB().prepare(`UPDATE enrollments SET ${sets.join(',')} WHERE enrollment_id=?`).run(...vals);
+  auditLog(user.id, 'update_enrollment', 'enrollment', enrollment_id);
+  res.json({ message: 'Updated' });
+});
+
+app.delete('/api/enrollments', (req, res) => {
+  const user = requireRole(req, res, ['superadmin','manager']); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'ID required' });
+  getDB().prepare("UPDATE enrollments SET status='dropped' WHERE enrollment_id=?").run(id);
+  auditLog(user.id, 'drop_enrollment', 'enrollment', id);
+  res.json({ message: 'Dropped' });
+});
+
+// Sessions
+app.get('/api/sessions', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const d = getDB();
+  let rows;
+  if (user.role === 'student') {
+    rows = d.prepare("SELECT s.*,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? ORDER BY s.start_time DESC").all(user.id);
+  } else if (user.role === 'tutor') {
+    rows = d.prepare("SELECT s.*,c.name as course_name FROM sessions s JOIN courses c ON c.id=s.course_id WHERE s.tutor_id=? ORDER BY s.start_time DESC").all(user.id);
+  } else {
+    rows = d.prepare("SELECT s.*,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id ORDER BY s.start_time DESC").all();
+  }
+  res.json(rows);
+});
+
+app.post('/api/sessions', (req, res) => {
+  const user = requireRole(req, res, ['tutor','superadmin']); if (!user) return;
+  const { course_id, start_time, end_time, tutor_id } = req.body;
+  if (!course_id || !start_time || !end_time) return res.status(400).json({ error: 'Missing fields' });
+  const room = 'tijus-' + course_id + '-' + crypto.randomBytes(6).toString('hex');
+  const tid = user.role === 'tutor' ? user.id : (tutor_id || user.id);
+  const r = getDB().prepare("INSERT INTO sessions (course_id,tutor_id,start_time,end_time,room_name) VALUES (?,?,?,?,?)").run(course_id, tid, start_time, end_time, room);
+  auditLog(user.id, 'create_session', 'session', r.lastInsertRowid);
+  res.status(201).json({ session_id: r.lastInsertRowid, room_name: room });
+});
+
+// Join session
+app.post('/api/join-session', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const { session_id } = req.body;
+  if (!session_id) return res.status(400).json({ error: 'Session ID required' });
+  const d = getDB();
+  const sess = d.prepare("SELECT s.*,c.name as course_name FROM sessions s JOIN courses c ON c.id=s.course_id WHERE s.session_id=?").get(session_id);
+  if (!sess) return res.status(404).json({ error: 'Not found' });
+  if (user.role === 'student') {
+    const enrolled = d.prepare("SELECT 1 FROM enrollments WHERE student_id=? AND course_id=?").get(user.id, sess.course_id);
+    if (!enrolled) return res.status(403).json({ error: 'Not enrolled' });
+  }
+  d.prepare("INSERT INTO attendance_logs (session_id,student_id,join_time) VALUES (?,?,datetime('now'))").run(session_id, user.id);
+  if (sess.status === 'scheduled') d.prepare("UPDATE sessions SET status='live' WHERE session_id=?").run(session_id);
+  d.prepare("INSERT INTO signaling (session_id,from_user_id,type,payload) VALUES (?,?,'join',?)").run(session_id, user.id, JSON.stringify({ name: user.name, role: user.role }));
+  res.json({ room_name: sess.room_name, session: sess, user: { id: user.id, name: user.name, role: user.role } });
+});
+
+// Leave session
+app.post('/api/leave-session', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const { session_id } = req.body;
+  if (!session_id) return res.status(400).json({ error: 'Session ID required' });
+  const d = getDB();
+  d.prepare("UPDATE attendance_logs SET leave_time=datetime('now'), duration_minutes=CAST((julianday(datetime('now'))-julianday(join_time))*24*60 AS INTEGER) WHERE session_id=? AND student_id=? AND leave_time IS NULL").run(session_id, user.id);
+  d.prepare("INSERT INTO signaling (session_id,from_user_id,type,payload) VALUES (?,?,'leave','')").run(session_id, user.id);
+  res.json({ message: 'Left session' });
+});
+
+// Signaling
+app.get('/api/signaling', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const sid = parseInt(req.query.session_id);
+  const lastId = parseInt(req.query.last_id) || 0;
+  if (!sid) return res.status(400).json({ error: 'Session ID required' });
+  const d = getDB();
+  const signals = d.prepare("SELECT * FROM signaling WHERE session_id=? AND id>? AND from_user_id!=? AND (to_user_id IS NULL OR to_user_id=?) AND consumed=0 ORDER BY id").all(sid, lastId, user.id, user.id);
+  if (signals.length) {
+    const ids = signals.map(s => s.id);
+    d.prepare(`UPDATE signaling SET consumed=1 WHERE id IN (${ids.join(',')})`).run();
+  }
+  res.json(signals);
+});
+
+app.post('/api/signaling', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const { session_id, type, payload, to_user_id } = req.body;
+  if (!session_id || !type) return res.status(400).json({ error: 'Missing fields' });
+  const p = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const r = getDB().prepare("INSERT INTO signaling (session_id,from_user_id,to_user_id,type,payload) VALUES (?,?,?,?,?)").run(session_id, user.id, to_user_id || null, type, p);
+  res.json({ id: r.lastInsertRowid });
+});
+
+// Attendance
+app.get('/api/attendance-logs', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const d = getDB();
+  const sid = req.query.session_id;
+  let rows;
+  if (sid) {
+    rows = d.prepare("SELECT a.*,u.name as student_name,u.avatar_color FROM attendance_logs a JOIN users u ON u.id=a.student_id WHERE a.session_id=? ORDER BY a.join_time").all(parseInt(sid));
+  } else if (user.role === 'student') {
+    rows = d.prepare("SELECT a.*,c.name as course_name,s.start_time FROM attendance_logs a JOIN sessions s ON s.session_id=a.session_id JOIN courses c ON c.id=s.course_id WHERE a.student_id=? ORDER BY a.timestamp DESC").all(user.id);
+  } else {
+    rows = d.prepare("SELECT a.*,u.name as student_name,c.name as course_name,s.start_time FROM attendance_logs a JOIN users u ON u.id=a.student_id JOIN sessions s ON s.session_id=a.session_id JOIN courses c ON c.id=s.course_id ORDER BY a.timestamp DESC LIMIT 200").all();
+  }
+  res.json(rows);
+});
+
+// Meeting records
+app.get('/api/meeting-records', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const d = getDB();
+  let rows;
+  if (user.role === 'student') {
+    rows = d.prepare("SELECT mr.*,c.name as course_name,s.start_time FROM meeting_records mr JOIN sessions s ON s.session_id=mr.session_id JOIN courses c ON c.id=s.course_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? ORDER BY mr.creation_date DESC").all(user.id);
+  } else {
+    rows = d.prepare("SELECT mr.*,c.name as course_name,s.start_time,u.name as tutor_name FROM meeting_records mr JOIN sessions s ON s.session_id=mr.session_id JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id ORDER BY mr.creation_date DESC").all();
+  }
+  res.json(rows);
+});
+
+// Reports
+app.get('/api/reports', (req, res) => {
+  const user = requireRole(req, res, ['advisor','manager','superadmin']); if (!user) return;
+  const d = getDB();
+  const data = {
+    total_students: d.prepare("SELECT COUNT(*) as c FROM users WHERE role='student'").get().c,
+    active_students: d.prepare("SELECT COUNT(*) as c FROM users WHERE role='student' AND status='active'").get().c,
+    total_tutors: d.prepare("SELECT COUNT(*) as c FROM users WHERE role='tutor'").get().c,
+    total_courses: d.prepare("SELECT COUNT(*) as c FROM courses WHERE status='active'").get().c,
+    total_enrollments: d.prepare("SELECT COUNT(*) as c FROM enrollments").get().c,
+    active_enrollments: d.prepare("SELECT COUNT(*) as c FROM enrollments WHERE status='active'").get().c,
+    completed_enrollments: d.prepare("SELECT COUNT(*) as c FROM enrollments WHERE status='completed'").get().c,
+    total_sessions: d.prepare("SELECT COUNT(*) as c FROM sessions").get().c,
+    completed_sessions: d.prepare("SELECT COUNT(*) as c FROM sessions WHERE status='completed'").get().c,
+    avg_progress: +(d.prepare("SELECT AVG(progress_percentage) as v FROM enrollments").get().v || 0).toFixed(1),
+    courses_by_category: d.prepare("SELECT category, COUNT(*) as count FROM courses GROUP BY category ORDER BY count DESC").all(),
+    enrollments_by_course: d.prepare("SELECT c.name, COUNT(e.enrollment_id) as count FROM courses c LEFT JOIN enrollments e ON e.course_id=c.id GROUP BY c.id ORDER BY count DESC LIMIT 10").all(),
+    student_status_breakdown: d.prepare("SELECT status, COUNT(*) as count FROM users WHERE role='student' GROUP BY status").all(),
+    grade_distribution: d.prepare("SELECT grade, COUNT(*) as count FROM enrollments WHERE grade!='' GROUP BY grade ORDER BY grade").all(),
+  };
+  const totalLogs = d.prepare("SELECT COUNT(*) as c FROM attendance_logs").get().c;
+  const totalPossible = d.prepare("SELECT COUNT(*) as c FROM sessions s JOIN enrollments e ON e.course_id=s.course_id WHERE s.status='completed'").get().c;
+  data.avg_attendance_rate = totalPossible > 0 ? +((totalLogs / totalPossible) * 100).toFixed(1) : 0;
+  res.json(data);
+});
+
+// Users CRUD
+app.get('/api/users', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  res.json(getDB().prepare("SELECT id,name,email,portal,role,status,avatar_color,specialization,must_change_password,created_at FROM users ORDER BY created_at DESC").all());
+});
+
+app.post('/api/users', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const { name, email, role, password, specialization, avatar_color } = req.body;
+  if (!name || !email || !role) return res.status(400).json({ error: 'Name, email, role required' });
+  if (!['student','tutor','advisor','manager','superadmin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  const d = getDB();
+  if (d.prepare("SELECT 1 FROM users WHERE email=?").get(email)) return res.status(400).json({ error: 'Email exists' });
+  const hash = bcrypt.hashSync(password || 'password123', 10);
+  const r = d.prepare("INSERT INTO users (name,email,portal,role,password_hash,avatar_color,specialization,must_change_password) VALUES (?,?,?,?,?,?,?,1)").run(name, email, role, role, hash, avatar_color || '#4F46E5', specialization || '');
+  auditLog(user.id, 'create_user', 'user', r.lastInsertRowid, `Created: ${name} (${role})`);
+  res.status(201).json({ id: r.lastInsertRowid, message: 'User created' });
+});
+
+app.put('/api/users', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const { id, password, ...fields } = req.body;
+  if (!id) return res.status(400).json({ error: 'User ID required' });
+  const allowed = ['name','email','role','status','specialization','avatar_color'];
+  const sets = []; const vals = [];
+  for (const k of allowed) {
+    if (fields[k] !== undefined) {
+      sets.push(`${k}=?`); vals.push(fields[k]);
+      if (k === 'role') { sets.push('portal=?'); vals.push(fields[k]); }
+    }
+  }
+  if (password) { sets.push('password_hash=?'); vals.push(bcrypt.hashSync(password, 10)); sets.push('must_change_password=1'); }
+  if (!sets.length) return res.status(400).json({ error: 'No fields' });
+  vals.push(id);
+  getDB().prepare(`UPDATE users SET ${sets.join(',')} WHERE id=?`).run(...vals);
+  auditLog(user.id, 'update_user', 'user', id);
+  res.json({ message: 'Updated' });
+});
+
+app.delete('/api/users', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'ID required' });
+  if (id === user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
+  getDB().prepare("UPDATE users SET status='inactive' WHERE id=?").run(id);
+  auditLog(user.id, 'deactivate_user', 'user', id);
+  res.json({ message: 'Deactivated' });
+});
+
+// Password reset
+app.post('/api/request-password-reset', (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email required' });
+  const d = getDB();
+  const u = d.prepare("SELECT id FROM users WHERE email=?").get(email);
+  if (!u) return res.json({ message: 'If the email exists, a reset link has been generated' });
+  const token = crypto.randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + 3600000).toISOString();
+  d.prepare("INSERT INTO password_resets (user_id,token,expires_at) VALUES (?,?,?)").run(u.id, token, expires);
+  res.json({ message: 'If the email exists, a reset link has been generated', dev_token: token, dev_note: 'In production, sent via email' });
+});
+
+app.post('/api/reset-password', (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) return res.status(400).json({ error: 'Token and password required' });
+  if (password.length < 6) return res.status(400).json({ error: 'Min 6 characters' });
+  const d = getDB();
+  const reset = d.prepare("SELECT * FROM password_resets WHERE token=? AND used=0 AND expires_at>datetime('now')").get(token);
+  if (!reset) return res.status(400).json({ error: 'Invalid or expired token' });
+  d.prepare("UPDATE users SET password_hash=?,must_change_password=0 WHERE id=?").run(bcrypt.hashSync(password, 10), reset.user_id);
+  d.prepare("UPDATE password_resets SET used=1 WHERE id=?").run(reset.id);
+  auditLog(reset.user_id, 'password_reset', 'user', reset.user_id);
+  res.json({ message: 'Password reset successfully' });
+});
+
+// Upload recording
+app.post('/api/upload-recording', upload.single('recording'), (req, res) => {
+  const user = requireRole(req, res, ['tutor','superadmin']); if (!user) return;
+  const sessionId = parseInt(req.body.session_id);
+  if (!sessionId || !req.file) return res.status(400).json({ error: 'Session ID and file required' });
+  const ext = path.extname(req.file.originalname) || '.webm';
+  const filename = `recording-${sessionId}-${Date.now()}${ext}`;
+  const dest = path.join(UPLOAD_DIR, filename);
+  fs.renameSync(req.file.path, dest);
+  const r = getDB().prepare("INSERT INTO meeting_records (session_id,file_path,playback_url) VALUES (?,?,?)").run(sessionId, dest, `/uploads/recordings/${filename}`);
+  auditLog(user.id, 'upload_recording', 'meeting_record', r.lastInsertRowid);
+  res.status(201).json({ message: 'Uploaded', playback_url: `/uploads/recordings/${filename}` });
+});
+
+// ============================================================
+// Serve frontend in production
+// ============================================================
+if (fs.existsSync(FRONTEND_DIST)) {
+  app.use(express.static(FRONTEND_DIST));
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api/') && !req.path.startsWith('/uploads/')) {
+      res.sendFile(path.join(FRONTEND_DIST, 'index.html'));
+    }
+  });
+}
+
+// ============================================================
+// Start
+// ============================================================
+app.listen(PORT, () => {
+  getDB(); // initialize DB on startup
+  console.log(`TijusPro LMS running at http://localhost:${PORT}`);
+});

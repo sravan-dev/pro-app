@@ -1,0 +1,9 @@
+node_modules/
+frontend/node_modules/
+frontend/dist/
+backend/tijuspro.db
+backend/uploads/recordings/*
+!backend/uploads/recordings/.gitkeep
+.DS_Store
+*.log
+.env
