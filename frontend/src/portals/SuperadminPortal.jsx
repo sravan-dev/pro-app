@@ -279,7 +279,7 @@ export default function SuperadminPortal() {
     { key: 'courses', label: 'Courses', accessor: 'enrolled_courses' },
     { key: 'progress', label: 'Avg Progress', accessor: 'avg_progress', render: (r) => progressCol(r, 'avg_progress') },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
-    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser) },
+    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser) },
   ];
 
   const tutorColumns = [
@@ -617,7 +617,7 @@ export default function SuperadminPortal() {
               <h2>Student Management</h2>
               <button className="btn btn-primary" onClick={() => openCreateUser('student')}>+ Add Student</button>
             </div>
-            <DataTable columns={studentColumns} data={allStudents} pageSize={15} />
+            <DataTable columns={studentColumns} data={allStudents} pageSize={15} selectable onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />
           </div>
         )}
 
