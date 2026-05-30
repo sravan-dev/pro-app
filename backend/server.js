@@ -647,6 +647,90 @@ app.delete('/api/users', (req, res) => {
   }
 });
 
+// Clear data
+app.post('/api/clear-data', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const { target } = req.body;
+  const d = getDB();
+  try {
+    const clearAll = () => {
+      d.prepare("DELETE FROM signaling").run();
+      d.prepare("DELETE FROM meeting_records").run();
+      d.prepare("DELETE FROM attendance_logs").run();
+      d.prepare("DELETE FROM enrollments").run();
+      d.prepare("DELETE FROM sessions").run();
+      d.prepare("DELETE FROM courses").run();
+      d.prepare("DELETE FROM password_resets").run();
+      d.prepare("DELETE FROM audit_logs").run();
+      d.prepare("DELETE FROM users WHERE id != ?").run(user.id);
+    };
+
+    if (target === 'all') {
+      d.transaction(clearAll)();
+      auditLog(user.id, 'clear_all_data', 'system', null);
+      res.json({ message: 'All data cleared (except your account)' });
+    } else if (target === 'students') {
+      d.transaction(() => {
+        const ids = d.prepare("SELECT id FROM users WHERE role='student'").all().map(u => u.id);
+        for (const id of ids) {
+          d.prepare("DELETE FROM attendance_logs WHERE student_id=?").run(id);
+          d.prepare("DELETE FROM enrollments WHERE student_id=?").run(id);
+          d.prepare("DELETE FROM password_resets WHERE user_id=?").run(id);
+          d.prepare("DELETE FROM users WHERE id=?").run(id);
+        }
+      })();
+      auditLog(user.id, 'clear_students', 'system', null);
+      res.json({ message: 'All students cleared' });
+    } else if (target === 'tutors') {
+      d.transaction(() => {
+        const ids = d.prepare("SELECT id FROM users WHERE role='tutor'").all().map(u => u.id);
+        for (const id of ids) {
+          const sids = d.prepare("SELECT session_id FROM sessions WHERE tutor_id=?").all(id).map(s => s.session_id);
+          for (const sid of sids) {
+            d.prepare("DELETE FROM attendance_logs WHERE session_id=?").run(sid);
+            d.prepare("DELETE FROM meeting_records WHERE session_id=?").run(sid);
+            d.prepare("DELETE FROM signaling WHERE session_id=?").run(sid);
+          }
+          d.prepare("DELETE FROM sessions WHERE tutor_id=?").run(id);
+          d.prepare("DELETE FROM enrollments WHERE course_id IN (SELECT id FROM courses WHERE tutor_id=?)").run(id);
+          d.prepare("DELETE FROM courses WHERE tutor_id=?").run(id);
+          d.prepare("DELETE FROM password_resets WHERE user_id=?").run(id);
+          d.prepare("DELETE FROM users WHERE id=?").run(id);
+        }
+      })();
+      auditLog(user.id, 'clear_tutors', 'system', null);
+      res.json({ message: 'All tutors cleared' });
+    } else if (target === 'courses') {
+      d.transaction(() => {
+        d.prepare("DELETE FROM attendance_logs").run();
+        d.prepare("DELETE FROM meeting_records").run();
+        d.prepare("DELETE FROM signaling").run();
+        d.prepare("DELETE FROM sessions").run();
+        d.prepare("DELETE FROM enrollments").run();
+        d.prepare("DELETE FROM courses").run();
+      })();
+      auditLog(user.id, 'clear_courses', 'system', null);
+      res.json({ message: 'All courses, sessions, and enrollments cleared' });
+    } else if (target === 'sessions') {
+      d.transaction(() => {
+        d.prepare("DELETE FROM attendance_logs").run();
+        d.prepare("DELETE FROM meeting_records").run();
+        d.prepare("DELETE FROM signaling").run();
+        d.prepare("DELETE FROM sessions").run();
+      })();
+      auditLog(user.id, 'clear_sessions', 'system', null);
+      res.json({ message: 'All sessions and attendance cleared' });
+    } else if (target === 'audit_logs') {
+      d.prepare("DELETE FROM audit_logs").run();
+      res.json({ message: 'Audit logs cleared' });
+    } else {
+      res.status(400).json({ error: 'Invalid target. Use: all, students, tutors, courses, sessions, audit_logs' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to clear data: ' + err.message });
+  }
+});
+
 // Password reset
 app.post('/api/request-password-reset', (req, res) => {
   const { email } = req.body;

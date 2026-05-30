@@ -762,6 +762,57 @@ export default function SuperadminPortal() {
             <DataTable columns={auditColumns} data={data?.audit_logs || []} pageSize={20} />
           </div>
         )}
+
+        {/* ===== SETTINGS ===== */}
+        {activeTab === 'settings' && (
+          <div className="portal-page">
+            <h2>Settings</h2>
+            <div className="settings-section">
+              <h3>Data Management</h3>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1.5rem' }}>Clear data from the system. These actions cannot be undone.</p>
+              <div className="settings-grid">
+                {[
+                  { target: 'students', label: 'Clear All Students', desc: 'Remove all student accounts, enrollments, and attendance records', color: '#F59E0B' },
+                  { target: 'tutors', label: 'Clear All Tutors', desc: 'Remove all tutor accounts, their courses, sessions, and related data', color: '#F59E0B' },
+                  { target: 'courses', label: 'Clear All Courses', desc: 'Remove all courses, enrollments, sessions, and attendance', color: '#EF4444' },
+                  { target: 'sessions', label: 'Clear All Sessions', desc: 'Remove all sessions, attendance logs, and meeting records', color: '#EF4444' },
+                  { target: 'audit_logs', label: 'Clear Audit Logs', desc: 'Remove all audit log entries', color: '#6B7280' },
+                  { target: 'all', label: 'Clear Everything', desc: 'Remove ALL data except your superadmin account. Full reset.', color: '#DC2626' },
+                ].map(({ target, label, desc, color }) => (
+                  <div key={target} className="settings-card">
+                    <div className="settings-card-info">
+                      <h4>{label}</h4>
+                      <p>{desc}</p>
+                    </div>
+                    <button
+                      className="btn btn-sm"
+                      style={{ background: color, color: '#fff', whiteSpace: 'nowrap' }}
+                      onClick={async () => {
+                        const confirmMsg = target === 'all'
+                          ? 'Are you sure you want to DELETE ALL DATA? This will remove every user (except you), all courses, sessions, enrollments, and records. This CANNOT be undone.'
+                          : `Are you sure you want to ${label.toLowerCase()}? This cannot be undone.`;
+                        if (!confirm(confirmMsg)) return;
+                        if (target === 'all' && !confirm('FINAL WARNING: This will permanently erase all data. Type OK to confirm.')) return;
+                        try {
+                          const result = await api.clearData(target);
+                          showMsg(result.message, 'success');
+                          fetchData();
+                          api.getStudents().then(setAllStudents);
+                          api.getTutors().then(setAllTutors);
+                          api.getCourses().then(setAllCourses);
+                          api.getEnrollments().then(setAllEnrollments);
+                          api.getSessions().then(setAllSessions);
+                        } catch (err) { showMsg(err.message, 'error'); }
+                      }}
+                    >
+                      {label}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

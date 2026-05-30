@@ -67,6 +67,9 @@ export const api = {
   getAttendanceLogs: (sessionId) => request(sessionId ? `/attendance-logs?session_id=${sessionId}` : '/attendance-logs'),
   getMeetingRecords: () => request('/meeting-records'),
 
+  // Settings
+  clearData: (target) => request('/clear-data', { method: 'POST', body: { target } }),
+
   // Password reset
   requestPasswordReset: (email) => request('/request-password-reset', { method: 'POST', body: { email } }),
   resetPassword: (token, password) => request('/reset-password', { method: 'POST', body: { token, password } }),
