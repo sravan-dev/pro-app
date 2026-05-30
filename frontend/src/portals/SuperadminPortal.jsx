@@ -41,6 +41,13 @@ export default function SuperadminPortal() {
 
   const [activeSession, setActiveSession] = useState(null);
 
+  // SMTP settings
+  const [smtpForm, setSmtpForm] = useState({ host: '', port: 587, user: '', pass: '', from_email: '' });
+  const [smtpLoaded, setSmtpLoaded] = useState(false);
+  const [smtpTestEmail, setSmtpTestEmail] = useState('');
+  const [smtpSaving, setSmtpSaving] = useState(false);
+  const [smtpTesting, setSmtpTesting] = useState(false);
+
   const showMsg = (msg, type = 'info') => { setMessage(msg); setMsgType(type); setTimeout(() => setMessage(''), 4000); };
 
   const fetchData = useCallback(async () => {
@@ -65,6 +72,7 @@ export default function SuperadminPortal() {
     if (activeTab === 'sessions' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'attendance' && allAttendance.length === 0) api.getAttendanceLogs().then(setAllAttendance).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
+    if (activeTab === 'settings' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm(s); setSmtpLoaded(true); }).catch(() => {});
   }, [activeTab]);
 
   // ===== USER CRUD =====
@@ -834,6 +842,76 @@ export default function SuperadminPortal() {
         {activeTab === 'settings' && (
           <div className="portal-page">
             <h2>Settings</h2>
+
+            {/* SMTP Configuration */}
+            <div className="settings-section" style={{ marginBottom: '2rem' }}>
+              <h3>Email Configuration (SMTP)</h3>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1.5rem' }}>Configure SMTP to send welcome emails to new users and password reset links.</p>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setSmtpSaving(true);
+                try {
+                  await api.saveSmtpSettings(smtpForm);
+                  showMsg('SMTP settings saved', 'success');
+                } catch (err) { showMsg(err.message, 'error'); }
+                finally { setSmtpSaving(false); }
+              }}>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>SMTP Host</label>
+                    <input value={smtpForm.host} onChange={(e) => setSmtpForm({ ...smtpForm, host: e.target.value })} placeholder="smtp.hostinger.com" />
+                  </div>
+                  <div className="form-group">
+                    <label>Port</label>
+                    <input type="number" value={smtpForm.port} onChange={(e) => setSmtpForm({ ...smtpForm, port: parseInt(e.target.value) || 587 })} placeholder="587" />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>SMTP Username / Email</label>
+                    <input value={smtpForm.user} onChange={(e) => setSmtpForm({ ...smtpForm, user: e.target.value })} placeholder="noreply@yourdomain.com" />
+                  </div>
+                  <div className="form-group">
+                    <label>SMTP Password</label>
+                    <input type="password" value={smtpForm.pass} onChange={(e) => setSmtpForm({ ...smtpForm, pass: e.target.value })} placeholder="••••••••" />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>From Address</label>
+                  <input value={smtpForm.from_email} onChange={(e) => setSmtpForm({ ...smtpForm, from_email: e.target.value })} placeholder="Tiju's Academy <noreply@yourdomain.com>" />
+                </div>
+                <div className="form-actions" style={{ marginTop: '1rem' }}>
+                  <button type="submit" className="btn btn-primary" disabled={smtpSaving}>{smtpSaving ? 'Saving...' : 'Save SMTP Settings'}</button>
+                </div>
+              </form>
+
+              <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--color-bg-secondary, #f8f9fa)', borderRadius: '8px' }}>
+                <h4 style={{ marginBottom: '0.5rem' }}>Send Test Email</h4>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <input
+                    type="email"
+                    value={smtpTestEmail}
+                    onChange={(e) => setSmtpTestEmail(e.target.value)}
+                    placeholder="recipient@example.com"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={smtpTesting || !smtpTestEmail}
+                    onClick={async () => {
+                      setSmtpTesting(true);
+                      try {
+                        const result = await api.testSmtp(smtpTestEmail);
+                        showMsg(result.message, 'success');
+                      } catch (err) { showMsg(err.message, 'error'); }
+                      finally { setSmtpTesting(false); }
+                    }}
+                  >{smtpTesting ? 'Sending...' : 'Send Test'}</button>
+                </div>
+              </div>
+            </div>
+
             <div className="settings-section">
               <h3>Data Management</h3>
               <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1.5rem' }}>Clear data from the system. These actions cannot be undone.</p>

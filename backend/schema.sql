@@ -112,6 +112,16 @@ CREATE TABLE IF NOT EXISTS password_resets (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- SMTP settings (single-row global config)
+CREATE TABLE IF NOT EXISTS smtp_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    host TEXT,
+    port INTEGER DEFAULT 587,
+    user TEXT,
+    pass TEXT,
+    from_email TEXT
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_portal_role ON users(portal, role);

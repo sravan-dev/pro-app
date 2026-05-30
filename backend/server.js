@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 const multer = require('multer');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -68,7 +69,43 @@ function getDB() {
   db.pragma('busy_timeout = 5000');
   db.pragma('foreign_keys = ON');
   if (isNew) initDB();
+  // Ensure smtp_settings table exists for existing databases
+  db.exec(`CREATE TABLE IF NOT EXISTS smtp_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    host TEXT, port INTEGER DEFAULT 587, user TEXT, pass TEXT, from_email TEXT
+  )`);
   return db;
+}
+
+// ============================================================
+// Email Helper
+// ============================================================
+async function sendEmail(to, subject, html) {
+  const d = getDB();
+  const smtp = d.prepare("SELECT * FROM smtp_settings WHERE id=1").get();
+  if (!smtp || !smtp.host || !smtp.user) {
+    console.log(`[EMAIL] SMTP not configured. Would send to ${to}: ${subject}`);
+    return { sent: false, reason: 'SMTP not configured' };
+  }
+  try {
+    const transporter = nodemailer.createTransport({
+      host: smtp.host,
+      port: smtp.port || 587,
+      secure: smtp.port === 465,
+      auth: { user: smtp.user, pass: smtp.pass },
+    });
+    await transporter.sendMail({
+      from: smtp.from_email || smtp.user,
+      to,
+      subject,
+      html,
+    });
+    console.log(`[EMAIL] Sent to ${to}: ${subject}`);
+    return { sent: true };
+  } catch (err) {
+    console.error(`[EMAIL] Failed to send to ${to}:`, err.message);
+    return { sent: false, reason: err.message };
+  }
 }
 
 function initDB() {
@@ -628,9 +665,28 @@ app.post('/api/users', (req, res) => {
   if (!['student','tutor','advisor','manager','superadmin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   const d = getDB();
   if (d.prepare("SELECT 1 FROM users WHERE email=?").get(email)) return res.status(400).json({ error: 'Email exists' });
-  const hash = bcrypt.hashSync(password || 'password123', 10);
+  const plainPassword = password || 'password123';
+  const hash = bcrypt.hashSync(plainPassword, 10);
   const r = d.prepare("INSERT INTO users (name,email,portal,role,password_hash,avatar_color,specialization,must_change_password) VALUES (?,?,?,?,?,?,?,1)").run(name, email, role, role, hash, avatar_color || '#4F46E5', specialization || '');
   auditLog(user.id, 'create_user', 'user', r.lastInsertRowid, `Created: ${name} (${role})`);
+  // Send welcome email (non-blocking, don't fail user creation if email fails)
+  const loginUrl = `${req.protocol}://${req.get('host')}/login`;
+  sendEmail(email, "Welcome to Tiju's Academy",
+    `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+      <h2 style="color:#4F46E5">Welcome to Tiju's Academy!</h2>
+      <p>Hello <strong>${name}</strong>,</p>
+      <p>Your account has been created with the following details:</p>
+      <table style="border-collapse:collapse;margin:16px 0">
+        <tr><td style="padding:8px 16px;font-weight:bold;color:#555">Role:</td><td style="padding:8px 16px">${role.charAt(0).toUpperCase() + role.slice(1)}</td></tr>
+        <tr><td style="padding:8px 16px;font-weight:bold;color:#555">Email:</td><td style="padding:8px 16px">${email}</td></tr>
+        <tr><td style="padding:8px 16px;font-weight:bold;color:#555">Password:</td><td style="padding:8px 16px"><code>${plainPassword}</code></td></tr>
+      </table>
+      <p><a href="${loginUrl}" style="display:inline-block;padding:12px 24px;background:#4F46E5;color:#fff;text-decoration:none;border-radius:6px">Log In Now</a></p>
+      <p style="color:#888;font-size:14px;margin-top:20px">Please change your password after your first login.</p>
+      <hr style="border:none;border-top:1px solid #eee;margin:20px 0"/>
+      <p style="color:#aaa;font-size:12px">Tiju's Academy LMS</p>
+    </div>`
+  ).catch(() => {});
   res.status(201).json({ id: r.lastInsertRowid, message: 'User created' });
 });
 
@@ -784,17 +840,67 @@ app.post('/api/clear-data', (req, res) => {
   }
 });
 
+// ============================================================
+// SMTP Settings
+// ============================================================
+app.get('/api/smtp-settings', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const smtp = getDB().prepare("SELECT host, port, user, pass, from_email FROM smtp_settings WHERE id=1").get();
+  res.json(smtp || { host: '', port: 587, user: '', pass: '', from_email: '' });
+});
+
+app.post('/api/smtp-settings', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const { host, port, user: smtpUser, pass, from_email } = req.body;
+  const d = getDB();
+  d.prepare(`INSERT INTO smtp_settings (id, host, port, user, pass, from_email) VALUES (1, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET host=excluded.host, port=excluded.port, user=excluded.user, pass=excluded.pass, from_email=excluded.from_email`
+  ).run(host || '', port || 587, smtpUser || '', pass || '', from_email || '');
+  auditLog(user.id, 'update_smtp_settings', 'settings', 1);
+  res.json({ message: 'SMTP settings saved' });
+});
+
+app.post('/api/smtp-test', async (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const { to } = req.body;
+  if (!to) return res.status(400).json({ error: 'Recipient email required' });
+  const result = await sendEmail(to, 'Test Email - Tiju\'s Academy',
+    '<h2>SMTP Test</h2><p>If you received this email, your SMTP configuration is working correctly.</p><p>— Tiju\'s Academy LMS</p>');
+  if (result.sent) {
+    res.json({ message: `Test email sent to ${to}` });
+  } else {
+    res.status(400).json({ error: `Failed to send: ${result.reason}` });
+  }
+});
+
 // Password reset
-app.post('/api/request-password-reset', (req, res) => {
+app.post('/api/request-password-reset', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email required' });
   const d = getDB();
-  const u = d.prepare("SELECT id FROM users WHERE email=?").get(email);
-  if (!u) return res.json({ message: 'If the email exists, a reset link has been generated' });
+  const u = d.prepare("SELECT id, name FROM users WHERE email=?").get(email);
+  if (!u) return res.json({ message: 'If the email exists, a reset link has been sent' });
   const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + 3600000).toISOString();
   d.prepare("INSERT INTO password_resets (user_id,token,expires_at) VALUES (?,?,?)").run(u.id, token, expires);
-  res.json({ message: 'If the email exists, a reset link has been generated', dev_token: token, dev_note: 'In production, sent via email' });
+  const resetUrl = `${req.protocol}://${req.get('host')}/reset-password?token=${token}`;
+  const emailResult = await sendEmail(email, "Password Reset - Tiju's Academy",
+    `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+      <h2 style="color:#4F46E5">Password Reset</h2>
+      <p>Hello <strong>${u.name}</strong>,</p>
+      <p>We received a request to reset your password. Click the button below to set a new password:</p>
+      <p><a href="${resetUrl}" style="display:inline-block;padding:12px 24px;background:#4F46E5;color:#fff;text-decoration:none;border-radius:6px">Reset Password</a></p>
+      <p style="color:#888;font-size:14px">This link expires in 1 hour. If you didn't request this, you can ignore this email.</p>
+      <hr style="border:none;border-top:1px solid #eee;margin:20px 0"/>
+      <p style="color:#aaa;font-size:12px">Tiju's Academy LMS</p>
+    </div>`
+  );
+  const response = { message: 'If the email exists, a reset link has been sent' };
+  if (!emailResult.sent) {
+    response.dev_token = token;
+    response.dev_note = 'SMTP not configured — use this token directly';
+  }
+  res.json(response);
 });
 
 app.post('/api/reset-password', (req, res) => {

@@ -73,6 +73,11 @@ export const api = {
   // Settings
   clearData: (target) => request('/clear-data', { method: 'POST', body: { target } }),
 
+  // SMTP Settings
+  getSmtpSettings: () => request('/smtp-settings'),
+  saveSmtpSettings: (data) => request('/smtp-settings', { method: 'POST', body: data }),
+  testSmtp: (to) => request('/smtp-test', { method: 'POST', body: { to } }),
+
   // Password reset
   requestPasswordReset: (email) => request('/request-password-reset', { method: 'POST', body: { email } }),
   resetPassword: (token, password) => request('/reset-password', { method: 'POST', body: { token, password } }),

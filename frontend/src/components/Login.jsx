@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
@@ -70,6 +70,12 @@ export default function Login() {
           <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
+
+          <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+            <Link to="/reset-password" style={{ color: 'var(--color-primary, #4F46E5)', fontSize: '14px', textDecoration: 'none' }}>
+              Forgot Password?
+            </Link>
+          </div>
         </form>
 
         <div className="login-footer">
