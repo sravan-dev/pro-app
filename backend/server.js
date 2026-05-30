@@ -547,22 +547,25 @@ app.delete('/api/sessions', (req, res) => {
 // Test video call
 app.post('/api/test-call', (req, res) => {
   const user = requireRole(req, res, ['superadmin']); if (!user) return;
-  const d = getDB();
-  // Create or reuse hidden test course
-  let testCourse = d.prepare("SELECT id FROM courses WHERE name='__test_call__'").get();
-  if (!testCourse) {
-    const r = d.prepare("INSERT INTO courses (name,category,tutor_id,status) VALUES ('__test_call__','Test',?,?)").run(user.id, 'draft');
-    testCourse = { id: r.lastInsertRowid };
+  try {
+    const d = getDB();
+    // Create or reuse hidden test course
+    let testCourse = d.prepare("SELECT id FROM courses WHERE name='__test_call__'").get();
+    if (!testCourse) {
+      const r = d.prepare("INSERT INTO courses (name,category,tutor_id,status) VALUES ('__test_call__','Technology',?,?)").run(user.id, 'draft');
+      testCourse = { id: r.lastInsertRowid };
+    }
+    const room = 'test-' + crypto.randomBytes(8).toString('hex');
+    const now = new Date();
+    const end = new Date(now.getTime() + 3600000);
+    const r = d.prepare("INSERT INTO sessions (course_id,tutor_id,start_time,end_time,room_name) VALUES (?,?,?,?,?)")
+      .run(testCourse.id, user.id, now.toISOString(), end.toISOString(), room);
+    const sessionId = r.lastInsertRowid;
+    auditLog(user.id, 'create_test_call', 'session', sessionId);
+    res.status(201).json({ session_id: sessionId, room_name: room });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create test call: ' + err.message });
   }
-  const room = 'test-' + crypto.randomBytes(8).toString('hex');
-  const now = new Date();
-  const end = new Date(now.getTime() + 3600000); // 1 hour
-  const r = d.prepare("INSERT INTO sessions (course_id,tutor_id,start_time,end_time,room_name) VALUES (?,?,?,?,?)")
-    .run(testCourse.id, user.id, now.toISOString(), end.toISOString(), room);
-  const sessionId = r.lastInsertRowid;
-  const callUrl = `${req.protocol}://${req.get('host')}/call/${sessionId}`;
-  auditLog(user.id, 'create_test_call', 'session', sessionId);
-  res.status(201).json({ session_id: sessionId, room_name: room, url: callUrl });
 });
 
 // Join session

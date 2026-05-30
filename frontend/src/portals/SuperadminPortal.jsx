@@ -927,10 +927,14 @@ export default function SuperadminPortal() {
                     setTestCallCopied(false);
                     try {
                       const result = await api.createTestCall();
+                      if (!result.session_id) throw new Error('No session ID returned');
                       const url = `${window.location.origin}/call/${result.session_id}`;
                       setTestCallUrl(url);
                       showMsg('Test call created! Share the link below.', 'success');
-                    } catch (err) { showMsg(err.message, 'error'); }
+                    } catch (err) {
+                      console.error('Test call error:', err);
+                      showMsg('Failed to create test call: ' + err.message, 'error');
+                    }
                     finally { setTestCallCreating(false); }
                   }}
                 >{testCallCreating ? 'Creating...' : 'Create Test Call'}</button>
