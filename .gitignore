@@ -1,7 +1,8 @@
 node_modules/
 frontend/node_modules/
 frontend/dist/
-backend/tijuspro.db
+backend/tijuspro.db-shm
+backend/tijuspro.db-wal
 backend/uploads/recordings/*
 !backend/uploads/recordings/.gitkeep
 .DS_Store
