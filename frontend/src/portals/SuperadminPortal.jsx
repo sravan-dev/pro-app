@@ -26,7 +26,11 @@ export default function SuperadminPortal() {
   // Modals
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [userForm, setUserForm] = useState({ name: '', email: '', role: 'student', password: 'password123', specialization: '', avatar_color: '#4F46E5' });
+  const [userForm, setUserForm] = useState({ name: '', email: '', role: 'student', password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly' });
+
+  // App settings (currency)
+  const [appSettings, setAppSettings] = useState({ currency: 'INR' });
+  const [appSettingsSaving, setAppSettingsSaving] = useState(false);
 
   const [showCourseForm, setShowCourseForm] = useState(false);
   const [editingCourse, setEditingCourse] = useState(null);
@@ -83,6 +87,13 @@ export default function SuperadminPortal() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  useEffect(() => { api.getAppSettings().then(setAppSettings).catch(() => {}); }, []);
+
+  const formatMoney = (amount) => {
+    const n = Number(amount) || 0;
+    return `${appSettings.currency} ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  };
+
   // Lazy fetch for tabs
   useEffect(() => {
     if (activeTab === 'students' && allStudents.length === 0) api.getStudents().then(setAllStudents).catch(() => {});
@@ -99,13 +110,13 @@ export default function SuperadminPortal() {
   // ===== USER CRUD =====
   const openCreateUser = (role = 'student') => {
     setEditingUser(null);
-    setUserForm({ name: '', email: '', role, password: 'password123', specialization: '', avatar_color: '#4F46E5' });
+    setUserForm({ name: '', email: '', role, password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly' });
     setShowUserForm(true);
   };
 
   const openEditUser = (user) => {
     setEditingUser(user);
-    setUserForm({ name: user.name, email: user.email, role: user.role, password: '', specialization: user.specialization || '', avatar_color: user.avatar_color, status: user.status });
+    setUserForm({ name: user.name, email: user.email, role: user.role, password: '', specialization: user.specialization || '', avatar_color: user.avatar_color, status: user.status, payout_rate: user.payout_rate || 0, payout_type: user.payout_type || 'monthly' });
     setShowUserForm(true);
   };
 
@@ -509,6 +520,9 @@ export default function SuperadminPortal() {
     { key: 'email', label: 'Email', accessor: 'email' },
     { key: 'specialization', label: 'Specialization', accessor: 'specialization' },
     { key: 'courses', label: 'Courses', accessor: 'course_count' },
+    { key: 'payout', label: 'Payout', accessor: 'payout_rate', render: (r) => (
+      <span>{formatMoney(r.payout_rate)} <span style={{ color: '#888', fontSize: '12px' }}>/ {r.payout_type || 'monthly'}</span></span>
+    ) },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
     { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser) },
   ];
@@ -629,6 +643,30 @@ export default function SuperadminPortal() {
               <input type="color" value={userForm.avatar_color} onChange={(e) => setUserForm({ ...userForm, avatar_color: e.target.value })} />
             </div>
           </div>
+          {userForm.role === 'tutor' && (
+            <div className="form-row">
+              <div className="form-group">
+                <label>Payout Rate ({appSettings.currency})</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={userForm.payout_rate}
+                  onChange={(e) => setUserForm({ ...userForm, payout_rate: parseFloat(e.target.value) || 0 })}
+                  placeholder="0"
+                />
+              </div>
+              <div className="form-group">
+                <label>Payout Type</label>
+                <select value={userForm.payout_type || 'monthly'} onChange={(e) => setUserForm({ ...userForm, payout_type: e.target.value })}>
+                  <option value="monthly">Monthly</option>
+                  <option value="per_session">Per Session</option>
+                  <option value="per_hour">Per Hour</option>
+                  <option value="per_course">Per Course</option>
+                </select>
+              </div>
+            </div>
+          )}
           {editingUser && (
             <div className="form-group">
               <label>Status</label>
@@ -1172,6 +1210,50 @@ export default function SuperadminPortal() {
         {activeTab === 'settings' && (
           <div className="portal-page">
             <h2>Settings</h2>
+
+            {/* Currency */}
+            <div className="settings-section" style={{ marginBottom: '2rem' }}>
+              <h3>Currency</h3>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
+                Used for tutor payouts and other monetary displays.
+              </p>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setAppSettingsSaving(true);
+                try {
+                  const result = await api.saveAppSettings({ currency: appSettings.currency });
+                  setAppSettings({ currency: result.currency });
+                  showMsg('Currency updated', 'success');
+                  if (allTutors.length) api.getTutors().then(setAllTutors);
+                } catch (err) { showMsg(err.message, 'error'); }
+                finally { setAppSettingsSaving(false); }
+              }}>
+                <div className="form-row">
+                  <div className="form-group" style={{ maxWidth: '240px' }}>
+                    <label>Currency</label>
+                    <select
+                      value={appSettings.currency}
+                      onChange={(e) => setAppSettings({ ...appSettings, currency: e.target.value })}
+                    >
+                      <option value="INR">INR — Indian Rupee</option>
+                      <option value="USD">USD — US Dollar</option>
+                      <option value="EUR">EUR — Euro</option>
+                      <option value="GBP">GBP — British Pound</option>
+                      <option value="AED">AED — UAE Dirham</option>
+                      <option value="AUD">AUD — Australian Dollar</option>
+                      <option value="CAD">CAD — Canadian Dollar</option>
+                      <option value="SGD">SGD — Singapore Dollar</option>
+                      <option value="JPY">JPY — Japanese Yen</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="form-actions" style={{ marginTop: '1rem' }}>
+                  <button type="submit" className="btn btn-primary" disabled={appSettingsSaving}>
+                    {appSettingsSaving ? 'Saving...' : 'Save Currency'}
+                  </button>
+                </div>
+              </form>
+            </div>
 
             {/* SMTP Configuration */}
             <div className="settings-section" style={{ marginBottom: '2rem' }}>

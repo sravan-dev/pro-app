@@ -113,6 +113,19 @@ function getDB() {
   )`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_materials_course ON course_materials(course_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_mat_managers_user ON course_material_managers(user_id)`);
+  db.exec(`CREATE TABLE IF NOT EXISTS app_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    currency TEXT DEFAULT 'INR'
+  )`);
+  db.prepare("INSERT OR IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')").run();
+  // Add payout columns to users if missing
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!userCols.includes('payout_rate')) {
+    db.exec("ALTER TABLE users ADD COLUMN payout_rate REAL DEFAULT 0");
+  }
+  if (!userCols.includes('payout_type')) {
+    db.exec("ALTER TABLE users ADD COLUMN payout_type TEXT DEFAULT 'monthly'");
+  }
   const catCount = db.prepare("SELECT COUNT(*) as n FROM categories").get().n;
   if (catCount === 0) {
     const ins = db.prepare("INSERT OR IGNORE INTO categories (name) VALUES (?)");
@@ -349,7 +362,7 @@ app.get('/api/students', (req, res) => {
 // Tutors
 app.get('/api/tutors', (req, res) => {
   const user = requireRole(req, res, ['manager','superadmin']); if (!user) return;
-  res.json(getDB().prepare("SELECT u.id,u.name,u.email,u.status,u.avatar_color,u.specialization, COUNT(DISTINCT c.id) as course_count FROM users u LEFT JOIN courses c ON c.tutor_id=u.id WHERE u.role='tutor' GROUP BY u.id ORDER BY u.name").all());
+  res.json(getDB().prepare("SELECT u.id,u.name,u.email,u.status,u.avatar_color,u.specialization,u.payout_rate,u.payout_type, COUNT(DISTINCT c.id) as course_count FROM users u LEFT JOIN courses c ON c.tutor_id=u.id WHERE u.role='tutor' GROUP BY u.id ORDER BY u.name").all());
 });
 
 // Courses
@@ -887,7 +900,7 @@ app.put('/api/users', (req, res) => {
   const user = requireRole(req, res, ['superadmin']); if (!user) return;
   const { id, password, ...fields } = req.body;
   if (!id) return res.status(400).json({ error: 'User ID required' });
-  const allowed = ['name','email','role','status','specialization','avatar_color'];
+  const allowed = ['name','email','role','status','specialization','avatar_color','payout_rate','payout_type'];
   const sets = []; const vals = [];
   for (const k of allowed) {
     if (fields[k] !== undefined) {
@@ -1031,6 +1044,27 @@ app.post('/api/clear-data', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to clear data: ' + err.message });
   }
+});
+
+// ============================================================
+// App Settings (currency, etc.)
+// ============================================================
+app.get('/api/app-settings', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const s = getDB().prepare("SELECT currency FROM app_settings WHERE id=1").get();
+  res.json(s || { currency: 'INR' });
+});
+
+app.put('/api/app-settings', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const currency = (req.body.currency || '').trim().toUpperCase();
+  const allowed = ['INR','USD','EUR','GBP','AED','AUD','CAD','SGD','JPY'];
+  if (!allowed.includes(currency)) return res.status(400).json({ error: 'Unsupported currency' });
+  const d = getDB();
+  d.prepare(`INSERT INTO app_settings (id, currency) VALUES (1, ?)
+    ON CONFLICT(id) DO UPDATE SET currency=excluded.currency`).run(currency);
+  auditLog(user.id, 'update_currency', 'app_settings', 1, `Set currency to ${currency}`);
+  res.json({ message: 'Settings updated', currency });
 });
 
 // ============================================================

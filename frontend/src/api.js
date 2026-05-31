@@ -91,6 +91,10 @@ export const api = {
   // Test Call
   createTestCall: () => request('/test-call', { method: 'POST' }),
 
+  // App Settings
+  getAppSettings: () => request('/app-settings'),
+  saveAppSettings: (data) => request('/app-settings', { method: 'PUT', body: data }),
+
   // SMTP Settings
   getSmtpSettings: () => request('/smtp-settings'),
   saveSmtpSettings: (data) => request('/smtp-settings', { method: 'POST', body: data }),
