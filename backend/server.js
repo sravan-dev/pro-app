@@ -77,9 +77,12 @@ const avatarStorage = multer.diskStorage({
 });
 const avatarUpload = multer({
   storage: avatarStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (!/^image\/(png|jpe?g|gif|webp)$/.test(file.mimetype)) return cb(new Error('Only image files allowed'));
+    if (!/^image\/(png|jpe?g|gif|webp)$/.test(file.mimetype)) {
+      req.fileValidationError = 'Only image files allowed';
+      return cb(null, false);
+    }
     cb(null, true);
   },
 });
@@ -295,10 +298,14 @@ app.get('/api/auth/session', (req, res) => {
 });
 
 // Profile avatar upload (self-service for any logged-in user)
-app.post('/api/profile/avatar', (req, res, next) => {
+app.post('/api/profile/avatar', (req, res) => {
   const u = requireAuth(req, res); if (!u) return;
   avatarUpload.single('avatar')(req, res, (err) => {
-    if (err) return res.status(400).json({ error: err.message });
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'File too large (max 10 MB)' });
+      return res.status(400).json({ error: err.message || 'Upload failed' });
+    }
+    if (req.fileValidationError) return res.status(400).json({ error: req.fileValidationError });
     if (!req.file) return res.status(400).json({ error: 'No file provided' });
     const d = getDB();
     const prior = d.prepare("SELECT avatar_url FROM users WHERE id=?").get(u.id);
