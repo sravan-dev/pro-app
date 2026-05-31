@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { api } from '../api';
 
 const menuItems = {
   student: [
@@ -49,9 +50,13 @@ const iconMap = {
 };
 
 export default function Sidebar({ activeTab, onTabChange }) {
-  const { user, logout } = useAuth();
+  const { user, logout, checkSession } = useAuth();
   const navigate = useNavigate();
   const items = menuItems[user?.role] || [];
+  const [showProfile, setShowProfile] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const fileRef = useRef(null);
 
   const handleLogout = async () => {
     await logout();
@@ -65,21 +70,68 @@ export default function Sidebar({ activeTab, onTabChange }) {
     .toUpperCase()
     .slice(0, 2);
 
+  const onPickFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setError('Please choose an image file.'); return; }
+    if (file.size > 5 * 1024 * 1024) { setError('Max size 5 MB.'); return; }
+    setError('');
+    setUploading(true);
+    try {
+      await api.uploadAvatar(file);
+      await checkSession();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onRemove = async () => {
+    if (!confirm('Remove profile picture?')) return;
+    setUploading(true);
+    setError('');
+    try {
+      await api.removeAvatar();
+      await checkSession();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
         <img src="/logo.png" alt="Tiju's Academy" className="sidebar-logo" />
       </div>
 
-      <div className="sidebar-user">
-        <div className="avatar" style={{ backgroundColor: user?.avatar_color || '#4F46E5' }}>
-          {initials}
+      <button
+        type="button"
+        className="sidebar-user"
+        onClick={() => setShowProfile(true)}
+        style={{ background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer', padding: 0, width: '100%' }}
+        title="Update profile picture"
+      >
+        <div
+          className="avatar"
+          style={{
+            backgroundColor: user?.avatar_color || '#4F46E5',
+            backgroundImage: user?.avatar_url ? `url(${user.avatar_url})` : undefined,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            color: user?.avatar_url ? 'transparent' : undefined,
+          }}
+        >
+          {!user?.avatar_url && initials}
         </div>
         <div className="sidebar-user-info">
           <span className="sidebar-user-name">{user?.name}</span>
           <span className="sidebar-user-role">{user?.role}</span>
         </div>
-      </div>
+      </button>
 
       <nav className="sidebar-nav">
         {items.map((item) => (
@@ -100,6 +152,61 @@ export default function Sidebar({ activeTab, onTabChange }) {
           <span className="sidebar-label">Logout</span>
         </button>
       </div>
+
+      {showProfile && (
+        <div className="modal-overlay" onClick={() => setShowProfile(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px', width: '90%' }}>
+            <h3>Update Profile Picture</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '8px 0' }}>
+              <div
+                style={{
+                  width: '120px',
+                  height: '120px',
+                  borderRadius: '50%',
+                  backgroundColor: user?.avatar_color || '#4F46E5',
+                  backgroundImage: user?.avatar_url ? `url(${user.avatar_url})` : undefined,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  fontSize: '36px',
+                  fontWeight: 600,
+                }}
+              >
+                {!user?.avatar_url && initials}
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontWeight: 600 }}>{user?.name}</div>
+                <div style={{ color: '#888', fontSize: '13px' }}>{user?.email}</div>
+              </div>
+              {error && <div style={{ color: '#dc2626', fontSize: '13px' }}>{error}</div>}
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+                onChange={onPickFile}
+                style={{ display: 'none' }}
+              />
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                <button type="button" className="btn btn-primary" disabled={uploading} onClick={() => fileRef.current?.click()}>
+                  {uploading ? 'Uploading...' : (user?.avatar_url ? 'Replace Photo' : 'Upload Photo')}
+                </button>
+                {user?.avatar_url && (
+                  <button type="button" className="btn btn-ghost" disabled={uploading} onClick={onRemove} style={{ color: '#dc2626' }}>
+                    Remove
+                  </button>
+                )}
+              </div>
+              <p style={{ fontSize: '12px', color: '#888', textAlign: 'center', margin: 0 }}>JPG, PNG, GIF, WEBP. Max 5 MB.</p>
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setShowProfile(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

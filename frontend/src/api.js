@@ -91,6 +91,14 @@ export const api = {
   // Test Call
   createTestCall: () => request('/test-call', { method: 'POST' }),
 
+  // Profile
+  uploadAvatar: (file) => {
+    const fd = new FormData();
+    fd.append('avatar', file);
+    return request('/profile/avatar', { method: 'POST', body: fd });
+  },
+  removeAvatar: () => request('/profile/avatar', { method: 'DELETE' }),
+
   // App Settings
   getAppSettings: () => request('/app-settings'),
   saveAppSettings: (data) => request('/app-settings', { method: 'PUT', body: data }),

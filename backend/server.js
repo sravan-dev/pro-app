@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 8000;
 const DB_PATH = path.join(__dirname, 'tijuspro.db');
 const UPLOAD_DIR = path.join(__dirname, 'uploads', 'recordings');
 const MATERIALS_DIR = path.join(__dirname, 'uploads', 'materials');
+const AVATARS_DIR = path.join(__dirname, 'uploads', 'avatars');
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist');
 
 // ============================================================
@@ -53,6 +54,7 @@ app.use(session({
 // Serve uploaded files
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(MATERIALS_DIR)) fs.mkdirSync(MATERIALS_DIR, { recursive: true });
+if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Multer for file uploads
@@ -66,6 +68,21 @@ const materialStorage = multer.diskStorage({
   },
 });
 const materialUpload = multer({ storage: materialStorage, limits: { fileSize: 200 * 1024 * 1024 } });
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, AVATARS_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${req.session.userId}_${Date.now()}${ext}`);
+  },
+});
+const avatarUpload = multer({
+  storage: avatarStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!/^image\/(png|jpe?g|gif|webp)$/.test(file.mimetype)) return cb(new Error('Only image files allowed'));
+    cb(null, true);
+  },
+});
 
 // ============================================================
 // Database
@@ -125,6 +142,9 @@ function getDB() {
   }
   if (!userCols.includes('payout_type')) {
     db.exec("ALTER TABLE users ADD COLUMN payout_type TEXT DEFAULT 'monthly'");
+  }
+  if (!userCols.includes('avatar_url')) {
+    db.exec("ALTER TABLE users ADD COLUMN avatar_url TEXT DEFAULT ''");
   }
   const catCount = db.prepare("SELECT COUNT(*) as n FROM categories").get().n;
   if (catCount === 0) {
@@ -212,7 +232,7 @@ function initDB() {
 // ============================================================
 function requireAuth(req, res) {
   if (!req.session.userId) { res.status(401).json({ error: 'Not authenticated' }); return null; }
-  const user = getDB().prepare("SELECT id,name,email,portal,role,specialization,status,avatar_color,must_change_password FROM users WHERE id=?").get(req.session.userId);
+  const user = getDB().prepare("SELECT id,name,email,portal,role,specialization,status,avatar_color,avatar_url,must_change_password FROM users WHERE id=?").get(req.session.userId);
   if (!user) { req.session.destroy(() => {}); res.status(401).json({ error: 'User not found' }); return null; }
   return user;
 }
@@ -256,7 +276,7 @@ app.post('/api/auth/login', (req, res) => {
   req.session.role = user.role;
   auditLog(user.id, 'login', 'user', user.id);
 
-  res.json({ user: { id: user.id, name: user.name, email: user.email, portal: user.portal, role: user.role, specialization: user.specialization, status: user.status, avatar_color: user.avatar_color, must_change_password: !!user.must_change_password } });
+  res.json({ user: { id: user.id, name: user.name, email: user.email, portal: user.portal, role: user.role, specialization: user.specialization, status: user.status, avatar_color: user.avatar_color, avatar_url: user.avatar_url || '', must_change_password: !!user.must_change_password } });
 });
 
 // Logout
@@ -269,9 +289,41 @@ app.post('/api/auth/logout', (req, res) => {
 // Session check
 app.get('/api/auth/session', (req, res) => {
   if (!req.session.userId) return res.json({ authenticated: false });
-  const user = getDB().prepare("SELECT id,name,email,portal,role,specialization,status,avatar_color,must_change_password FROM users WHERE id=?").get(req.session.userId);
+  const user = getDB().prepare("SELECT id,name,email,portal,role,specialization,status,avatar_color,avatar_url,must_change_password FROM users WHERE id=?").get(req.session.userId);
   if (!user) return res.json({ authenticated: false });
   res.json({ authenticated: true, user });
+});
+
+// Profile avatar upload (self-service for any logged-in user)
+app.post('/api/profile/avatar', (req, res, next) => {
+  const u = requireAuth(req, res); if (!u) return;
+  avatarUpload.single('avatar')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'No file provided' });
+    const d = getDB();
+    const prior = d.prepare("SELECT avatar_url FROM users WHERE id=?").get(u.id);
+    const url = `/uploads/avatars/${req.file.filename}`;
+    d.prepare("UPDATE users SET avatar_url=? WHERE id=?").run(url, u.id);
+    if (prior && prior.avatar_url) {
+      const abs = path.join(__dirname, prior.avatar_url.replace(/^\/+/, ''));
+      try { fs.unlinkSync(abs); } catch {}
+    }
+    auditLog(u.id, 'update_avatar', 'user', u.id);
+    res.json({ message: 'Avatar updated', avatar_url: url });
+  });
+});
+
+app.delete('/api/profile/avatar', (req, res) => {
+  const u = requireAuth(req, res); if (!u) return;
+  const d = getDB();
+  const prior = d.prepare("SELECT avatar_url FROM users WHERE id=?").get(u.id);
+  d.prepare("UPDATE users SET avatar_url='' WHERE id=?").run(u.id);
+  if (prior && prior.avatar_url) {
+    const abs = path.join(__dirname, prior.avatar_url.replace(/^\/+/, ''));
+    try { fs.unlinkSync(abs); } catch {}
+  }
+  auditLog(u.id, 'remove_avatar', 'user', u.id);
+  res.json({ message: 'Avatar removed' });
 });
 
 // Bootstrap
