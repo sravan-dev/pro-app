@@ -32,6 +32,21 @@ export default function SuperadminPortal() {
   const [editingCourse, setEditingCourse] = useState(null);
   const [courseForm, setCourseForm] = useState({ name: '', category: 'Technology', tutor_id: '', color: '#3B82F6', icon: 'book' });
 
+  // Categories
+  const [categories, setCategories] = useState([]);
+  const [showCategoryMgr, setShowCategoryMgr] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [editingCategoryId, setEditingCategoryId] = useState(null);
+  const [editingCategoryName, setEditingCategoryName] = useState('');
+
+  // Course Materials
+  const [showMaterialsMgr, setShowMaterialsMgr] = useState(false);
+  const [materialsCourse, setMaterialsCourse] = useState(null);
+  const [materialsList, setMaterialsList] = useState([]);
+  const [materialManagers, setMaterialManagers] = useState([]);
+  const [newMaterial, setNewMaterial] = useState({ title: '', description: '', url: '', file: null });
+  const [assignManagerId, setAssignManagerId] = useState('');
+
   const [showEnrollForm, setShowEnrollForm] = useState(false);
   const [editingEnroll, setEditingEnroll] = useState(null);
   const [enrollForm, setEnrollForm] = useState({ student_id: '', course_id: '', progress_percentage: 0, grade: '', status: 'active' });
@@ -73,6 +88,7 @@ export default function SuperadminPortal() {
     if (activeTab === 'students' && allStudents.length === 0) api.getStudents().then(setAllStudents).catch(() => {});
     if (activeTab === 'tutors' && allTutors.length === 0) api.getTutors().then(setAllTutors).catch(() => {});
     if (activeTab === 'courses' && allCourses.length === 0) api.getCourses().then(setAllCourses).catch(() => {});
+    if (activeTab === 'courses' && categories.length === 0) api.getCategories().then(setCategories).catch(() => {});
     if (activeTab === 'enrollments' && allEnrollments.length === 0) api.getEnrollments().then(setAllEnrollments).catch(() => {});
     if (activeTab === 'sessions' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'attendance' && allAttendance.length === 0) api.getAttendanceLogs().then(setAllAttendance).catch(() => {});
@@ -146,8 +162,136 @@ export default function SuperadminPortal() {
   // ===== COURSE CRUD =====
   const openCreateCourse = () => {
     setEditingCourse(null);
-    setCourseForm({ name: '', category: 'Technology', tutor_id: '', color: '#3B82F6', icon: 'book' });
+    setCourseForm({ name: '', category: categories[0]?.name || '', tutor_id: '', color: '#3B82F6', icon: 'book' });
     setShowCourseForm(true);
+  };
+
+  // ===== CATEGORY CRUD =====
+  const addCategory = async () => {
+    const name = newCategoryName.trim();
+    if (!name) return;
+    try {
+      await api.createCategory(name);
+      const list = await api.getCategories();
+      setCategories(list);
+      setNewCategoryName('');
+      showMsg('Category added', 'success');
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const removeCategory = async (id) => {
+    if (!confirm('Delete this category?')) return;
+    try {
+      await api.deleteCategory(id);
+      const list = await api.getCategories();
+      setCategories(list);
+      showMsg('Category deleted', 'success');
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const startEditCategory = (c) => {
+    setEditingCategoryId(c.id);
+    setEditingCategoryName(c.name);
+  };
+
+  const cancelEditCategory = () => {
+    setEditingCategoryId(null);
+    setEditingCategoryName('');
+  };
+
+  const saveEditCategory = async () => {
+    const name = editingCategoryName.trim();
+    if (!name) return;
+    try {
+      await api.updateCategory(editingCategoryId, name);
+      const list = await api.getCategories();
+      setCategories(list);
+      cancelEditCategory();
+      api.getCourses().then(setAllCourses);
+      fetchData();
+      showMsg('Category updated', 'success');
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  // ===== COURSE MATERIALS =====
+  const openMaterialsMgr = async (course) => {
+    setMaterialsCourse(course);
+    setNewMaterial({ title: '', description: '', url: '', file: null });
+    setAssignManagerId('');
+    setShowMaterialsMgr(true);
+    try {
+      const [mats, mgrs] = await Promise.all([
+        api.getCourseMaterials(course.id),
+        api.getMaterialManagers(course.id),
+      ]);
+      setMaterialsList(mats.materials || []);
+      setMaterialManagers(mgrs);
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const refreshMaterials = async () => {
+    if (!materialsCourse) return;
+    const mats = await api.getCourseMaterials(materialsCourse.id);
+    setMaterialsList(mats.materials || []);
+  };
+
+  const refreshManagers = async () => {
+    if (!materialsCourse) return;
+    const mgrs = await api.getMaterialManagers(materialsCourse.id);
+    setMaterialManagers(mgrs);
+  };
+
+  const submitMaterial = async (e) => {
+    e.preventDefault();
+    if (!materialsCourse) return;
+    if (!newMaterial.title.trim()) return showMsg('Title required', 'error');
+    if (!newMaterial.file && !newMaterial.url.trim()) return showMsg('Provide a file or a URL', 'error');
+    try {
+      const fd = new FormData();
+      fd.append('course_id', materialsCourse.id);
+      fd.append('title', newMaterial.title.trim());
+      fd.append('description', newMaterial.description.trim());
+      if (newMaterial.file) fd.append('file', newMaterial.file);
+      else fd.append('url', newMaterial.url.trim());
+      await api.createCourseMaterial(fd);
+      setNewMaterial({ title: '', description: '', url: '', file: null });
+      await refreshMaterials();
+      showMsg('Material added', 'success');
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const toggleMaterial = async (m) => {
+    try {
+      await api.updateCourseMaterial({ id: m.id, is_enabled: !m.is_enabled });
+      await refreshMaterials();
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const deleteMaterial = async (id) => {
+    if (!confirm('Delete this material?')) return;
+    try {
+      await api.deleteCourseMaterial(id);
+      await refreshMaterials();
+      showMsg('Material deleted', 'success');
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const assignManager = async () => {
+    if (!assignManagerId) return;
+    try {
+      await api.assignMaterialManager(materialsCourse.id, parseInt(assignManagerId));
+      setAssignManagerId('');
+      await refreshManagers();
+      showMsg('Manager assigned', 'success');
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const unassignManager = async (userId) => {
+    try {
+      await api.unassignMaterialManager(materialsCourse.id, userId);
+      await refreshManagers();
+      showMsg('Manager removed', 'success');
+    } catch (err) { showMsg(err.message, 'error'); }
   };
 
   const openEditCourse = (course) => {
@@ -386,7 +530,16 @@ export default function SuperadminPortal() {
     { key: 'students', label: 'Students', accessor: 'students_count' },
     { key: 'progress', label: 'Progress', accessor: 'progress', render: (r) => progressCol(r, 'progress') },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
-    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditCourse, archiveCourse, 'Archive', permanentDeleteCourse) },
+    { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
+      <div className="table-actions">
+        <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); openMaterialsMgr(r); }}>Materials</button>
+        <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); openEditCourse(r); }}>Edit</button>
+        {r.status !== 'archived' && (
+          <button className="btn btn-sm btn-ghost text-danger" onClick={(e) => { e.stopPropagation(); archiveCourse(r.id); }}>Archive</button>
+        )}
+        <button className="btn btn-sm btn-ghost text-danger" onClick={(e) => { e.stopPropagation(); permanentDeleteCourse(r.id); }}>Delete</button>
+      </div>
+    ) },
   ];
 
   const enrollColumns = [
@@ -506,12 +659,13 @@ export default function SuperadminPortal() {
           </div>
           <div className="form-row">
             <div className="form-group">
-              <label>Category *</label>
-              <select value={courseForm.category} onChange={(e) => setCourseForm({ ...courseForm, category: e.target.value })}>
-                <option>Technology</option>
-                <option>Marketing</option>
-                <option>Language</option>
-                <option>Design</option>
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Category *</span>
+                <button type="button" className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: '12px' }} onClick={() => setShowCategoryMgr(true)}>Manage</button>
+              </label>
+              <select value={courseForm.category} onChange={(e) => setCourseForm({ ...courseForm, category: e.target.value })} required>
+                <option value="">Select category...</option>
+                {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
               </select>
             </div>
             <div className="form-group">
@@ -559,6 +713,178 @@ export default function SuperadminPortal() {
             <button type="submit" className="btn btn-primary">{editingCourse ? 'Update Course' : 'Create Course'}</button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+
+  const categoryMgrModal = showCategoryMgr && (
+    <div className="modal-overlay" onClick={() => setShowCategoryMgr(false)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Manage Categories</h3>
+        <div className="form-group">
+          <label>Add New Category</label>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCategory(); } }}
+              placeholder="Category name"
+              style={{ flex: 1 }}
+            />
+            <button type="button" className="btn btn-primary" onClick={addCategory}>Add</button>
+          </div>
+        </div>
+        <div className="form-group">
+          <label>Existing Categories</label>
+          {categories.length === 0 ? (
+            <p style={{ color: '#888', fontSize: '14px' }}>No categories yet.</p>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: '240px', overflowY: 'auto' }}>
+              {categories.map((c) => (
+                <li key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', padding: '8px 12px', borderBottom: '1px solid #eee' }}>
+                  {editingCategoryId === c.id ? (
+                    <>
+                      <input
+                        value={editingCategoryName}
+                        onChange={(e) => setEditingCategoryName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveEditCategory(); } if (e.key === 'Escape') cancelEditCategory(); }}
+                        autoFocus
+                        style={{ flex: 1 }}
+                      />
+                      <button type="button" className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '13px' }} onClick={saveEditCategory}>Save</button>
+                      <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: '13px' }} onClick={cancelEditCategory}>Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ flex: 1 }}>{c.name}</span>
+                      <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: '13px' }} onClick={() => startEditCategory(c)}>Edit</button>
+                      <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: '13px', color: '#dc2626' }} onClick={() => removeCategory(c.id)}>Delete</button>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="form-actions">
+          <button type="button" className="btn btn-primary" onClick={() => setShowCategoryMgr(false)}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const eligibleManagers = [...allTutors, ...(data?.users || []).filter((u) => ['manager','advisor'].includes(u.role))]
+    .filter((u, i, arr) => arr.findIndex((x) => x.id === u.id) === i)
+    .filter((u) => !materialManagers.some((m) => m.user_id === u.id));
+
+  const materialsMgrModal = showMaterialsMgr && materialsCourse && (
+    <div className="modal-overlay" onClick={() => setShowMaterialsMgr(false)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '720px', width: '90%' }}>
+        <h3>Materials — {materialsCourse.name}</h3>
+
+        <div className="form-group">
+          <label style={{ fontWeight: 600 }}>Assigned Material Managers</label>
+          <p style={{ fontSize: '13px', color: '#666', margin: '4px 0 8px' }}>
+            These users (plus superadmins) can add, edit, enable/disable, and delete materials for this course.
+          </p>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+            <select value={assignManagerId} onChange={(e) => setAssignManagerId(e.target.value)} style={{ flex: 1 }}>
+              <option value="">Select user to assign...</option>
+              {eligibleManagers.map((u) => (
+                <option key={u.id} value={u.id}>{u.name} ({u.role || 'tutor'})</option>
+              ))}
+            </select>
+            <button type="button" className="btn btn-primary" onClick={assignManager} disabled={!assignManagerId}>Assign</button>
+          </div>
+          {materialManagers.length === 0 ? (
+            <p style={{ color: '#888', fontSize: '13px' }}>No managers assigned. Only superadmin can manage materials.</p>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, border: '1px solid #eee', borderRadius: '6px' }}>
+              {materialManagers.map((m) => (
+                <li key={m.user_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #eee' }}>
+                  <span>{m.name} <span style={{ color: '#888', fontSize: '12px' }}>({m.email}) — {m.role}</span></span>
+                  <button type="button" className="btn btn-ghost" style={{ color: '#dc2626', padding: '4px 10px' }} onClick={() => unassignManager(m.user_id)}>Remove</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <hr style={{ margin: '16px 0', border: 'none', borderTop: '1px solid #eee' }} />
+
+        <div className="form-group">
+          <label style={{ fontWeight: 600 }}>Add Material</label>
+          <form onSubmit={submitMaterial}>
+            <input
+              type="text"
+              placeholder="Title *"
+              value={newMaterial.title}
+              onChange={(e) => setNewMaterial({ ...newMaterial, title: e.target.value })}
+              style={{ width: '100%', marginBottom: '8px' }}
+            />
+            <input
+              type="text"
+              placeholder="Description (optional)"
+              value={newMaterial.description}
+              onChange={(e) => setNewMaterial({ ...newMaterial, description: e.target.value })}
+              style={{ width: '100%', marginBottom: '8px' }}
+            />
+            <div className="form-row" style={{ gap: '8px' }}>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label style={{ fontSize: '13px' }}>File (pdf/video/doc)</label>
+                <input
+                  type="file"
+                  onChange={(e) => setNewMaterial({ ...newMaterial, file: e.target.files[0] || null, url: '' })}
+                />
+              </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label style={{ fontSize: '13px' }}>Or Link URL</label>
+                <input
+                  type="url"
+                  placeholder="https://..."
+                  value={newMaterial.url}
+                  onChange={(e) => setNewMaterial({ ...newMaterial, url: e.target.value, file: null })}
+                />
+              </div>
+            </div>
+            <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }}>Add Material</button>
+          </form>
+        </div>
+
+        <hr style={{ margin: '16px 0', border: 'none', borderTop: '1px solid #eee' }} />
+
+        <div className="form-group">
+          <label style={{ fontWeight: 600 }}>Existing Materials ({materialsList.length})</label>
+          {materialsList.length === 0 ? (
+            <p style={{ color: '#888', fontSize: '13px' }}>No materials yet.</p>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: '260px', overflowY: 'auto', border: '1px solid #eee', borderRadius: '6px' }}>
+              {materialsList.map((m) => (
+                <li key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', padding: '10px 12px', borderBottom: '1px solid #eee', opacity: m.is_enabled ? 1 : 0.55 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 500 }}>{m.title} <span style={{ fontSize: '11px', color: '#888', textTransform: 'uppercase' }}>[{m.type}]</span></div>
+                    {m.description && <div style={{ fontSize: '12px', color: '#666' }}>{m.description}</div>}
+                    {m.type === 'file' && m.file_path && (
+                      <a href={m.file_path} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#3B82F6' }}>{m.original_name || 'View file'}</a>
+                    )}
+                    {m.type === 'link' && m.url && (
+                      <a href={m.url} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#3B82F6', wordBreak: 'break-all' }}>{m.url}</a>
+                    )}
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!!m.is_enabled} onChange={() => toggleMaterial(m)} />
+                    {m.is_enabled ? 'Enabled' : 'Disabled'}
+                  </label>
+                  <button type="button" className="btn btn-ghost" style={{ color: '#dc2626', padding: '4px 10px' }} onClick={() => deleteMaterial(m.id)}>Delete</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="form-actions">
+          <button type="button" className="btn btn-primary" onClick={() => setShowMaterialsMgr(false)}>Done</button>
+        </div>
       </div>
     </div>
   );
@@ -667,6 +993,8 @@ export default function SuperadminPortal() {
         {message && <div className={`alert alert-${msgType}`} onClick={() => setMessage('')}>{message}</div>}
         {userFormModal}
         {courseFormModal}
+        {categoryMgrModal}
+        {materialsMgrModal}
         {enrollFormModal}
         {sessionFormModal}
 

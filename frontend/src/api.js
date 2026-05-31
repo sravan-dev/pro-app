@@ -44,6 +44,21 @@ export const api = {
   deleteCourse: (id) => request(`/courses?id=${id}`, { method: 'DELETE' }),
   permanentDeleteCourse: (id) => request(`/courses?id=${id}&permanent=true`, { method: 'DELETE' }),
 
+  // Categories
+  getCategories: () => request('/categories'),
+  createCategory: (name) => request('/categories', { method: 'POST', body: { name } }),
+  updateCategory: (id, name) => request('/categories', { method: 'PUT', body: { id, name } }),
+  deleteCategory: (id) => request(`/categories?id=${id}`, { method: 'DELETE' }),
+
+  // Course Materials
+  getCourseMaterials: (courseId) => request(`/course-materials?course_id=${courseId}`),
+  createCourseMaterial: (formData) => request('/course-materials', { method: 'POST', body: formData }),
+  updateCourseMaterial: (data) => request('/course-materials', { method: 'PUT', body: data }),
+  deleteCourseMaterial: (id) => request(`/course-materials?id=${id}`, { method: 'DELETE' }),
+  getMaterialManagers: (courseId) => request(`/course-material-managers?course_id=${courseId}`),
+  assignMaterialManager: (courseId, userId) => request('/course-material-managers', { method: 'POST', body: { course_id: courseId, user_id: userId } }),
+  unassignMaterialManager: (courseId, userId) => request(`/course-material-managers?course_id=${courseId}&user_id=${userId}`, { method: 'DELETE' }),
+
   // Enrollments
   getEnrollments: () => request('/enrollments'),
   createEnrollment: (data) => request('/enrollments', { method: 'POST', body: data }),

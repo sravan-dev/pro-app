@@ -16,6 +16,10 @@ export default function StudentPortal() {
   const [loading, setLoading] = useState(true);
   const [activeSession, setActiveSession] = useState(null);
   const [allSessions, setAllSessions] = useState([]);
+  const [viewingCourse, setViewingCourse] = useState(null);
+  const [viewMaterials, setViewMaterials] = useState([]);
+  const [materialsLoading, setMaterialsLoading] = useState(false);
+  const [materialsError, setMaterialsError] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -36,6 +40,21 @@ export default function StudentPortal() {
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  const openCourseMaterials = async (course) => {
+    setViewingCourse(course);
+    setViewMaterials([]);
+    setMaterialsError('');
+    setMaterialsLoading(true);
+    try {
+      const r = await api.getCourseMaterials(course.id);
+      setViewMaterials(r.materials || []);
+    } catch (err) {
+      setMaterialsError(err.message);
+    } finally {
+      setMaterialsLoading(false);
+    }
+  };
 
   const handleJoinSession = async (session) => {
     try {
@@ -93,7 +112,7 @@ export default function StudentPortal() {
             <div className="section">
               <h3>My Courses</h3>
               <div className="card-grid">
-                {courses.slice(0, 4).map((c) => <CourseCard key={c.id} course={c} />)}
+                {courses.slice(0, 4).map((c) => <CourseCard key={c.id} course={c} onClick={() => openCourseMaterials(c)} />)}
               </div>
             </div>
 
@@ -114,7 +133,7 @@ export default function StudentPortal() {
           <div className="portal-page">
             <h2>My Courses</h2>
             <div className="card-grid">
-              {courses.map((c) => <CourseCard key={c.id} course={c} />)}
+              {courses.map((c) => <CourseCard key={c.id} course={c} onClick={() => openCourseMaterials(c)} />)}
             </div>
             {courses.length === 0 && <p className="empty-state">No courses enrolled yet.</p>}
           </div>
@@ -139,6 +158,45 @@ export default function StudentPortal() {
           <div className="portal-page">
             <h2>Grades & Performance</h2>
             <DataTable columns={gradeColumns} data={courses} searchable={false} />
+          </div>
+        )}
+
+        {viewingCourse && (
+          <div className="modal-overlay" onClick={() => setViewingCourse(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '640px', width: '90%' }}>
+              <h3>{viewingCourse.name} — Course Materials</h3>
+              <p style={{ color: '#666', fontSize: '13px', marginTop: '-4px' }}>by {viewingCourse.tutor_name}</p>
+              {materialsLoading && <p>Loading...</p>}
+              {materialsError && <p style={{ color: '#dc2626' }}>{materialsError}</p>}
+              {!materialsLoading && !materialsError && viewMaterials.length === 0 && (
+                <p style={{ color: '#888', padding: '16px 0' }}>No materials available yet.</p>
+              )}
+              {viewMaterials.length > 0 && (
+                <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0', maxHeight: '420px', overflowY: 'auto', border: '1px solid #eee', borderRadius: '6px' }}>
+                  {viewMaterials.map((m) => (
+                    <li key={m.id} style={{ padding: '12px 14px', borderBottom: '1px solid #eee' }}>
+                      <div style={{ fontWeight: 600, marginBottom: '4px' }}>
+                        {m.title} <span style={{ fontSize: '11px', color: '#888', textTransform: 'uppercase', fontWeight: 400 }}>[{m.type}]</span>
+                      </div>
+                      {m.description && <div style={{ fontSize: '13px', color: '#555', marginBottom: '6px' }}>{m.description}</div>}
+                      {m.type === 'file' && m.file_path && (
+                        <a href={m.file_path} target="_blank" rel="noreferrer" download style={{ color: '#3B82F6', fontSize: '13px' }}>
+                          ⬇ Download {m.original_name || 'file'}
+                        </a>
+                      )}
+                      {m.type === 'link' && m.url && (
+                        <a href={m.url} target="_blank" rel="noreferrer" style={{ color: '#3B82F6', fontSize: '13px', wordBreak: 'break-all' }}>
+                          🔗 {m.url}
+                        </a>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="form-actions">
+                <button type="button" className="btn btn-primary" onClick={() => setViewingCourse(null)}>Close</button>
+              </div>
+            </div>
           </div>
         )}
       </main>

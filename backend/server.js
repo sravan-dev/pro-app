@@ -13,6 +13,7 @@ const app = express();
 const PORT = process.env.PORT || 8000;
 const DB_PATH = path.join(__dirname, 'tijuspro.db');
 const UPLOAD_DIR = path.join(__dirname, 'uploads', 'recordings');
+const MATERIALS_DIR = path.join(__dirname, 'uploads', 'materials');
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist');
 
 // ============================================================
@@ -51,10 +52,20 @@ app.use(session({
 
 // Serve uploaded files
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+if (!fs.existsSync(MATERIALS_DIR)) fs.mkdirSync(MATERIALS_DIR, { recursive: true });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Multer for file uploads
 const upload = multer({ dest: UPLOAD_DIR });
+const materialStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, MATERIALS_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const safe = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60);
+    cb(null, `${Date.now()}_${safe}${ext}`);
+  },
+});
+const materialUpload = multer({ storage: materialStorage, limits: { fileSize: 200 * 1024 * 1024 } });
 
 // ============================================================
 // Database
@@ -74,6 +85,39 @@ function getDB() {
     id INTEGER PRIMARY KEY CHECK (id = 1),
     host TEXT, port INTEGER DEFAULT 587, user TEXT, pass TEXT, from_email TEXT
   )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS course_materials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id INTEGER NOT NULL REFERENCES courses(id),
+    title TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    type TEXT NOT NULL CHECK(type IN ('file','link')),
+    file_path TEXT DEFAULT '',
+    url TEXT DEFAULT '',
+    original_name TEXT DEFAULT '',
+    sort_order INTEGER DEFAULT 0,
+    is_enabled INTEGER DEFAULT 1,
+    created_by INTEGER REFERENCES users(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS course_material_managers (
+    course_id INTEGER NOT NULL REFERENCES courses(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    assigned_by INTEGER REFERENCES users(id),
+    assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (course_id, user_id)
+  )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_materials_course ON course_materials(course_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_mat_managers_user ON course_material_managers(user_id)`);
+  const catCount = db.prepare("SELECT COUNT(*) as n FROM categories").get().n;
+  if (catCount === 0) {
+    const ins = db.prepare("INSERT OR IGNORE INTO categories (name) VALUES (?)");
+    ['Technology', 'Marketing', 'Language', 'Design'].forEach((c) => ins.run(c));
+  }
   return db;
 }
 
@@ -366,6 +410,207 @@ app.delete('/api/courses', (req, res) => {
     auditLog(user.id, 'archive_course', 'course', id);
     res.json({ message: 'Course archived' });
   }
+});
+
+// Categories
+app.get('/api/categories', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  res.json(getDB().prepare("SELECT id,name FROM categories ORDER BY name").all());
+});
+
+app.post('/api/categories', (req, res) => {
+  const user = requireRole(req, res, ['superadmin','manager']); if (!user) return;
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Name required' });
+  try {
+    const r = getDB().prepare("INSERT INTO categories (name) VALUES (?)").run(name);
+    auditLog(user.id, 'create_category', 'category', r.lastInsertRowid, `Created: ${name}`);
+    res.status(201).json({ id: r.lastInsertRowid, name });
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) return res.status(400).json({ error: 'Category already exists' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/categories', (req, res) => {
+  const user = requireRole(req, res, ['superadmin','manager']); if (!user) return;
+  const { id, name } = req.body;
+  const newName = (name || '').trim();
+  if (!id || !newName) return res.status(400).json({ error: 'ID and name required' });
+  const d = getDB();
+  const cat = d.prepare("SELECT name FROM categories WHERE id=?").get(id);
+  if (!cat) return res.status(404).json({ error: 'Category not found' });
+  if (cat.name === newName) return res.json({ message: 'No change' });
+  try {
+    d.transaction(() => {
+      d.prepare("UPDATE categories SET name=? WHERE id=?").run(newName, id);
+      d.prepare("UPDATE courses SET category=? WHERE category=?").run(newName, cat.name);
+    })();
+    auditLog(user.id, 'update_category', 'category', id, `Renamed: ${cat.name} -> ${newName}`);
+    res.json({ message: 'Category updated' });
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) return res.status(400).json({ error: 'Category name already exists' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/categories', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'Category ID required' });
+  const d = getDB();
+  const cat = d.prepare("SELECT name FROM categories WHERE id=?").get(id);
+  if (!cat) return res.status(404).json({ error: 'Category not found' });
+  const inUse = d.prepare("SELECT COUNT(*) as n FROM courses WHERE category=?").get(cat.name).n;
+  if (inUse > 0) return res.status(400).json({ error: `Category in use by ${inUse} course(s)` });
+  d.prepare("DELETE FROM categories WHERE id=?").run(id);
+  auditLog(user.id, 'delete_category', 'category', id, `Deleted: ${cat.name}`);
+  res.json({ message: 'Category deleted' });
+});
+
+// ============================================================
+// Course Materials
+// ============================================================
+function canManageMaterials(user, courseId) {
+  if (!user) return false;
+  if (user.role === 'superadmin') return true;
+  const row = getDB().prepare("SELECT 1 FROM course_material_managers WHERE course_id=? AND user_id=?").get(courseId, user.id);
+  return !!row;
+}
+
+// List materials for a course
+app.get('/api/course-materials', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const courseId = parseInt(req.query.course_id);
+  if (!courseId) return res.status(400).json({ error: 'course_id required' });
+  const d = getDB();
+  const canManage = canManageMaterials(user, courseId);
+  let rows;
+  if (canManage) {
+    rows = d.prepare("SELECT m.*, u.name as created_by_name FROM course_materials m LEFT JOIN users u ON u.id=m.created_by WHERE m.course_id=? ORDER BY m.sort_order, m.created_at DESC").all(courseId);
+  } else {
+    // Students & non-managers see enabled only; must be enrolled (students) or any auth user otherwise
+    if (user.role === 'student') {
+      const enrolled = d.prepare("SELECT 1 FROM enrollments WHERE student_id=? AND course_id=? AND status='active'").get(user.id, courseId);
+      if (!enrolled) return res.status(403).json({ error: 'Not enrolled' });
+    }
+    rows = d.prepare("SELECT id, course_id, title, description, type, file_path, url, original_name, sort_order, created_at FROM course_materials WHERE course_id=? AND is_enabled=1 ORDER BY sort_order, created_at DESC").all(courseId);
+  }
+  res.json({ can_manage: canManage, materials: rows });
+});
+
+// Create material — file upload or link
+app.post('/api/course-materials', materialUpload.single('file'), (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const courseId = parseInt(req.body.course_id);
+  if (!courseId) return res.status(400).json({ error: 'course_id required' });
+  if (!canManageMaterials(user, courseId)) return res.status(403).json({ error: 'Not authorized to manage materials for this course' });
+  const title = (req.body.title || '').trim();
+  const description = (req.body.description || '').trim();
+  const url = (req.body.url || '').trim();
+  if (!title) {
+    if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+    return res.status(400).json({ error: 'Title required' });
+  }
+  let type, filePath = '', originalName = '';
+  if (req.file) {
+    type = 'file';
+    filePath = `/uploads/materials/${req.file.filename}`;
+    originalName = req.file.originalname;
+  } else if (url) {
+    type = 'link';
+  } else {
+    return res.status(400).json({ error: 'Provide either a file or a URL' });
+  }
+  const r = getDB().prepare(
+    "INSERT INTO course_materials (course_id, title, description, type, file_path, url, original_name, created_by) VALUES (?,?,?,?,?,?,?,?)"
+  ).run(courseId, title, description, type, filePath, url, originalName, user.id);
+  auditLog(user.id, 'create_material', 'course_material', r.lastInsertRowid, `Course ${courseId}: ${title}`);
+  res.status(201).json({ id: r.lastInsertRowid, message: 'Material added' });
+});
+
+// Update material (title/description/is_enabled/sort_order)
+app.put('/api/course-materials', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const { id, ...fields } = req.body;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const d = getDB();
+  const mat = d.prepare("SELECT course_id FROM course_materials WHERE id=?").get(id);
+  if (!mat) return res.status(404).json({ error: 'Material not found' });
+  if (!canManageMaterials(user, mat.course_id)) return res.status(403).json({ error: 'Not authorized' });
+  const allowed = ['title','description','is_enabled','sort_order','url'];
+  const sets = []; const vals = [];
+  for (const k of allowed) {
+    if (fields[k] !== undefined) {
+      sets.push(`${k}=?`);
+      vals.push(k === 'is_enabled' ? (fields[k] ? 1 : 0) : fields[k]);
+    }
+  }
+  if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+  vals.push(id);
+  d.prepare(`UPDATE course_materials SET ${sets.join(',')} WHERE id=?`).run(...vals);
+  auditLog(user.id, 'update_material', 'course_material', id);
+  res.json({ message: 'Material updated' });
+});
+
+// Delete material
+app.delete('/api/course-materials', (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const d = getDB();
+  const mat = d.prepare("SELECT * FROM course_materials WHERE id=?").get(id);
+  if (!mat) return res.status(404).json({ error: 'Material not found' });
+  if (!canManageMaterials(user, mat.course_id)) return res.status(403).json({ error: 'Not authorized' });
+  d.prepare("DELETE FROM course_materials WHERE id=?").run(id);
+  if (mat.type === 'file' && mat.file_path) {
+    const abs = path.join(__dirname, mat.file_path.replace(/^\/+/, ''));
+    try { fs.unlinkSync(abs); } catch {}
+  }
+  auditLog(user.id, 'delete_material', 'course_material', id);
+  res.json({ message: 'Material deleted' });
+});
+
+// ============================================================
+// Course Material Managers (assign / unassign)
+// ============================================================
+app.get('/api/course-material-managers', (req, res) => {
+  const user = requireRole(req, res, ['superadmin','manager']); if (!user) return;
+  const courseId = parseInt(req.query.course_id);
+  if (!courseId) return res.status(400).json({ error: 'course_id required' });
+  const rows = getDB().prepare(
+    "SELECT mm.user_id, u.name, u.email, u.role, mm.assigned_at FROM course_material_managers mm JOIN users u ON u.id=mm.user_id WHERE mm.course_id=? ORDER BY u.name"
+  ).all(courseId);
+  res.json(rows);
+});
+
+app.post('/api/course-material-managers', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const courseId = parseInt(req.body.course_id);
+  const userId = parseInt(req.body.user_id);
+  if (!courseId || !userId) return res.status(400).json({ error: 'course_id and user_id required' });
+  const d = getDB();
+  const target = d.prepare("SELECT id,role FROM users WHERE id=?").get(userId);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  if (!['tutor','manager','advisor','superadmin'].includes(target.role)) return res.status(400).json({ error: 'User role cannot manage materials' });
+  try {
+    d.prepare("INSERT INTO course_material_managers (course_id,user_id,assigned_by) VALUES (?,?,?)").run(courseId, userId, user.id);
+    auditLog(user.id, 'assign_material_manager', 'course', courseId, `Assigned user ${userId}`);
+    res.status(201).json({ message: 'Manager assigned' });
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE') || String(err.message).includes('PRIMARY')) return res.status(400).json({ error: 'Already assigned' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/course-material-managers', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const courseId = parseInt(req.query.course_id);
+  const userId = parseInt(req.query.user_id);
+  if (!courseId || !userId) return res.status(400).json({ error: 'course_id and user_id required' });
+  getDB().prepare("DELETE FROM course_material_managers WHERE course_id=? AND user_id=?").run(courseId, userId);
+  auditLog(user.id, 'unassign_material_manager', 'course', courseId, `Removed user ${userId}`);
+  res.json({ message: 'Manager removed' });
 });
 
 // Enrollments
