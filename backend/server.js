@@ -121,110 +121,33 @@ function initDB() {
     ['Super Admin', 'admin@tijuspro.com', 'superadmin', 'superadmin', adminHash, '#E97A2B', 0]
   );
 
-  // Seed tutors
+  // Seed tutor
   const tutorHash = bcrypt.hashSync('tutor123', 10);
-  const tutors = [
-    ['Rahul Sharma', 'rahul@tijuspro.com', '#2563EB', 'Web Development'],
-    ['Priya Patel', 'priya@tijuspro.com', '#7C3AED', 'Digital Marketing'],
-    ['Amit Kumar', 'amit@tijuspro.com', '#059669', 'Data Science'],
-    ['Sneha Reddy', 'sneha@tijuspro.com', '#DC2626', 'Language'],
-  ];
-  const tutorStmt = db.prepare("INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color,specialization) VALUES (?,?,'tutor','tutor',?,?,?)");
-  for (const t of tutors) tutorStmt.run(t[0], t[1], tutorHash, t[2], t[3]);
+  insert(
+    "INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color,specialization) VALUES (?,?,?,?,?,?,?)",
+    ['Rahul Sharma', 'rahul@tijuspro.com', 'tutor', 'tutor', tutorHash, '#2563EB', 'Web Development']
+  );
 
-  // Seed advisor & manager
-  const advHash = bcrypt.hashSync('advisor123', 10);
-  insert("INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color) VALUES (?,?,'advisor','advisor',?,?)",
-    ['Dr. Meena Iyer', 'meena@tijuspro.com', advHash, '#8B5CF6']);
-
-  const mgrHash = bcrypt.hashSync('manager123', 10);
-  insert("INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color) VALUES (?,?,'manager','manager',?,?)",
-    ['Vikram Singh', 'vikram@tijuspro.com', mgrHash, '#0891B2']);
-
-  // Seed courses
-  const courses = [
-    ['Full-Stack Web Development', 'Technology', 2, '#3B82F6', 'code'],
-    ['React & Node.js Masterclass', 'Technology', 2, '#06B6D4', 'monitor'],
-    ['Digital Marketing Fundamentals', 'Marketing', 3, '#8B5CF6', 'trending-up'],
-    ['SEO & Content Strategy', 'Marketing', 3, '#EC4899', 'search'],
-    ['Python for Data Science', 'Technology', 4, '#10B981', 'database'],
-    ['Machine Learning Basics', 'Technology', 4, '#F59E0B', 'cpu'],
-    ['Business English', 'Language', 5, '#EF4444', 'book-open'],
-    ['Japanese N5 Course', 'Language', 5, '#6366F1', 'globe'],
-    ['Advanced JavaScript', 'Technology', 2, '#14B8A6', 'terminal'],
-    ['Social Media Marketing', 'Marketing', 3, '#F97316', 'share-2'],
-    ['SQL & Database Design', 'Technology', 4, '#8B5CF6', 'database'],
-    ['French Beginner', 'Language', 5, '#EC4899', 'globe'],
-    ['UI/UX Design Principles', 'Design', 2, '#6366F1', 'layout'],
-    ['Cloud Computing with AWS', 'Technology', 4, '#0EA5E9', 'cloud'],
-  ];
-  const courseStmt = db.prepare("INSERT OR IGNORE INTO courses (name,category,tutor_id,color,icon,students_count,progress,status) VALUES (?,?,?,?,?,?,?,'active')");
-  for (const c of courses) {
-    courseStmt.run(c[0], c[1], c[2], c[3], c[4], Math.floor(Math.random() * 320) + 80, +(Math.random() * 65 + 20).toFixed(1));
-  }
-
-  // Seed students
-  const studentNames = [
-    'Aarav Mehta', 'Diya Nair', 'Rohan Gupta', 'Ananya Joshi', 'Kabir Verma',
-    'Isha Singh', 'Arjun Rao', 'Mira Desai', 'Vihaan Thakur', 'Saanvi Kapoor',
-    'Aditya Bhat', 'Zara Khan', 'Reyansh Pillai', 'Tara Menon', 'Dev Saxena',
-    'Kiara Malhotra', 'Vivaan Choudhury', 'Anika Banerjee', 'Shivansh Pandey', 'Myra Shetty',
-  ];
+  // Seed student
   const studentHash = bcrypt.hashSync('student123', 10);
-  const colors = ['#3B82F6','#EF4444','#10B981','#F59E0B','#8B5CF6','#EC4899','#06B6D4','#F97316'];
-  const studentStmt = db.prepare("INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color) VALUES (?,?,'student','student',?,?)");
-  for (let i = 0; i < studentNames.length; i++) {
-    const email = studentNames[i].toLowerCase().replace(/ /g, '.') + '@student.tijuspro.com';
-    studentStmt.run(studentNames[i], email, studentHash, colors[i % colors.length]);
-  }
+  insert(
+    "INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color) VALUES (?,?,?,?,?,?)",
+    ['Aarav Mehta', 'aarav.mehta@student.tijuspro.com', 'student', 'student', studentHash, '#3B82F6']
+  );
 
-  // Seed enrollments
-  const studentIds = db.prepare("SELECT id FROM users WHERE role='student'").all();
-  const courseIds = db.prepare("SELECT id FROM courses").all();
-  const enrollStmt = db.prepare("INSERT OR IGNORE INTO enrollments (student_id,course_id,progress_percentage,grade,status) VALUES (?,?,?,?,?)");
-  const grades = ['A+','A','A-','B+','B','B-','C+','C',''];
-  for (const s of studentIds) {
-    const shuffled = [...courseIds].sort(() => Math.random() - 0.5);
-    const n = Math.floor(Math.random() * 4) + 2;
-    for (let j = 0; j < n && j < shuffled.length; j++) {
-      const prog = +(Math.random() * 90 + 10).toFixed(1);
-      const grade = prog > 70 ? grades[Math.floor(Math.random() * 5)] : (prog > 40 ? grades[Math.floor(Math.random() * 3) + 3] : '');
-      enrollStmt.run(s.id, shuffled[j].id, Math.min(prog, 100), grade, prog >= 100 ? 'completed' : 'active');
-    }
-  }
+  // Seed manager
+  const mgrHash = bcrypt.hashSync('manager123', 10);
+  insert(
+    "INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color) VALUES (?,?,?,?,?,?)",
+    ['Vikram Singh', 'vikram@tijuspro.com', 'manager', 'manager', mgrHash, '#0891B2']
+  );
 
-  // Update course student counts
-  db.exec("UPDATE courses SET students_count = (SELECT COUNT(*) FROM enrollments WHERE enrollments.course_id = courses.id AND enrollments.status IN ('active','completed'))");
-
-  // Seed sessions
-  const courseList = db.prepare("SELECT id, tutor_id FROM courses LIMIT 8").all();
-  const sessStmt = db.prepare("INSERT INTO sessions (course_id,tutor_id,start_time,end_time,room_name,status) VALUES (?,?,?,?,?,?)");
-  for (let i = 0; i < courseList.length; i++) {
-    const c = courseList[i];
-    const now = Date.now();
-    const pastStart = new Date(now - (i + 1) * 86400000).toISOString().replace('T', ' ').slice(0, 19);
-    const pastEnd = new Date(now - (i + 1) * 86400000 + 3600000).toISOString().replace('T', ' ').slice(0, 19);
-    sessStmt.run(c.id, c.tutor_id, pastStart, pastEnd, `room-past-${c.id}-${i}`, 'completed');
-
-    const futStart = new Date(now + (i + 1) * 86400000).toISOString().replace('T', ' ').slice(0, 19);
-    const futEnd = new Date(now + (i + 1) * 86400000 + 3600000).toISOString().replace('T', ' ').slice(0, 19);
-    sessStmt.run(c.id, c.tutor_id, futStart, futEnd, `room-upcoming-${c.id}-${i}`, 'scheduled');
-  }
-
-  // Seed attendance
-  const pastSessions = db.prepare("SELECT session_id, course_id, start_time FROM sessions WHERE status='completed'").all();
-  const attStmt = db.prepare("INSERT INTO attendance_logs (session_id,student_id,join_time,leave_time,duration_minutes) VALUES (?,?,?,?,?)");
-  for (const ps of pastSessions) {
-    const enrolled = db.prepare("SELECT student_id FROM enrollments WHERE course_id=?").all(ps.course_id);
-    for (const es of enrolled) {
-      if (Math.random() > 0.15) {
-        const joinTime = ps.start_time;
-        const dur = Math.floor(Math.random() * 20) + 40;
-        const leave = new Date(new Date(joinTime).getTime() + dur * 60000).toISOString().replace('T', ' ').slice(0, 19);
-        attStmt.run(ps.session_id, es.student_id, joinTime, leave, dur);
-      }
-    }
-  }
+  // Seed advisor
+  const advHash = bcrypt.hashSync('advisor123', 10);
+  insert(
+    "INSERT OR IGNORE INTO users (name,email,portal,role,password_hash,avatar_color) VALUES (?,?,?,?,?,?)",
+    ['Dr. Meena Iyer', 'meena@tijuspro.com', 'advisor', 'advisor', advHash, '#8B5CF6']
+  );
 }
 
 // ============================================================
