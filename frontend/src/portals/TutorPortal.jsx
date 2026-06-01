@@ -7,10 +7,11 @@ import DataTable from '../components/DataTable';
 import Calendar from '../components/Calendar';
 import SessionCard from '../components/SessionCard';
 import VideoRoom from '../components/VideoRoom';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 export default function TutorPortal() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = usePersistedTab('tab:tutor');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeSession, setActiveSession] = useState(null);

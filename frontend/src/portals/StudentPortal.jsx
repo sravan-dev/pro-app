@@ -8,10 +8,11 @@ import SessionCard from '../components/SessionCard';
 import Calendar from '../components/Calendar';
 import DataTable from '../components/DataTable';
 import VideoRoom from '../components/VideoRoom';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 export default function StudentPortal() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = usePersistedTab('tab:student');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeSession, setActiveSession] = useState(null);

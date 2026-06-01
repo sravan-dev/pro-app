@@ -4,10 +4,11 @@ import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import KPICard from '../components/KPICard';
 import DataTable from '../components/DataTable';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 export default function AdvisorPortal() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = usePersistedTab('tab:advisor');
   const [data, setData] = useState(null);
   const [reports, setReports] = useState(null);
   const [loading, setLoading] = useState(true);
