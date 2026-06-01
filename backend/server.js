@@ -384,6 +384,7 @@ app.get('/api/portal-data', (req, res) => {
       data.students = d.prepare("SELECT DISTINCT u.id,u.name,u.email,u.status,u.avatar_color,e.course_id,e.progress_percentage,e.grade,c.name as course_name FROM users u JOIN enrollments e ON e.student_id=u.id JOIN courses c ON c.id=e.course_id WHERE c.tutor_id=? ORDER BY u.name").all(user.id);
       data.sessions = d.prepare("SELECT s.*,c.name as course_name FROM sessions s JOIN courses c ON c.id=s.course_id WHERE s.tutor_id=? ORDER BY s.start_time DESC LIMIT 50").all(user.id);
       data.teaching_stats = d.prepare("SELECT COUNT(*) as total_sessions, SUM(CAST((julianday(s.end_time)-julianday(s.start_time))*24 AS REAL)) as total_hours FROM sessions s WHERE s.tutor_id=? AND s.status='completed'").get(user.id);
+      data.payout = d.prepare("SELECT payout_rate, payout_type FROM users WHERE id=?").get(user.id);
       break;
     }
     case 'advisor': {
@@ -886,8 +887,11 @@ app.get('/api/attendance-logs', (req, res) => {
     rows = d.prepare("SELECT a.*,u.name as student_name,u.avatar_color FROM attendance_logs a JOIN users u ON u.id=a.student_id WHERE a.session_id=? ORDER BY a.join_time").all(parseInt(sid));
   } else if (user.role === 'student') {
     rows = d.prepare("SELECT a.*,c.name as course_name,s.start_time FROM attendance_logs a JOIN sessions s ON s.session_id=a.session_id JOIN courses c ON c.id=s.course_id WHERE a.student_id=? ORDER BY a.timestamp DESC").all(user.id);
+  } else if (user.role === 'tutor') {
+    // Scope tutors to attendance for their own sessions only
+    rows = d.prepare("SELECT a.*,u.name as student_name,u.avatar_color,c.name as course_name,s.start_time FROM attendance_logs a JOIN users u ON u.id=a.student_id JOIN sessions s ON s.session_id=a.session_id JOIN courses c ON c.id=s.course_id WHERE s.tutor_id=? ORDER BY a.timestamp DESC LIMIT 200").all(user.id);
   } else {
-    rows = d.prepare("SELECT a.*,u.name as student_name,c.name as course_name,s.start_time FROM attendance_logs a JOIN users u ON u.id=a.student_id JOIN sessions s ON s.session_id=a.session_id JOIN courses c ON c.id=s.course_id ORDER BY a.timestamp DESC LIMIT 200").all();
+    rows = d.prepare("SELECT a.*,u.name as student_name,u.avatar_color,c.name as course_name,s.start_time FROM attendance_logs a JOIN users u ON u.id=a.student_id JOIN sessions s ON s.session_id=a.session_id JOIN courses c ON c.id=s.course_id ORDER BY a.timestamp DESC LIMIT 200").all();
   }
   res.json(rows);
 });

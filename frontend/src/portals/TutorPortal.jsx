@@ -17,6 +17,8 @@ export default function TutorPortal() {
   const [showSessionForm, setShowSessionForm] = useState(false);
   const [sessionForm, setSessionForm] = useState({ course_id: '', start_time: '', end_time: '' });
   const [message, setMessage] = useState('');
+  const [currency, setCurrency] = useState('INR');
+  const [attendance, setAttendance] = useState([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -33,6 +35,14 @@ export default function TutorPortal() {
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    api.getAppSettings().then((s) => setCurrency(s.currency || 'INR')).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'attendance') api.getAttendanceLogs().then(setAttendance).catch(() => {});
+  }, [activeTab]);
 
   const handleCreateSession = async (e) => {
     e.preventDefault();
@@ -97,9 +107,22 @@ export default function TutorPortal() {
     )},
   ];
 
-  const payoutRate = 500; // per hour rate
+  const formatMoney = (n) => `${currency} ${Math.round(n || 0).toLocaleString()}`;
+
+  // Payout rate/type are configured per tutor by the admin (Settings → Users).
+  const payoutInfo = data?.payout || { payout_rate: 0, payout_type: 'monthly' };
+  const payoutRate = payoutInfo.payout_rate || 0;
+  const payoutType = payoutInfo.payout_type || 'monthly';
+  const payoutUnitLabel = ({
+    per_hour: 'per hour', per_session: 'per session', per_course: 'per course', monthly: 'per month',
+  })[payoutType] || payoutType;
+
   const totalHours = Math.round(teachingStats.total_hours || 0);
-  const totalPayout = totalHours * payoutRate;
+  let totalPayout = 0;
+  if (payoutType === 'per_hour') totalPayout = (teachingStats.total_hours || 0) * payoutRate;
+  else if (payoutType === 'per_session') totalPayout = (teachingStats.total_sessions || 0) * payoutRate;
+  else if (payoutType === 'per_course') totalPayout = courses.length * payoutRate;
+  else totalPayout = payoutRate; // monthly flat rate
 
   return (
     <div className="portal-layout portal-tutor">
@@ -185,7 +208,27 @@ export default function TutorPortal() {
         {activeTab === 'attendance' && (
           <div className="portal-page">
             <h2>Attendance Records</h2>
-            <DataTable columns={attendanceColumns} data={sessions.filter((s) => s.status === 'completed')} searchable={false} />
+            {attendance.length === 0 ? (
+              <p style={{ color: 'var(--color-text-secondary)' }}>No attendance recorded yet. Records appear once students join your sessions.</p>
+            ) : (
+              <DataTable
+                columns={[
+                  { key: 'student', label: 'Student', accessor: 'student_name', render: (r) => (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div className="avatar-sm" style={{ backgroundColor: r.avatar_color }}>{r.student_name?.[0]}</div>
+                      {r.student_name}
+                    </div>
+                  )},
+                  { key: 'course', label: 'Course', accessor: 'course_name' },
+                  { key: 'date', label: 'Date', accessor: 'start_time', render: (r) => r.start_time ? new Date(r.start_time).toLocaleDateString() : '-' },
+                  { key: 'join', label: 'Joined', accessor: 'join_time', render: (r) => r.join_time ? new Date(r.join_time).toLocaleTimeString() : '-' },
+                  { key: 'leave', label: 'Left', accessor: 'leave_time', render: (r) => r.leave_time ? new Date(r.leave_time).toLocaleTimeString() : '—' },
+                  { key: 'duration', label: 'Duration', accessor: 'duration_minutes', render: (r) => r.duration_minutes ? `${r.duration_minutes} min` : '—' },
+                ]}
+                data={attendance}
+                searchable={true}
+              />
+            )}
           </div>
         )}
 
@@ -194,8 +237,8 @@ export default function TutorPortal() {
             <h2>Payouts & Earnings</h2>
             <div className="kpi-grid">
               <KPICard title="Total Hours" value={`${totalHours}h`} icon="clock" color="#3B82F6" />
-              <KPICard title="Rate / Hour" value={`$${payoutRate}`} icon="dollar" color="#10B981" />
-              <KPICard title="Total Earned" value={`$${totalPayout.toLocaleString()}`} icon="dollar" color="#F59E0B" />
+              <KPICard title="Payout Rate" value={formatMoney(payoutRate)} subtitle={payoutUnitLabel} icon="dollar" color="#10B981" />
+              <KPICard title="Total Earned" value={formatMoney(totalPayout)} subtitle={payoutType === 'monthly' ? 'current month' : undefined} icon="dollar" color="#F59E0B" />
               <KPICard title="Sessions Done" value={teachingStats.total_sessions} icon="check-circle" color="#8B5CF6" />
             </div>
 
@@ -211,8 +254,12 @@ export default function TutorPortal() {
                     return `${Math.round((end - start) / 60000)} min`;
                   }},
                   { key: 'payout', label: 'Payout', accessor: (r) => {
-                    const hours = (new Date(r.end_time) - new Date(r.start_time)) / 3600000;
-                    return `$${Math.round(hours * payoutRate)}`;
+                    if (payoutType === 'per_hour') {
+                      const hours = (new Date(r.end_time) - new Date(r.start_time)) / 3600000;
+                      return formatMoney(hours * payoutRate);
+                    }
+                    if (payoutType === 'per_session') return formatMoney(payoutRate);
+                    return '—';
                   }},
                 ]}
                 data={sessions.filter((s) => s.status === 'completed')}
