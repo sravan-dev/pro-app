@@ -28,6 +28,8 @@ export default function VideoRoom({ session, onLeave }) {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [error, setError] = useState('');
   const [debug, setDebug] = useState({});
+  const [localVideoOn, setLocalVideoOn] = useState(false);
+  const [videoProvider, setVideoProvider] = useState('');
 
   const setPeerDebug = (userId, patch) =>
     setDebug((d) => ({ ...d, [userId]: { ...d[userId], ...patch } }));
@@ -205,6 +207,10 @@ export default function VideoRoom({ session, onLeave }) {
   }, [session, createPeerConnection, user]);
 
   useEffect(() => {
+    api.getAppSettings().then((s) => setVideoProvider(s.video_provider || 'webrtc')).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
 
     const init = async () => {
@@ -213,6 +219,7 @@ export default function VideoRoom({ session, onLeave }) {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         localStreamRef.current = stream;
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+        setLocalVideoOn(stream.getVideoTracks().length > 0);
       } catch {
         // Try audio only
         try {
@@ -325,15 +332,26 @@ export default function VideoRoom({ session, onLeave }) {
     <div className="video-room">
       <div className="video-room-header">
         <h3>{session.course_name || 'Live Session'}</h3>
-        <span className="participants-count">{participants.length + 1} participant(s)</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {videoProvider && (
+            <span
+              style={{
+                fontSize: '12px', fontWeight: 600, padding: '2px 10px', borderRadius: '999px',
+                background: videoProvider === 'zoom' ? '#2D8CFF' : '#10b981', color: '#fff',
+              }}
+              title="Active video provider (Settings → Video / Meeting Provider)"
+            >
+              {videoProvider === 'zoom' ? 'Zoom' : 'WebRTC'}
+            </span>
+          )}
+          <span className="participants-count">{participants.length + 1} participant(s)</span>
+        </div>
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
 
       <div style={{ padding: '4px 12px', fontSize: '11px', fontFamily: 'monospace', color: '#9ca3af', background: 'rgba(0,0,0,0.3)' }}>
-        local cam: {localStreamRef.current?.getVideoTracks?.()[0]
-          ? (localStreamRef.current.getVideoTracks()[0].enabled ? 'on' : 'off')
-          : 'none'}
+        local cam: {localVideoOn ? (isVideoOff ? 'off' : 'on') : 'none'}
         {participants.map((p) => {
           const s = debug[p.id] || {};
           return (
