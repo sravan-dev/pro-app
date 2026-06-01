@@ -433,6 +433,30 @@ app.get('/api/students', (req, res) => {
   res.json(getDB().prepare("SELECT u.id,u.name,u.email,u.status,u.avatar_color,u.created_at, COUNT(e.enrollment_id) as enrolled_courses, ROUND(AVG(e.progress_percentage),1) as avg_progress FROM users u LEFT JOIN enrollments e ON e.student_id=u.id WHERE u.role='student' GROUP BY u.id ORDER BY u.name").all());
 });
 
+// Full profile for a single student (everything related to them)
+app.get('/api/students/:id', (req, res) => {
+  const user = requireRole(req, res, ['advisor','manager','superadmin']); if (!user) return;
+  const id = parseInt(req.params.id);
+  const d = getDB();
+  const profile = d.prepare("SELECT id,name,email,status,avatar_color,avatar_url,created_at FROM users WHERE id=? AND role='student'").get(id);
+  if (!profile) return res.status(404).json({ error: 'Student not found' });
+
+  const enrollments = d.prepare("SELECT e.enrollment_id,e.course_id,e.progress_percentage,e.grade,e.status,e.enrollment_date,c.name as course_name,c.category,u.name as tutor_name FROM enrollments e JOIN courses c ON c.id=e.course_id LEFT JOIN users u ON u.id=c.tutor_id WHERE e.student_id=? ORDER BY e.enrollment_date DESC").all(id);
+
+  const sessions = d.prepare("SELECT s.session_id,s.start_time,s.end_time,s.status,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id LEFT JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? ORDER BY s.start_time DESC LIMIT 50").all(id);
+
+  const attendance = d.prepare("SELECT a.log_id,a.session_id,a.join_time,a.leave_time,a.duration_minutes,c.name as course_name,s.start_time FROM attendance_logs a JOIN sessions s ON s.session_id=a.session_id JOIN courses c ON c.id=s.course_id WHERE a.student_id=? ORDER BY a.timestamp DESC LIMIT 100").all(id);
+
+  const stats = {
+    enrolled_courses: enrollments.length,
+    avg_progress: enrollments.length ? Math.round(enrollments.reduce((s, e) => s + (e.progress_percentage || 0), 0) / enrollments.length) : 0,
+    total_sessions: sessions.length,
+    sessions_attended: attendance.length,
+  };
+
+  res.json({ profile, enrollments, sessions, attendance, stats });
+});
+
 // Tutors
 app.get('/api/tutors', (req, res) => {
   const user = requireRole(req, res, ['manager','superadmin']); if (!user) return;

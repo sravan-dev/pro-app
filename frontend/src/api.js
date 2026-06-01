@@ -68,6 +68,7 @@ export const api = {
 
   // Students & Tutors
   getStudents: () => request('/students'),
+  getStudentDetail: (id) => request(`/students/${id}`),
   getTutors: () => request('/tutors'),
 
   // Sessions

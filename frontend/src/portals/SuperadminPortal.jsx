@@ -24,6 +24,10 @@ export default function SuperadminPortal() {
   const [allAttendance, setAllAttendance] = useState([]);
   const [reports, setReports] = useState(null);
 
+  // Student detail view (full profile of one student)
+  const [studentDetail, setStudentDetail] = useState(null);
+  const [studentDetailLoading, setStudentDetailLoading] = useState(false);
+
   // Modals
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
@@ -127,7 +131,21 @@ export default function SuperadminPortal() {
     if (activeTab === 'attendance' && allAttendance.length === 0) api.getAttendanceLogs().then(setAllAttendance).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
     if (activeTab === 'settings' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm(s); setSmtpLoaded(true); }).catch(() => {});
+    if (activeTab !== 'students') setStudentDetail(null);
   }, [activeTab]);
+
+  const openStudentDetail = async (student) => {
+    setStudentDetail(null);
+    setStudentDetailLoading(true);
+    try {
+      const detail = await api.getStudentDetail(student.id);
+      setStudentDetail(detail);
+    } catch (err) {
+      showMsg(err.message || 'Failed to load student', 'error');
+    } finally {
+      setStudentDetailLoading(false);
+    }
+  };
 
   // ===== USER CRUD =====
   const openCreateUser = (role = 'student') => {
@@ -1076,13 +1094,109 @@ export default function SuperadminPortal() {
         )}
 
         {/* ===== STUDENTS ===== */}
-        {activeTab === 'students' && (
+        {activeTab === 'students' && !studentDetail && !studentDetailLoading && (
           <div className="portal-page">
             <div className="page-header">
               <h2>Student Management</h2>
               <button className="btn btn-primary" onClick={() => openCreateUser('student')}>+ Add Student</button>
             </div>
-            <DataTable columns={studentColumns} data={allStudents} pageSize={15} selectable onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+              Click a student to view their full profile.
+            </p>
+            <DataTable columns={studentColumns} data={allStudents} pageSize={15} selectable onRowClick={openStudentDetail} onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />
+          </div>
+        )}
+
+        {activeTab === 'students' && studentDetailLoading && (
+          <div className="portal-page"><div className="spinner" /><p>Loading student…</p></div>
+        )}
+
+        {activeTab === 'students' && studentDetail && (
+          <div className="portal-page">
+            <button className="btn btn-ghost" onClick={() => setStudentDetail(null)} style={{ marginBottom: '1rem' }}>← Back to Students</button>
+
+            <div className="page-header" style={{ alignItems: 'center', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div
+                  className="avatar"
+                  style={{
+                    width: '64px', height: '64px', fontSize: '24px',
+                    backgroundColor: studentDetail.profile.avatar_color || '#4F46E5',
+                    backgroundImage: studentDetail.profile.avatar_url ? `url(${studentDetail.profile.avatar_url})` : undefined,
+                    backgroundSize: 'cover', backgroundPosition: 'center',
+                    color: studentDetail.profile.avatar_url ? 'transparent' : '#fff',
+                  }}
+                >
+                  {!studentDetail.profile.avatar_url && studentDetail.profile.name?.[0]}
+                </div>
+                <div>
+                  <h2 style={{ margin: 0 }}>{studentDetail.profile.name}</h2>
+                  <div style={{ color: 'var(--color-text-secondary)' }}>{studentDetail.profile.email}</div>
+                  <span className={`status-badge status-${studentDetail.profile.status}`}>{studentDetail.profile.status}</span>
+                </div>
+              </div>
+              <button className="btn btn-ghost" onClick={() => openEditUser(studentDetail.profile)}>Edit</button>
+            </div>
+
+            <div className="kpi-grid" style={{ marginTop: '1rem' }}>
+              <KPICard title="Enrolled Courses" value={studentDetail.stats.enrolled_courses} icon="book" color="#3B82F6" />
+              <KPICard title="Avg Progress" value={`${studentDetail.stats.avg_progress}%`} icon="percent" color="#10B981" />
+              <KPICard title="Sessions" value={studentDetail.stats.total_sessions} icon="video" color="#8B5CF6" />
+              <KPICard title="Sessions Attended" value={studentDetail.stats.sessions_attended} icon="check-circle" color="#F59E0B" />
+            </div>
+
+            <div className="section" style={{ marginTop: '1.5rem' }}>
+              <h3>Enrolled Courses</h3>
+              {studentDetail.enrollments.length === 0 ? <p style={{ color: 'var(--color-text-secondary)' }}>No enrollments.</p> : (
+                <DataTable
+                  columns={[
+                    { key: 'course', label: 'Course', accessor: 'course_name' },
+                    { key: 'category', label: 'Category', accessor: 'category' },
+                    { key: 'tutor', label: 'Tutor', accessor: 'tutor_name' },
+                    { key: 'progress', label: 'Progress', accessor: 'progress_percentage', render: (r) => progressCol(r, 'progress_percentage') },
+                    { key: 'grade', label: 'Grade', accessor: 'grade', render: (r) => r.grade || '-' },
+                    { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
+                  ]}
+                  data={studentDetail.enrollments}
+                  searchable={false}
+                />
+              )}
+            </div>
+
+            <div className="section" style={{ marginTop: '1.5rem' }}>
+              <h3>Sessions</h3>
+              {studentDetail.sessions.length === 0 ? <p style={{ color: 'var(--color-text-secondary)' }}>No sessions.</p> : (
+                <DataTable
+                  columns={[
+                    { key: 'course', label: 'Course', accessor: 'course_name' },
+                    { key: 'tutor', label: 'Tutor', accessor: 'tutor_name' },
+                    { key: 'date', label: 'Date', accessor: 'start_time', render: (r) => new Date(r.start_time).toLocaleString() },
+                    { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
+                  ]}
+                  data={studentDetail.sessions}
+                  searchable={false}
+                  pageSize={10}
+                />
+              )}
+            </div>
+
+            <div className="section" style={{ marginTop: '1.5rem' }}>
+              <h3>Attendance</h3>
+              {studentDetail.attendance.length === 0 ? <p style={{ color: 'var(--color-text-secondary)' }}>No attendance records.</p> : (
+                <DataTable
+                  columns={[
+                    { key: 'course', label: 'Course', accessor: 'course_name' },
+                    { key: 'date', label: 'Date', accessor: 'start_time', render: (r) => r.start_time ? new Date(r.start_time).toLocaleDateString() : '-' },
+                    { key: 'join', label: 'Joined', accessor: 'join_time', render: (r) => r.join_time ? new Date(r.join_time).toLocaleTimeString() : '-' },
+                    { key: 'leave', label: 'Left', accessor: 'leave_time', render: (r) => r.leave_time ? new Date(r.leave_time).toLocaleTimeString() : '—' },
+                    { key: 'duration', label: 'Duration', accessor: 'duration_minutes', render: (r) => r.duration_minutes ? `${r.duration_minutes} min` : '—' },
+                  ]}
+                  data={studentDetail.attendance}
+                  searchable={false}
+                  pageSize={10}
+                />
+              )}
+            </div>
           </div>
         )}
 
