@@ -32,6 +32,7 @@ export default function SuperadminPortal() {
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [userForm, setUserForm] = useState({ name: '', email: '', role: 'student', password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly' });
+  const [showUserPassword, setShowUserPassword] = useState(false);
 
   // App settings (currency)
   const [appSettings, setAppSettings] = useState({ currency: 'INR' });
@@ -151,12 +152,14 @@ export default function SuperadminPortal() {
   const openCreateUser = (role = 'student') => {
     setEditingUser(null);
     setUserForm({ name: '', email: '', role, password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly' });
+    setShowUserPassword(false);
     setShowUserForm(true);
   };
 
   const openEditUser = (user) => {
     setEditingUser(user);
     setUserForm({ name: user.name, email: user.email, role: user.role, password: '', specialization: user.specialization || '', avatar_color: user.avatar_color, status: user.status, payout_rate: user.payout_rate || 0, payout_type: user.payout_type || 'monthly' });
+    setShowUserPassword(false);
     setShowUserForm(true);
   };
 
@@ -670,7 +673,27 @@ export default function SuperadminPortal() {
             </div>
             <div className="form-group">
               <label>{editingUser ? 'New Password (blank = keep)' : 'Password *'}</label>
-              <input type="password" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} {...(!editingUser && { required: true })} />
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showUserPassword ? 'text' : 'password'}
+                  value={userForm.password}
+                  onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                  style={{ paddingRight: '4rem', width: '100%' }}
+                  {...(!editingUser && { required: true })}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowUserPassword((v) => !v)}
+                  aria-label={showUserPassword ? 'Hide password' : 'Show password'}
+                  style={{
+                    position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--color-primary, #4F46E5)', fontSize: '13px', fontWeight: 600, padding: 0,
+                  }}
+                >
+                  {showUserPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
             </div>
           </div>
           <div className="form-row">
