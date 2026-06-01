@@ -27,6 +27,10 @@ export default function VideoRoom({ session, onLeave }) {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [error, setError] = useState('');
+  const [debug, setDebug] = useState({});
+
+  const setPeerDebug = (userId, patch) =>
+    setDebug((d) => ({ ...d, [userId]: { ...d[userId], ...patch } }));
 
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -65,6 +69,12 @@ export default function VideoRoom({ session, onLeave }) {
     };
 
     pc.ontrack = (e) => {
+      const track = e.track;
+      console.log('[VideoRoom] ontrack', remoteUserId, track.kind,
+        'enabled=', track.enabled, 'muted=', track.muted, 'state=', track.readyState,
+        'streams=', e.streams.length);
+      setPeerDebug(remoteUserId, { [`${track.kind}Track`]: track.muted ? 'muted' : 'live' });
+
       const container = document.getElementById('remote-videos');
       if (!container) return;
 
@@ -80,10 +90,25 @@ export default function VideoRoom({ session, onLeave }) {
       }
       videoEl.srcObject = e.streams[0];
       videoEl.play?.().catch(() => {});
+      // The track often arrives "muted" (no frames yet) and unmutes once media
+      // actually flows — re-kick playback then so the tile doesn't stay black.
+      track.onunmute = () => {
+        setPeerDebug(remoteUserId, { [`${track.kind}Track`]: 'live' });
+        videoEl.play?.().catch(() => {});
+      };
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('[VideoRoom] iceState', remoteUserId, pc.iceConnectionState);
+      setPeerDebug(remoteUserId, { ice: pc.iceConnectionState });
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      console.log('[VideoRoom] connState', remoteUserId, pc.connectionState);
+      setPeerDebug(remoteUserId, { conn: pc.connectionState });
+      // 'disconnected' is frequently transient (especially via TURN) and can
+      // recover on its own — only tear down on terminal states.
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         removePeer(remoteUserId);
       }
     };
@@ -304,6 +329,20 @@ export default function VideoRoom({ session, onLeave }) {
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
+
+      <div style={{ padding: '4px 12px', fontSize: '11px', fontFamily: 'monospace', color: '#9ca3af', background: 'rgba(0,0,0,0.3)' }}>
+        local cam: {localStreamRef.current?.getVideoTracks?.()[0]
+          ? (localStreamRef.current.getVideoTracks()[0].enabled ? 'on' : 'off')
+          : 'none'}
+        {participants.map((p) => {
+          const s = debug[p.id] || {};
+          return (
+            <span key={p.id} style={{ marginLeft: 12 }}>
+              | {p.name}: ice={s.ice || '—'} conn={s.conn || '—'} video={s.videoTrack || '—'} audio={s.audioTrack || '—'}
+            </span>
+          );
+        })}
+      </div>
 
       <div className="video-grid">
         <div className="video-container local">
