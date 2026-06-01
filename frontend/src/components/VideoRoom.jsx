@@ -2,9 +2,22 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 
+// STUN finds the public address; TURN relays media when a direct path can't be
+// established (different networks, symmetric NAT, restrictive firewalls).
+// Without a TURN fallback, cross-network calls connect signaling but no video
+// frames flow — the remote tile stays black.
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  {
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp',
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
 ];
 
 export default function VideoRoom({ session, onLeave }) {
@@ -21,6 +34,19 @@ export default function VideoRoom({ session, onLeave }) {
   const pollingRef = useRef(null);
   const lastIdRef = useRef(0);
   const remoteVideosRef = useRef({});
+  const pendingCandidatesRef = useRef({});
+
+  // ICE candidates can arrive before the remote description is set. Adding one
+  // then throws and the candidate is lost, which can leave the connection unable
+  // to find a working path (black tile). Buffer until the description is ready.
+  const flushCandidates = async (pc, userId) => {
+    const queued = pendingCandidatesRef.current[userId];
+    if (!queued) return;
+    delete pendingCandidatesRef.current[userId];
+    for (const c of queued) {
+      try { await pc.addIceCandidate(c); } catch {}
+    }
+  };
 
   const createPeerConnection = useCallback((remoteUserId) => {
     if (peersRef.current[remoteUserId]) return peersRef.current[remoteUserId];
@@ -84,6 +110,7 @@ export default function VideoRoom({ session, onLeave }) {
       videoEl.remove();
       delete remoteVideosRef.current[userId];
     }
+    delete pendingCandidatesRef.current[userId];
     setParticipants((prev) => prev.filter((p) => p.id !== userId));
   };
 
@@ -117,6 +144,7 @@ export default function VideoRoom({ session, onLeave }) {
     if (type === 'offer') {
       const pc = createPeerConnection(from_user_id);
       await pc.setRemoteDescription(JSON.parse(payload));
+      await flushCandidates(pc, from_user_id);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       api.sendSignal({
@@ -129,15 +157,20 @@ export default function VideoRoom({ session, onLeave }) {
 
     if (type === 'answer') {
       const pc = peersRef.current[from_user_id];
-      if (pc) await pc.setRemoteDescription(JSON.parse(payload));
+      if (pc) {
+        await pc.setRemoteDescription(JSON.parse(payload));
+        await flushCandidates(pc, from_user_id);
+      }
     }
 
     if (type === 'ice-candidate') {
+      const candidate = JSON.parse(payload);
       const pc = peersRef.current[from_user_id];
-      if (pc) {
-        try {
-          await pc.addIceCandidate(JSON.parse(payload));
-        } catch {}
+      if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+        try { await pc.addIceCandidate(candidate); } catch {}
+      } else {
+        // Remote description not set yet — queue until it is.
+        (pendingCandidatesRef.current[from_user_id] ||= []).push(candidate);
       }
     }
 
