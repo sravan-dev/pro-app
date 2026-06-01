@@ -53,6 +53,7 @@ export default function VideoRoom({ session, onLeave }) {
         remoteVideosRef.current[remoteUserId] = videoEl;
       }
       videoEl.srcObject = e.streams[0];
+      videoEl.play?.().catch(() => {});
     };
 
     pc.onconnectionstatechange = () => {
@@ -96,16 +97,21 @@ export default function VideoRoom({ session, onLeave }) {
         return [...prev, { id: from_user_id, name: info.name, role: info.role }];
       });
 
-      // Create offer for new participant
+      // Both peers receive each other's "join", so initiation must be
+      // deterministic — only the higher user id creates the offer. Otherwise
+      // both sides offer at once (glare) and negotiation fails, leaving the
+      // remote tile black. The lower id just prepares the connection to answer.
       const pc = createPeerConnection(from_user_id);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      api.sendSignal({
-        session_id: session.session_id,
-        type: 'offer',
-        to_user_id: from_user_id,
-        payload: JSON.stringify(offer),
-      });
+      if (user.id > from_user_id) {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        api.sendSignal({
+          session_id: session.session_id,
+          type: 'offer',
+          to_user_id: from_user_id,
+          payload: JSON.stringify(offer),
+        });
+      }
     }
 
     if (type === 'offer') {
@@ -138,7 +144,7 @@ export default function VideoRoom({ session, onLeave }) {
     if (type === 'leave') {
       removePeer(from_user_id);
     }
-  }, [session, createPeerConnection]);
+  }, [session, createPeerConnection, user]);
 
   useEffect(() => {
     let mounted = true;
