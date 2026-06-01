@@ -101,15 +101,6 @@ export default function Login() {
             </Link>
           </div>
         </form>
-
-        <div className="login-footer">
-          <p className="demo-credentials">
-            <strong>Demo Accounts:</strong><br />
-            admin@tijuspro.com / admin123<br />
-            rahul@tijuspro.com / tutor123<br />
-            aarav.mehta@student.tijuspro.com / student123
-          </p>
-        </div>
       </div>
     </div>
   );
