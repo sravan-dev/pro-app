@@ -138,6 +138,20 @@ function getDB() {
     currency TEXT DEFAULT 'INR'
   )`);
   db.prepare("INSERT OR IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')").run();
+  // Video/meeting provider settings on app_settings
+  const appCols = db.prepare("PRAGMA table_info(app_settings)").all().map((c) => c.name);
+  if (!appCols.includes('video_provider')) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN video_provider TEXT DEFAULT 'webrtc'");
+  }
+  if (!appCols.includes('zoom_account_id')) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN zoom_account_id TEXT DEFAULT ''");
+  }
+  if (!appCols.includes('zoom_client_id')) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN zoom_client_id TEXT DEFAULT ''");
+  }
+  if (!appCols.includes('zoom_client_secret')) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN zoom_client_secret TEXT DEFAULT ''");
+  }
   // Add payout columns to users if missing
   const userCols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
   if (!userCols.includes('payout_rate')) {
@@ -1110,8 +1124,15 @@ app.post('/api/clear-data', (req, res) => {
 // ============================================================
 app.get('/api/app-settings', (req, res) => {
   const user = requireAuth(req, res); if (!user) return;
-  const s = getDB().prepare("SELECT currency FROM app_settings WHERE id=1").get();
-  res.json(s || { currency: 'INR' });
+  const s = getDB().prepare("SELECT currency, video_provider, zoom_account_id, zoom_client_id, zoom_client_secret FROM app_settings WHERE id=1").get() || {};
+  res.json({
+    currency: s.currency || 'INR',
+    video_provider: s.video_provider || 'webrtc',
+    zoom_account_id: s.zoom_account_id || '',
+    zoom_client_id: s.zoom_client_id || '',
+    // Never echo the secret back; just report whether one is stored.
+    zoom_has_secret: !!s.zoom_client_secret,
+  });
 });
 
 app.put('/api/app-settings', (req, res) => {
@@ -1124,6 +1145,38 @@ app.put('/api/app-settings', (req, res) => {
     ON CONFLICT(id) DO UPDATE SET currency=excluded.currency`).run(currency);
   auditLog(user.id, 'update_currency', 'app_settings', 1, `Set currency to ${currency}`);
   res.json({ message: 'Settings updated', currency });
+});
+
+// Video / meeting provider settings (WebRTC built-in, or Zoom)
+app.put('/api/video-settings', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const provider = (req.body.video_provider || 'webrtc').trim();
+  if (!['webrtc', 'zoom'].includes(provider)) {
+    return res.status(400).json({ error: 'Unsupported video provider' });
+  }
+  const accountId = (req.body.zoom_account_id || '').trim();
+  const clientId = (req.body.zoom_client_id || '').trim();
+  const clientSecret = (req.body.zoom_client_secret || '').trim(); // optional — blank keeps existing
+  const d = getDB();
+  d.prepare("INSERT OR IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')").run();
+
+  if (provider === 'zoom') {
+    const existing = d.prepare("SELECT zoom_client_secret FROM app_settings WHERE id=1").get();
+    const hasSecret = clientSecret || (existing && existing.zoom_client_secret);
+    if (!accountId || !clientId || !hasSecret) {
+      return res.status(400).json({ error: 'Zoom requires Account ID, Client ID and Client Secret' });
+    }
+  }
+
+  if (clientSecret) {
+    d.prepare("UPDATE app_settings SET video_provider=?, zoom_account_id=?, zoom_client_id=?, zoom_client_secret=? WHERE id=1")
+      .run(provider, accountId, clientId, clientSecret);
+  } else {
+    d.prepare("UPDATE app_settings SET video_provider=?, zoom_account_id=?, zoom_client_id=? WHERE id=1")
+      .run(provider, accountId, clientId);
+  }
+  auditLog(user.id, 'update_video_settings', 'app_settings', 1, `Set video provider to ${provider}`);
+  res.json({ message: 'Video settings saved', video_provider: provider });
 });
 
 // ============================================================

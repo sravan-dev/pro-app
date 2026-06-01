@@ -32,6 +32,16 @@ export default function SuperadminPortal() {
   const [appSettings, setAppSettings] = useState({ currency: 'INR' });
   const [appSettingsSaving, setAppSettingsSaving] = useState(false);
 
+  // Video / meeting provider settings
+  const [videoSettings, setVideoSettings] = useState({
+    video_provider: 'webrtc',
+    zoom_account_id: '',
+    zoom_client_id: '',
+    zoom_client_secret: '',
+    zoom_has_secret: false,
+  });
+  const [videoSaving, setVideoSaving] = useState(false);
+
   const [showCourseForm, setShowCourseForm] = useState(false);
   const [editingCourse, setEditingCourse] = useState(null);
   const [courseForm, setCourseForm] = useState({ name: '', category: 'Technology', tutor_id: '', color: '#3B82F6', icon: 'book' });
@@ -87,7 +97,18 @@ export default function SuperadminPortal() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  useEffect(() => { api.getAppSettings().then(setAppSettings).catch(() => {}); }, []);
+  useEffect(() => {
+    api.getAppSettings().then((s) => {
+      setAppSettings(s);
+      setVideoSettings({
+        video_provider: s.video_provider || 'webrtc',
+        zoom_account_id: s.zoom_account_id || '',
+        zoom_client_id: s.zoom_client_id || '',
+        zoom_client_secret: '',
+        zoom_has_secret: !!s.zoom_has_secret,
+      });
+    }).catch(() => {});
+  }, []);
 
   const formatMoney = (amount) => {
     const n = Number(amount) || 0;
@@ -1250,6 +1271,82 @@ export default function SuperadminPortal() {
                 <div className="form-actions" style={{ marginTop: '1rem' }}>
                   <button type="submit" className="btn btn-primary" disabled={appSettingsSaving}>
                     {appSettingsSaving ? 'Saving...' : 'Save Currency'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Video / Meeting Provider */}
+            <div className="settings-section" style={{ marginBottom: '2rem' }}>
+              <h3>Video / Meeting Provider</h3>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
+                Choose how live sessions run. <strong>WebRTC</strong> is built-in and needs no setup.
+                <strong> Zoom</strong> uses your own Zoom account via a Server-to-Server OAuth app.
+              </p>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setVideoSaving(true);
+                try {
+                  await api.saveVideoSettings(videoSettings);
+                  showMsg('Video settings saved', 'success');
+                  // Secret is write-only; clear the field and mark it as stored.
+                  setVideoSettings((v) => ({
+                    ...v,
+                    zoom_has_secret: v.zoom_client_secret ? true : v.zoom_has_secret,
+                    zoom_client_secret: '',
+                  }));
+                } catch (err) { showMsg(err.message || 'Failed to save', 'error'); }
+                finally { setVideoSaving(false); }
+              }}>
+                <div className="form-row">
+                  <div className="form-group" style={{ maxWidth: '320px' }}>
+                    <label>Provider</label>
+                    <select
+                      value={videoSettings.video_provider}
+                      onChange={(e) => setVideoSettings({ ...videoSettings, video_provider: e.target.value })}
+                    >
+                      <option value="webrtc">WebRTC — built-in (no setup)</option>
+                      <option value="zoom">Zoom</option>
+                    </select>
+                  </div>
+                </div>
+
+                {videoSettings.video_provider === 'zoom' && (
+                  <div style={{ marginTop: '1rem' }}>
+                    <div className="form-group" style={{ maxWidth: '420px' }}>
+                      <label>Zoom Account ID</label>
+                      <input
+                        value={videoSettings.zoom_account_id}
+                        onChange={(e) => setVideoSettings({ ...videoSettings, zoom_account_id: e.target.value })}
+                        placeholder="Account ID"
+                      />
+                    </div>
+                    <div className="form-group" style={{ maxWidth: '420px' }}>
+                      <label>Zoom Client ID</label>
+                      <input
+                        value={videoSettings.zoom_client_id}
+                        onChange={(e) => setVideoSettings({ ...videoSettings, zoom_client_id: e.target.value })}
+                        placeholder="Client ID"
+                      />
+                    </div>
+                    <div className="form-group" style={{ maxWidth: '420px' }}>
+                      <label>Zoom Client Secret</label>
+                      <input
+                        type="password"
+                        value={videoSettings.zoom_client_secret}
+                        onChange={(e) => setVideoSettings({ ...videoSettings, zoom_client_secret: e.target.value })}
+                        placeholder={videoSettings.zoom_has_secret ? '•••••••• (saved — leave blank to keep)' : 'Client Secret'}
+                      />
+                    </div>
+                    <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', maxWidth: '420px' }}>
+                      Create a <strong>Server-to-Server OAuth</strong> app in the Zoom App Marketplace to get these credentials.
+                    </p>
+                  </div>
+                )}
+
+                <div className="form-actions" style={{ marginTop: '1rem' }}>
+                  <button type="submit" className="btn btn-primary" disabled={videoSaving}>
+                    {videoSaving ? 'Saving...' : 'Save Video Settings'}
                   </button>
                 </div>
               </form>
