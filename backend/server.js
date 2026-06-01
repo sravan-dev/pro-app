@@ -1207,6 +1207,40 @@ app.put('/api/video-settings', (req, res) => {
   res.json({ message: 'Video settings saved', video_provider: provider });
 });
 
+// Request a Server-to-Server OAuth token from Zoom using stored credentials.
+async function getZoomAccessToken(d) {
+  const s = d.prepare("SELECT zoom_account_id, zoom_client_id, zoom_client_secret FROM app_settings WHERE id=1").get() || {};
+  if (!s.zoom_account_id || !s.zoom_client_id || !s.zoom_client_secret) {
+    const e = new Error('Zoom credentials not configured'); e.code = 'NOT_CONFIGURED'; throw e;
+  }
+  const basic = Buffer.from(`${s.zoom_client_id}:${s.zoom_client_secret}`).toString('base64');
+  const resp = await fetch(`https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${encodeURIComponent(s.zoom_account_id)}`, {
+    method: 'POST',
+    headers: { Authorization: `Basic ${basic}` },
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.access_token) {
+    throw new Error(data.reason || data.error || `Zoom auth failed (HTTP ${resp.status})`);
+  }
+  return data.access_token;
+}
+
+// Live Zoom integration status — actually tries to obtain a token.
+app.get('/api/zoom-status', async (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const d = getDB();
+  const s = d.prepare("SELECT video_provider, zoom_account_id, zoom_client_id, zoom_client_secret FROM app_settings WHERE id=1").get() || {};
+  const provider = s.video_provider || 'webrtc';
+  const configured = !!(s.zoom_account_id && s.zoom_client_id && s.zoom_client_secret);
+  if (!configured) return res.json({ provider, configured: false, connected: false });
+  try {
+    await getZoomAccessToken(d);
+    res.json({ provider, configured: true, connected: true });
+  } catch (err) {
+    res.json({ provider, configured: true, connected: false, error: err.message });
+  }
+});
+
 // ============================================================
 // SMTP Settings
 // ============================================================

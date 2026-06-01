@@ -104,6 +104,7 @@ export const api = {
   getAppSettings: () => request('/app-settings'),
   saveAppSettings: (data) => request('/app-settings', { method: 'PUT', body: data }),
   saveVideoSettings: (data) => request('/video-settings', { method: 'PUT', body: data }),
+  getZoomStatus: () => request('/zoom-status'),
 
   // SMTP Settings
   getSmtpSettings: () => request('/smtp-settings'),

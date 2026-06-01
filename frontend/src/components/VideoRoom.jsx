@@ -30,6 +30,7 @@ export default function VideoRoom({ session, onLeave }) {
   const [debug, setDebug] = useState({});
   const [localVideoOn, setLocalVideoOn] = useState(false);
   const [videoProvider, setVideoProvider] = useState('');
+  const [zoomStatus, setZoomStatus] = useState(null);
 
   const setPeerDebug = (userId, patch) =>
     setDebug((d) => ({ ...d, [userId]: { ...d[userId], ...patch } }));
@@ -207,7 +208,13 @@ export default function VideoRoom({ session, onLeave }) {
   }, [session, createPeerConnection, user]);
 
   useEffect(() => {
-    api.getAppSettings().then((s) => setVideoProvider(s.video_provider || 'webrtc')).catch(() => {});
+    api.getAppSettings().then((s) => {
+      const provider = s.video_provider || 'webrtc';
+      setVideoProvider(provider);
+      if (provider === 'zoom') {
+        api.getZoomStatus().then(setZoomStatus).catch(() => setZoomStatus({ connected: false, error: 'status unavailable' }));
+      }
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -344,6 +351,18 @@ export default function VideoRoom({ session, onLeave }) {
               {videoProvider === 'zoom' ? 'Zoom' : 'WebRTC'}
             </span>
           )}
+          {videoProvider === 'zoom' && zoomStatus && (
+            <span
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#cbd5e1' }}
+              title={zoomStatus.error || (zoomStatus.connected ? 'Zoom API reachable' : 'Zoom API not connected')}
+            >
+              <span style={{
+                width: '8px', height: '8px', borderRadius: '50%',
+                background: zoomStatus.connected ? '#22c55e' : (zoomStatus.configured === false ? '#9ca3af' : '#ef4444'),
+              }} />
+              {zoomStatus.connected ? 'API connected' : (zoomStatus.configured === false ? 'Not configured' : 'API error')}
+            </span>
+          )}
           <span className="participants-count">{participants.length + 1} participant(s)</span>
         </div>
       </div>
@@ -360,6 +379,31 @@ export default function VideoRoom({ session, onLeave }) {
             </span>
           );
         })}
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', padding: '8px 12px' }}>
+        <span style={{ fontSize: '12px', fontWeight: 600, color: '#9ca3af', marginRight: '4px' }}>
+          In session ({participants.length + 1}):
+        </span>
+        {[{ id: user?.id, name: user?.name, role: user?.role, you: true }, ...participants].map((p) => (
+          <span
+            key={p.id ?? p.name}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              background: 'rgba(255,255,255,0.08)', borderRadius: '999px', padding: '3px 10px 3px 3px',
+              fontSize: '12px', color: '#e5e7eb',
+            }}
+          >
+            <span style={{
+              width: '22px', height: '22px', borderRadius: '50%', background: '#4F46E5', color: '#fff',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 600,
+            }}>
+              {p.name?.[0]?.toUpperCase()}
+            </span>
+            {p.name}{p.you ? ' (You)' : ''}
+            {p.role && <span style={{ color: '#9ca3af', textTransform: 'capitalize' }}>· {p.role}</span>}
+          </span>
+        ))}
       </div>
 
       <div className="video-grid">
