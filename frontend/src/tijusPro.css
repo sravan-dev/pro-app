@@ -98,12 +98,13 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
 .sidebar-user {
   padding: 1.25rem 1.5rem;
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 0.75rem;
   border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 
-.sidebar-user-info { display: flex; flex-direction: column; overflow: hidden; }
+.sidebar-user-info { display: flex; flex-direction: column; align-items: center; overflow: hidden; }
 .sidebar-user-name { font-weight: 600; color: #fff; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar-user-role { font-size: 0.75rem; color: var(--color-sidebar-text); text-transform: capitalize; }
 

@@ -112,7 +112,7 @@ export default function Sidebar({ activeTab, onTabChange }) {
         type="button"
         className="sidebar-user"
         onClick={() => setShowProfile(true)}
-        style={{ background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer', padding: 0, width: '100%' }}
+        style={{ background: 'transparent', border: 'none', textAlign: 'center', cursor: 'pointer', padding: 0, width: '100%' }}
         title="Update profile picture"
       >
         <div
