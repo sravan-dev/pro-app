@@ -77,6 +77,7 @@ export const api = {
   deleteSession: (id) => request(`/sessions?id=${id}`, { method: 'DELETE' }),
   joinSession: (sessionId) => request('/join-session', { method: 'POST', body: { session_id: sessionId } }),
   leaveSession: (sessionId) => request('/leave-session', { method: 'POST', body: { session_id: sessionId } }),
+  endSession: (sessionId) => request('/end-session', { method: 'POST', body: { session_id: sessionId } }),
 
   // Signaling (WebRTC)
   sendSignal: (data) => request('/signaling', { method: 'POST', body: data }),

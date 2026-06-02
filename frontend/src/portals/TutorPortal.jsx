@@ -93,6 +93,18 @@ export default function TutorPortal() {
     }
   };
 
+  const handleEndSession = async (session) => {
+    if (!window.confirm('End this session for everyone? It will be marked completed.')) return;
+    try {
+      await api.endSession(session.session_id);
+      setMessage('Session ended.');
+      const d = await api.portalData();
+      setData(d);
+    } catch (err) {
+      setMessage(err.message || 'Failed to end session');
+    }
+  };
+
   if (loading) return <div className="loading-screen"><div className="spinner" /><p>Loading...</p></div>;
 
   if (activeSession) {
@@ -130,7 +142,12 @@ export default function TutorPortal() {
     { key: 'date', label: 'Date', accessor: 'start_time', render: (r) => new Date(r.start_time).toLocaleDateString() },
     { key: 'status', label: 'Status', accessor: 'status', render: (r) => <span className={`status-badge status-${r.status}`}>{r.status}</span> },
     { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
-      r.status !== 'completed' && <button className="btn btn-sm btn-primary" onClick={() => handleJoinSession(r)}>Start</button>
+      r.status !== 'completed' && (
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button className="btn btn-sm btn-primary" onClick={() => handleJoinSession(r)}>{r.status === 'live' ? 'Join' : 'Start'}</button>
+          {r.status === 'live' && <button className="btn btn-sm btn-danger" onClick={() => handleEndSession(r)}>End</button>}
+        </div>
+      )
     )},
   ];
 

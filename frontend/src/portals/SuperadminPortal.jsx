@@ -525,6 +525,16 @@ export default function SuperadminPortal() {
     } catch (err) { showMsg(err.message, 'error'); }
   };
 
+  const endSession = async (id) => {
+    if (!confirm('End this session for everyone? It will be marked completed.')) return;
+    try {
+      await api.endSession(id);
+      showMsg('Session ended', 'success');
+      api.getSessions().then(setAllSessions);
+      fetchData();
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
   const handleJoinSession = async (session) => {
     try {
       const result = await api.joinSession(session.session_id);
@@ -650,6 +660,7 @@ export default function SuperadminPortal() {
     { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
       <div className="table-actions">
         {(r.status === 'scheduled' || r.status === 'live') && <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); handleJoinSession(r); }}>Join</button>}
+        {r.status === 'live' && <button className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); endSession(r.session_id); }}>End</button>}
         <button className="btn btn-sm btn-ghost text-danger" onClick={(e) => { e.stopPropagation(); deleteSession(r.session_id); }}>Delete</button>
       </div>
     )},

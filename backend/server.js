@@ -920,6 +920,34 @@ app.post('/api/leave-session', (req, res) => {
   res.json({ message: 'Left session' });
 });
 
+// End a live session: mark it completed, close open attendance logs, and
+// (LiveKit) disconnect everyone by deleting the room. Tutors may only end
+// their own sessions; admins/managers any.
+app.post('/api/end-session', async (req, res) => {
+  const user = requireRole(req, res, ['tutor', 'advisor', 'manager', 'superadmin']); if (!user) return;
+  const { session_id } = req.body;
+  if (!session_id) return res.status(400).json({ error: 'Session ID required' });
+  const d = getDB();
+  const sess = d.prepare("SELECT * FROM sessions WHERE session_id=?").get(session_id);
+  if (!sess) return res.status(404).json({ error: 'Session not found' });
+  if (user.role === 'tutor' && sess.tutor_id !== user.id) {
+    return res.status(403).json({ error: 'Not your session' });
+  }
+  d.prepare("UPDATE sessions SET status='completed' WHERE session_id=?").run(session_id);
+  d.prepare("UPDATE attendance_logs SET leave_time=datetime('now'), duration_minutes=CAST((julianday(datetime('now'))-julianday(join_time))*24*60 AS INTEGER) WHERE session_id=? AND leave_time IS NULL").run(session_id);
+  // Tell WebRTC peers the session ended, and tear down the LiveKit room.
+  d.prepare("INSERT INTO signaling (session_id,from_user_id,type,payload) VALUES (?,?,'leave','')").run(session_id, user.id);
+  if (livekitConfigured()) {
+    try {
+      const { RoomServiceClient } = await getLiveKit();
+      const svc = new RoomServiceClient(livekitHttpUrl(), LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+      await svc.deleteRoom(livekitRoomName(session_id));
+    } catch { /* room may not exist */ }
+  }
+  auditLog(user.id, 'end_session', 'session', session_id);
+  res.json({ message: 'Session ended' });
+});
+
 // Signaling
 app.get('/api/signaling', (req, res) => {
   const user = requireAuth(req, res); if (!user) return;
