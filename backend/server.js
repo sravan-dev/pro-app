@@ -394,6 +394,8 @@ app.get('/api/portal-data', (req, res) => {
     case 'student': {
       data.courses = d.prepare("SELECT c.*,u.name as tutor_name,e.progress_percentage,e.grade,e.status as enrollment_status FROM courses c JOIN enrollments e ON e.course_id=c.id JOIN users u ON u.id=c.tutor_id WHERE e.student_id=? ORDER BY c.name").all(user.id);
       data.upcoming_sessions = d.prepare("SELECT s.*,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? WHERE s.start_time>datetime('now') AND s.status='scheduled' ORDER BY s.start_time LIMIT 20").all(user.id);
+      // Sessions in the student's enrolled courses happening right now.
+      data.live_sessions = d.prepare("SELECT s.*, c.name as course_name, u.name as tutor_name, (SELECT COUNT(*) FROM attendance_logs a WHERE a.session_id=s.session_id AND a.leave_time IS NULL) as active_participants FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? WHERE s.status='live' ORDER BY s.start_time DESC").all(user.id);
       data.attendance_stats = d.prepare("SELECT COUNT(*) as total_sessions, SUM(CASE WHEN a.log_id IS NOT NULL THEN 1 ELSE 0 END) as attended FROM sessions s JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? LEFT JOIN attendance_logs a ON a.session_id=s.session_id AND a.student_id=? WHERE s.status='completed'").get(user.id, user.id);
       break;
     }

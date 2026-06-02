@@ -81,6 +81,7 @@ export default function StudentPortal() {
 
   const courses = data?.courses || [];
   const upcomingSessions = data?.upcoming_sessions || [];
+  const liveSessions = data?.live_sessions || [];
   const attendance = data?.attendance_stats || { total_sessions: 0, attended: 0 };
   const avgProgress = courses.length ? Math.round(courses.reduce((s, c) => s + (c.progress_percentage || 0), 0) / courses.length) : 0;
   const attendanceRate = attendance.total_sessions ? Math.round((attendance.attended / attendance.total_sessions) * 100) : 100;
@@ -103,6 +104,30 @@ export default function StudentPortal() {
         {activeTab === 'dashboard' && (
           <div className="portal-page">
             <h2>Welcome back, {user?.name?.split(' ')[0]}!</h2>
+
+            {liveSessions.length > 0 && (
+              <div className="section" style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444', display: 'inline-block', boxShadow: '0 0 0 4px rgba(239,68,68,0.2)' }} />
+                  Live Now ({liveSessions.length})
+                </h3>
+                <div className="card-grid">
+                  {liveSessions.map((s) => (
+                    <div
+                      key={s.session_id}
+                      onClick={() => handleJoinSession(s)}
+                      style={{ cursor: 'pointer', background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow)', padding: '1rem', borderLeft: '4px solid #ef4444', display: 'flex', flexDirection: 'column', gap: '4px' }}
+                    >
+                      <strong>{s.course_name}</strong>
+                      <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem' }}>{s.tutor_name || 'Tutor'}</span>
+                      <span style={{ fontSize: '0.8rem', color: '#10B981' }}>● {s.active_participants} in room</span>
+                      <button className="btn btn-sm btn-primary" style={{ marginTop: '0.5rem', alignSelf: 'flex-start' }} onClick={(e) => { e.stopPropagation(); handleJoinSession(s); }}>Join →</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="kpi-grid">
               <KPICard title="Enrolled Courses" value={courses.length} icon="book" color="#3B82F6" />
               <KPICard title="Avg Progress" value={`${avgProgress}%`} icon="trending-up" color="#10B981" />
