@@ -107,32 +107,10 @@ export default function Sidebar({ activeTab, onTabChange }) {
     <aside className="sidebar">
       <div className="sidebar-header">
         <img src="/logo.png" alt="Tiju's Academy" className="sidebar-logo" />
+        {user?.role && (
+          <span className="sidebar-subtitle">{user.role[0].toUpperCase() + user.role.slice(1)} portal</span>
+        )}
       </div>
-
-      <button
-        type="button"
-        className="sidebar-user"
-        onClick={() => setShowProfile(true)}
-        style={{ background: 'transparent', border: 'none', textAlign: 'center', cursor: 'pointer', padding: 0, width: '100%' }}
-        title="Update profile picture"
-      >
-        <div
-          className="avatar"
-          style={{
-            backgroundColor: user?.avatar_color || '#4F46E5',
-            backgroundImage: user?.avatar_url ? `url(${user.avatar_url})` : undefined,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            color: user?.avatar_url ? 'transparent' : undefined,
-          }}
-        >
-          {!user?.avatar_url && initials}
-        </div>
-        <div className="sidebar-user-info">
-          <span className="sidebar-user-name">{user?.name}</span>
-          <span className="sidebar-user-role">{user?.role}</span>
-        </div>
-      </button>
 
       <nav className="sidebar-nav">
         {items.map((item) => (
@@ -148,10 +126,35 @@ export default function Sidebar({ activeTab, onTabChange }) {
       </nav>
 
       <div className="sidebar-footer">
-        <button className="sidebar-item logout-btn" onClick={handleLogout}>
-          <span className="sidebar-icon">{iconMap.logout}</span>
-          <span className="sidebar-label">Logout</span>
-        </button>
+        <div className="sidebar-userbar">
+          <button
+            type="button"
+            className="sidebar-user-card"
+            onClick={() => setShowProfile(true)}
+            title="Update profile picture"
+          >
+            <div
+              className="avatar"
+              style={{
+                width: '38px', height: '38px', fontSize: '14px', flexShrink: 0,
+                backgroundColor: user?.avatar_color || '#4F46E5',
+                backgroundImage: user?.avatar_url ? `url(${user.avatar_url})` : undefined,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                color: user?.avatar_url ? 'transparent' : undefined,
+              }}
+            >
+              {!user?.avatar_url && initials}
+            </div>
+            <div className="sidebar-user-info">
+              <span className="sidebar-user-name">{user?.name}</span>
+              <span className="sidebar-user-email">{user?.email}</span>
+            </div>
+          </button>
+          <button type="button" className="sidebar-gear" onClick={handleLogout} title="Logout">
+            {iconMap.logout}
+          </button>
+        </div>
       </div>
 
       {showProfile && (
