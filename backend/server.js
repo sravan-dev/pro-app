@@ -1379,7 +1379,14 @@ app.get('/api/livekit/token', async (req, res) => {
   const isHost = PUBLISHER_ROLES.includes(user.role);
   const canPublish = true;
   try {
-    const { AccessToken } = await getLiveKit();
+    const { AccessToken, RoomServiceClient } = await getLiveKit();
+    // Ensure the room exists with an 8-minute empty timeout (LiveKit default is
+    // 5 min), so a brief disconnect doesn't tear the room down too soon. Only
+    // takes effect when the room is first created (first joiner).
+    try {
+      const svc = new RoomServiceClient(livekitHttpUrl(), LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+      await svc.createRoom({ name: livekitRoomName(sessionId), emptyTimeout: 8 * 60 });
+    } catch { /* room already exists */ }
     const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
       identity: String(user.id),
       name: user.name,
