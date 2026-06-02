@@ -160,6 +160,10 @@ export default function VideoRoom({ session, onLeave }) {
 
     if (type === 'join') {
       const info = JSON.parse(payload);
+      // A join for a peer we already hold a connection to means they refreshed
+      // or rejoined — tear the stale connection down so we renegotiate cleanly
+      // against their new RTCPeerConnection instead of reusing a dead one.
+      if (peersRef.current[from_user_id]) removePeer(from_user_id);
       setParticipants((prev) => {
         if (prev.find((p) => p.id === from_user_id)) return prev;
         return [...prev, { id: from_user_id, name: info.name, role: info.role }];

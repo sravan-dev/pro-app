@@ -891,8 +891,15 @@ app.get('/api/signaling', (req, res) => {
   const d = getDB();
   const signals = d.prepare("SELECT * FROM signaling WHERE session_id=? AND id>? AND from_user_id!=? AND (to_user_id IS NULL OR to_user_id=?) AND consumed=0 ORDER BY id").all(sid, lastId, user.id, user.id);
   if (signals.length) {
-    const ids = signals.map(s => s.id);
-    d.prepare(`UPDATE signaling SET consumed=1 WHERE id IN (${ids.join(',')})`).run();
+    // Only consume DIRECTED signals (offer/answer/ice aimed at one peer).
+    // Broadcast join/leave (to_user_id NULL) must stay readable so that EVERY
+    // other participant — including someone who joins later — receives them;
+    // this is what lets 3+ people mesh. The per-client last_id cursor already
+    // stops a signal being re-delivered to the same client.
+    const directed = signals.filter(s => s.to_user_id != null).map(s => s.id);
+    if (directed.length) {
+      d.prepare(`UPDATE signaling SET consumed=1 WHERE id IN (${directed.join(',')})`).run();
+    }
   }
   res.json(signals);
 });
