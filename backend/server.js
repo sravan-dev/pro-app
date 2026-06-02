@@ -435,9 +435,14 @@ app.get('/api/students', (req, res) => {
 
 // Full profile for a single student (everything related to them)
 app.get('/api/students/:id', (req, res) => {
-  const user = requireRole(req, res, ['advisor','manager','superadmin']); if (!user) return;
+  const user = requireRole(req, res, ['tutor','advisor','manager','superadmin']); if (!user) return;
   const id = parseInt(req.params.id);
   const d = getDB();
+  // A tutor may only view a student enrolled in one of their own courses.
+  if (user.role === 'tutor') {
+    const own = d.prepare("SELECT 1 FROM enrollments e JOIN courses c ON c.id=e.course_id WHERE e.student_id=? AND c.tutor_id=? LIMIT 1").get(id, user.id);
+    if (!own) return res.status(403).json({ error: 'Not your student' });
+  }
   const profile = d.prepare("SELECT id,name,email,status,avatar_color,avatar_url,created_at FROM users WHERE id=? AND role='student'").get(id);
   if (!profile) return res.status(404).json({ error: 'Student not found' });
 
