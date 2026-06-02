@@ -86,6 +86,14 @@ export const api = {
   getLiveKitToken: (sessionId) => request(`/livekit/token?session_id=${sessionId}`),
   livekitUpdatePermission: (data) => request('/livekit/update-permission', { method: 'POST', body: data }),
 
+  // Session recording — uploads a .webm to backend/uploads/recordings/
+  uploadRecording: (sessionId, blob) => {
+    const fd = new FormData();
+    fd.append('session_id', sessionId);
+    fd.append('recording', blob, `session-${sessionId}.webm`);
+    return request('/upload-recording', { method: 'POST', body: fd });
+  },
+
   // Attendance & Records
   getAttendanceLogs: (sessionId) => request(sessionId ? `/attendance-logs?session_id=${sessionId}` : '/attendance-logs'),
   getMeetingRecords: () => request('/meeting-records'),

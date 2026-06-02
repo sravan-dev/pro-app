@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   LiveKitRoom as LKRoom,
   RoomAudioRenderer,
@@ -138,6 +138,66 @@ function Stage({ session, initialCanPublish, onLeave }) {
     } catch { /* surfaced via console */ }
   };
 
+  // ---- Session recording (host) ----------------------------------------
+  // Captures the tab (all tiles) + mixes the host mic with the tab audio
+  // (remote participants), records to .webm, and uploads it to the server's
+  // recordings folder via /api/upload-recording on stop.
+  const [recState, setRecState] = useState('idle'); // idle | recording | uploading
+  const recRef = useRef(null);
+  const recCleanupRef = useRef(null);
+
+  const stopRecording = () => {
+    if (recRef.current && recRef.current.state !== 'inactive') recRef.current.stop();
+  };
+
+  const startRecording = async () => {
+    try {
+      const display = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 30 }, audio: true,
+      });
+      // Mix tab audio (everyone you hear) with the host's own mic.
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const dest = ctx.createMediaStreamDestination();
+      if (display.getAudioTracks().length) ctx.createMediaStreamSource(display).connect(dest);
+      let micStream = null;
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        ctx.createMediaStreamSource(micStream).connect(dest);
+      } catch { /* mic optional */ }
+
+      const mixed = new MediaStream([display.getVideoTracks()[0], ...dest.stream.getAudioTracks()]);
+      const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+        .find((m) => window.MediaRecorder?.isTypeSupported(m)) || 'video/webm';
+      const rec = new MediaRecorder(mixed, { mimeType: mime });
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = async () => {
+        recCleanupRef.current?.();
+        setRecState('uploading');
+        try {
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          await api.uploadRecording(session.session_id, blob);
+        } catch { /* upload failed — surfaced below */ }
+        setRecState('idle');
+      };
+
+      recCleanupRef.current = () => {
+        display.getTracks().forEach((t) => t.stop());
+        micStream?.getTracks().forEach((t) => t.stop());
+        ctx.close().catch(() => {});
+      };
+      // If the host clicks the browser's "Stop sharing", end the recording too.
+      display.getVideoTracks()[0].onended = stopRecording;
+
+      recRef.current = rec;
+      rec.start(1000);
+      setRecState('recording');
+    } catch { /* user cancelled the picker */ }
+  };
+
+  // Stop & flush if the host leaves mid-recording.
+  useEffect(() => () => { try { stopRecording(); } catch {} }, []);
+
   const handCount = Object.keys(raisedHands).length;
 
   return (
@@ -208,6 +268,19 @@ function Stage({ session, initialCanPublish, onLeave }) {
           >
             ✋
           </button>
+        )}
+        {isHost && (
+          recState === 'uploading' ? (
+            <button className="btn-control" disabled title="Saving recording…">⏳</button>
+          ) : (
+            <button
+              className={`btn-control ${recState === 'recording' ? 'active' : ''}`}
+              onClick={recState === 'recording' ? stopRecording : startRecording}
+              title={recState === 'recording' ? 'Stop & save recording' : 'Record session'}
+            >
+              {recState === 'recording' ? '⏹' : '⏺'}
+            </button>
+          )
         )}
         <button className="btn-control btn-leave" onClick={onLeave} title="Leave session">📞</button>
       </div>
