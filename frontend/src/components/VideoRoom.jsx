@@ -123,6 +123,19 @@ export default function VideoRoom({ session, onLeave }) {
       });
     }
 
+    // Always negotiate BOTH audio and video, even when this peer has no
+    // camera/mic. Common case: two browsers on one machine fight over a single
+    // webcam, so the second one's getUserMedia fails and it joins with no video
+    // track. Without a video transceiver its SDP offer carries no video m-line,
+    // so it can neither send NOR RECEIVE the other side's video — both tiles
+    // stay black. A recvonly transceiver keeps the m-line present so a
+    // media-less participant can still see/hear everyone else.
+    const localKinds = new Set(
+      (localStreamRef.current?.getTracks() || []).map((t) => t.kind)
+    );
+    if (!localKinds.has('video')) pc.addTransceiver('video', { direction: 'recvonly' });
+    if (!localKinds.has('audio')) pc.addTransceiver('audio', { direction: 'recvonly' });
+
     peersRef.current[remoteUserId] = pc;
     return pc;
   }, [session]);
