@@ -1381,6 +1381,45 @@ app.post('/api/livekit/update-permission', async (req, res) => {
   }
 });
 
+// Estimated video data transfer, derived from our own attendance logs.
+// LiveKit Cloud does not expose billed bandwidth via API, so this is an
+// approximation: participant-minutes × a typical per-participant bitrate.
+// Exact billed usage lives in the LiveKit Cloud dashboard.
+const EST_MBPS_PER_PARTICIPANT = 2;            // ~2 Mbps up+down combined, typical
+const EST_MB_PER_MINUTE = (EST_MBPS_PER_PARTICIPANT / 8) * 60; // = 15 MB/min
+app.get('/api/livekit/usage', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const d = getDB();
+  // Participant-minutes (closed logs use leave_time, ongoing count up to now).
+  const windowStats = (sinceExpr) => d.prepare(`
+    SELECT
+      COUNT(DISTINCT session_id) AS sessions,
+      COUNT(*) AS participants,
+      COALESCE(SUM(
+        CASE WHEN leave_time IS NOT NULL
+          THEN (julianday(leave_time) - julianday(join_time)) * 24 * 60
+          ELSE (julianday('now')      - julianday(join_time)) * 24 * 60 END
+      ), 0) AS minutes
+    FROM attendance_logs
+    WHERE join_time >= ${sinceExpr}
+  `).get();
+  const shape = (s) => {
+    const minutes = Math.max(0, Math.round(s.minutes));
+    return {
+      sessions: s.sessions,
+      participants: s.participants,
+      minutes,
+      est_gb: +(minutes * EST_MB_PER_MINUTE / 1024).toFixed(2),
+    };
+  };
+  res.json({
+    configured: livekitConfigured(),
+    assumed_mbps: EST_MBPS_PER_PARTICIPANT,
+    today: shape(windowStats("datetime('now','start of day')")),
+    month: shape(windowStats("datetime('now','start of month')")),
+  });
+});
+
 // ============================================================
 // SMTP Settings
 // ============================================================

@@ -47,6 +47,7 @@ export default function SuperadminPortal() {
     zoom_has_secret: false,
   });
   const [videoSaving, setVideoSaving] = useState(false);
+  const [livekitUsage, setLivekitUsage] = useState(null);
 
   const [showCourseForm, setShowCourseForm] = useState(false);
   const [editingCourse, setEditingCourse] = useState(null);
@@ -114,6 +115,7 @@ export default function SuperadminPortal() {
         zoom_has_secret: !!s.zoom_has_secret,
         livekit_configured: !!s.livekit_configured,
       });
+      if (s.livekit_configured) api.getLiveKitUsage().then(setLivekitUsage).catch(() => {});
     }).catch(() => {});
   }, []);
 
@@ -1456,6 +1458,23 @@ export default function SuperadminPortal() {
                     {videoSettings.livekit_configured
                       ? '✓ LiveKit server credentials detected. Tutors publish; students join view-only and can raise a hand to be promoted onstage.'
                       : '⚠ LiveKit env vars are not set on the server. Add LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET (see .env.example) and restart the backend.'}
+                  </div>
+                )}
+
+                {videoSettings.video_provider === 'livekit' && videoSettings.livekit_configured && livekitUsage && (
+                  <div style={{ marginTop: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                      <h4 style={{ margin: 0 }}>Estimated data transferred</h4>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => api.getLiveKitUsage().then(setLivekitUsage).catch(() => {})}>↻ Refresh</button>
+                    </div>
+                    <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+                      <KPICard title="Today" value={`${livekitUsage.today.est_gb} GB`} subtitle={`${livekitUsage.today.minutes} participant-min · ${livekitUsage.today.sessions} session(s)`} icon="bar-chart" color="#3B82F6" />
+                      <KPICard title="This month" value={`${livekitUsage.month.est_gb} GB`} subtitle={`${livekitUsage.month.minutes} participant-min · ${livekitUsage.month.sessions} session(s)`} icon="bar-chart" color="#8B5CF6" />
+                    </div>
+                    <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '0.5rem' }}>
+                      Rough estimate from session attendance (~{livekitUsage.assumed_mbps} Mbps per participant). For exact billed bandwidth see your{' '}
+                      <a href="https://cloud.livekit.io" target="_blank" rel="noopener noreferrer">LiveKit Cloud dashboard</a>.
+                    </p>
                   </div>
                 )}
 

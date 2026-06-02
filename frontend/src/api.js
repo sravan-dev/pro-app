@@ -85,6 +85,7 @@ export const api = {
   // LiveKit (large webinar sessions)
   getLiveKitToken: (sessionId) => request(`/livekit/token?session_id=${sessionId}`),
   livekitUpdatePermission: (data) => request('/livekit/update-permission', { method: 'POST', body: data }),
+  getLiveKitUsage: () => request('/livekit/usage'),
 
   // Session recording — uploads a .webm to backend/uploads/recordings/
   uploadRecording: (sessionId, blob) => {
