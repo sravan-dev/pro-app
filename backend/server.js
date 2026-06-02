@@ -186,6 +186,29 @@ function getDB() {
     const ins = db.prepare("INSERT OR IGNORE INTO categories (name) VALUES (?)");
     ['Technology', 'Marketing', 'Language', 'Design'].forEach((c) => ins.run(c));
   }
+
+  // One-time tutor seed (idempotent: only inserts emails that don't exist yet).
+  // Runs on startup so a deploy + restart creates them — no separate script.
+  const seedTutors = [
+    ['Sreelekshmi', 'sreelekshmi@tijusacademy.in'],
+    ['Arya',        'arya.krishnan@tijusacademy.in'],
+    ['Chandana',    'chandana.sekhar@tijusacademy.in'],
+    ['Mereena',     'mereena.james@tijusacademy.in'],
+    ['Alka',        'alka.haridas@tijusacademy.in'],
+    ['Gayathri',    'pr.gayathri@tijusacademy.in'],
+    ['Devi',        'devikrishna@tijusacademy.in'],
+    ['Sonia',       'sonia.william@tijusacademy.in'],
+    ['Mahalekshmi', 'mahalekshmi@tijusacademy.in'],
+    ['Aneesha',     'aneesha.s@tijusacademy.in'],
+  ];
+  const tutorExists = db.prepare('SELECT 1 FROM users WHERE email=?');
+  const missingTutors = seedTutors.filter(([, email]) => !tutorExists.get(email));
+  if (missingTutors.length) {
+    const hash = bcrypt.hashSync('Tijus@321', 10);
+    const insTutor = db.prepare("INSERT INTO users (name,email,portal,role,password_hash,avatar_color) VALUES (?,?,'tutor','tutor',?,?)");
+    missingTutors.forEach(([name, email]) => insTutor.run(name, email, hash, '#10B981'));
+    console.log(`[seed] created ${missingTutors.length} tutor account(s)`);
+  }
   return db;
 }
 
