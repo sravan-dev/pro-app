@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   LiveKitRoom as LKRoom,
   RoomAudioRenderer,
-  GridLayout,
   ParticipantTile,
   ControlBar,
   useTracks,
@@ -82,14 +81,22 @@ function Stage({ session, initialCanPublish, onLeave }) {
   // server, which updates localParticipant.permissions and re-renders this.
   const canPublish = localParticipant?.permissions?.canPublish ?? initialCanPublish;
 
-  // Only presenters (canPublish) occupy the stage; view-only students don't.
-  const tracks = useTracks(
+  // Published camera + screen-share tracks for everyone in the room (no
+  // canPublish filter — the host wants to see every participant). A camera tile
+  // is shown per participant: live video if they publish, otherwise a name
+  // placeholder, so the tutor always sees who's present.
+  const trackRefs = useTracks(
     [
-      { source: Track.Source.Camera, withPlaceholder: true },
+      { source: Track.Source.Camera, withPlaceholder: false },
       { source: Track.Source.ScreenShare, withPlaceholder: false },
     ],
     { onlySubscribed: false },
-  ).filter((t) => t.participant?.permissions?.canPublish);
+  );
+  const screenShares = trackRefs.filter((t) => t.source === Track.Source.ScreenShare);
+  const cameraByIdentity = {};
+  trackRefs.forEach((t) => {
+    if (t.source === Track.Source.Camera) cameraByIdentity[t.participant.identity] = t;
+  });
 
   // Raise-hand signalling over a data channel; hosts collect raised hands.
   const [raisedHands, setRaisedHands] = useState({});
@@ -145,16 +152,34 @@ function Stage({ session, initialCanPublish, onLeave }) {
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, padding: '0.5rem', display: 'flex' }}>
-        {tracks.length === 0 ? (
-          <div style={{ margin: 'auto', color: '#9ca3af', textAlign: 'center' }}>
-            {isHost ? 'Turn on your camera or share your screen to start the session.' : 'Waiting for the host to start the session…'}
-          </div>
-        ) : (
-          <GridLayout tracks={tracks} style={{ height: '100%', width: '100%' }}>
-            <ParticipantTile />
-          </GridLayout>
-        )}
+      <div style={{ flex: 1, minHeight: 0, padding: '8px', overflowY: 'auto' }}>
+        {/* Screen share gets the prominent (but still capped) slot. */}
+        {screenShares.map((t) => (
+          <ParticipantTile
+            key={`ss-${t.participant.identity}`}
+            trackRef={t}
+            style={{ width: '100%', maxHeight: '48vh', borderRadius: '10px', overflow: 'hidden', marginBottom: '8px' }}
+          />
+        ))}
+
+        {/* Small, wrapping gallery — one capped tile per participant. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', alignContent: 'flex-start' }}>
+          {participants.map((p) => {
+            const ref = cameraByIdentity[p.identity] || { participant: p, source: Track.Source.Camera };
+            const isMe = p.identity === localParticipant?.identity;
+            return (
+              <div key={p.identity} style={{ width: 'clamp(150px, 22vw, 260px)', aspectRatio: '16 / 9', position: 'relative' }}>
+                <ParticipantTile
+                  trackRef={ref}
+                  style={{ width: '100%', height: '100%', borderRadius: '10px', overflow: 'hidden', outline: isMe ? '2px solid #6366f1' : '1px solid rgba(255,255,255,0.08)' }}
+                />
+                {isMe && (
+                  <span style={{ position: 'absolute', top: 4, left: 4, fontSize: 10, fontWeight: 700, color: '#fff', background: 'rgba(99,102,241,0.9)', borderRadius: 4, padding: '1px 5px' }}>You</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {isHost && handCount > 0 && (
