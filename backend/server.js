@@ -442,6 +442,8 @@ app.get('/api/portal-data', (req, res) => {
       data.users = d.prepare("SELECT id,name,email,portal,role,status,avatar_color,specialization,created_at FROM users ORDER BY created_at DESC").all();
       data.courses = d.prepare("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id ORDER BY c.name").all();
       data.audit_logs = d.prepare("SELECT a.*,u.name as user_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 50").all();
+      // Sessions happening right now (status='live'), with who's currently in.
+      data.live_sessions = d.prepare("SELECT s.session_id, s.start_time, s.status, s.room_name, c.name as course_name, u.name as tutor_name, (SELECT COUNT(*) FROM attendance_logs a WHERE a.session_id=s.session_id AND a.leave_time IS NULL) as active_participants FROM sessions s JOIN courses c ON c.id=s.course_id LEFT JOIN users u ON u.id=s.tutor_id WHERE s.status='live' ORDER BY s.start_time DESC").all();
       // Dashboard charts (read-only aggregates).
       data.charts = {
         sessions_by_status: d.prepare("SELECT status, COUNT(*) as count FROM sessions GROUP BY status ORDER BY count DESC").all(),

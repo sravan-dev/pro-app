@@ -5,7 +5,7 @@ import KPICard from '../components/KPICard';
 import DataTable from '../components/DataTable';
 import Calendar from '../components/Calendar';
 import SessionCard from '../components/SessionCard';
-import VideoRoom from '../components/VideoRoom';
+import SessionRoom from '../components/SessionRoom';
 import usePersistedTab from '../hooks/usePersistedTab';
 
 // Simple horizontal bar chart built from the existing .stats-bars styles
@@ -539,7 +539,7 @@ export default function SuperadminPortal() {
       <div className="portal-layout portal-superadmin">
         <Sidebar activeTab={activeTab} onTabChange={(tab) => { setActiveSession(null); setActiveTab(tab); }} />
         <main className="portal-content">
-          <VideoRoom session={activeSession} onLeave={() => setActiveSession(null)} />
+          <SessionRoom session={activeSession} onLeave={() => setActiveSession(null)} />
         </main>
       </div>
     );
@@ -547,6 +547,7 @@ export default function SuperadminPortal() {
 
   const stats = data?.stats || {};
   const charts = data?.charts || {};
+  const liveSessions = data?.live_sessions || [];
   const users = data?.users || [];
   const tutors = users.filter((u) => u.role === 'tutor');
   const students = users.filter((u) => u.role === 'student');
@@ -1131,6 +1132,30 @@ export default function SuperadminPortal() {
         {activeTab === 'dashboard' && (
           <div className="portal-page">
             <h2>Admin Dashboard</h2>
+
+            {liveSessions.length > 0 && (
+              <div className="section" style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444', display: 'inline-block', boxShadow: '0 0 0 4px rgba(239,68,68,0.2)' }} />
+                  Live Now ({liveSessions.length})
+                </h3>
+                <div className="card-grid">
+                  {liveSessions.map((s) => (
+                    <div
+                      key={s.session_id}
+                      onClick={() => handleJoinSession(s)}
+                      style={{ cursor: 'pointer', background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow)', padding: '1rem', borderLeft: '4px solid #ef4444', display: 'flex', flexDirection: 'column', gap: '4px' }}
+                    >
+                      <strong>{s.course_name}</strong>
+                      <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem' }}>{s.tutor_name || 'Tutor'}</span>
+                      <span style={{ fontSize: '0.8rem', color: '#10B981' }}>● {s.active_participants} in room</span>
+                      <button className="btn btn-sm btn-primary" style={{ marginTop: '0.5rem', alignSelf: 'flex-start' }} onClick={(e) => { e.stopPropagation(); handleJoinSession(s); }}>Join →</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="kpi-grid">
               <KPICard title="Total Students" value={stats.total_students} icon="users" color="#3B82F6" onClick={() => setActiveTab('students')} />
               <KPICard title="Total Tutors" value={stats.total_tutors} icon="users" color="#10B981" onClick={() => setActiveTab('tutors')} />
