@@ -20,8 +20,17 @@ export default function TutorPortal() {
   const [message, setMessage] = useState('');
   const [currency, setCurrency] = useState('INR');
   const [attendance, setAttendance] = useState([]);
+  const [recordings, setRecordings] = useState([]);
   const [studentDetail, setStudentDetail] = useState(null);
   const [studentDetailLoading, setStudentDetailLoading] = useState(false);
+
+  const loadRecordings = () => api.getMeetingRecords().then(setRecordings).catch(() => {});
+
+  const deleteRecording = async (id) => {
+    if (!window.confirm('Delete this recording? This permanently removes the file.')) return;
+    try { await api.deleteMeetingRecord(id); setRecordings((r) => r.filter((x) => x.record_id !== id)); }
+    catch (err) { setMessage(err.message || 'Failed to delete recording'); }
+  };
 
   const openStudentDetail = async (student) => {
     setStudentDetail(null);
@@ -58,6 +67,7 @@ export default function TutorPortal() {
 
   useEffect(() => {
     if (activeTab === 'attendance') api.getAttendanceLogs().then(setAttendance).catch(() => {});
+    if (activeTab === 'recordings') loadRecordings();
   }, [activeTab]);
 
   const handleCreateSession = async (e) => {
@@ -374,6 +384,36 @@ export default function TutorPortal() {
                 searchable={false}
               />
             </div>
+          </div>
+        )}
+
+        {activeTab === 'recordings' && (
+          <div className="portal-page">
+            <div className="page-header">
+              <h2>Recordings</h2>
+              <button className="btn btn-ghost" onClick={loadRecordings}>↻ Refresh</button>
+            </div>
+            {recordings.length === 0 ? (
+              <p style={{ color: 'var(--color-text-secondary)' }}>
+                No recordings yet. Click the ⏺ Record button during a LiveKit session to capture and save one here.
+              </p>
+            ) : (
+              <DataTable
+                columns={[
+                  { key: 'course', label: 'Course', accessor: 'course_name' },
+                  { key: 'date', label: 'Recorded', accessor: 'creation_date', render: (r) => r.creation_date ? new Date(r.creation_date).toLocaleString() : '-' },
+                  { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <a className="btn btn-sm btn-primary" href={r.playback_url} target="_blank" rel="noopener noreferrer">▶ Play</a>
+                      <a className="btn btn-sm btn-ghost" href={r.playback_url} download>⬇ Download</a>
+                      <button className="btn btn-sm btn-danger" onClick={() => deleteRecording(r.record_id)}>🗑 Delete</button>
+                    </div>
+                  )},
+                ]}
+                data={recordings}
+                searchable={false}
+              />
+            )}
           </div>
         )}
       </main>

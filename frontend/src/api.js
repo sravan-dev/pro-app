@@ -97,6 +97,7 @@ export const api = {
   // Attendance & Records
   getAttendanceLogs: (sessionId) => request(sessionId ? `/attendance-logs?session_id=${sessionId}` : '/attendance-logs'),
   getMeetingRecords: () => request('/meeting-records'),
+  deleteMeetingRecord: (id) => request(`/meeting-records?id=${id}`, { method: 'DELETE' }),
 
   // Settings
   clearData: (target) => request('/clear-data', { method: 'POST', body: { target } }),

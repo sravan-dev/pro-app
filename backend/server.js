@@ -960,10 +960,29 @@ app.get('/api/meeting-records', (req, res) => {
   let rows;
   if (user.role === 'student') {
     rows = d.prepare("SELECT mr.*,c.name as course_name,s.start_time FROM meeting_records mr JOIN sessions s ON s.session_id=mr.session_id JOIN courses c ON c.id=s.course_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? ORDER BY mr.creation_date DESC").all(user.id);
+  } else if (user.role === 'tutor') {
+    // Tutors only see recordings from their own sessions.
+    rows = d.prepare("SELECT mr.*,c.name as course_name,s.start_time FROM meeting_records mr JOIN sessions s ON s.session_id=mr.session_id JOIN courses c ON c.id=s.course_id WHERE s.tutor_id=? ORDER BY mr.creation_date DESC").all(user.id);
   } else {
     rows = d.prepare("SELECT mr.*,c.name as course_name,s.start_time,u.name as tutor_name FROM meeting_records mr JOIN sessions s ON s.session_id=mr.session_id JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id ORDER BY mr.creation_date DESC").all();
   }
   res.json(rows);
+});
+
+// Delete a recording (file + row). Tutors may delete only their own sessions'
+// recordings; superadmin any.
+app.delete('/api/meeting-records', (req, res) => {
+  const user = requireRole(req, res, ['tutor','superadmin']); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'Record ID required' });
+  const d = getDB();
+  const rec = d.prepare("SELECT mr.*, s.tutor_id FROM meeting_records mr JOIN sessions s ON s.session_id=mr.session_id WHERE mr.record_id=?").get(id);
+  if (!rec) return res.status(404).json({ error: 'Recording not found' });
+  if (user.role === 'tutor' && rec.tutor_id !== user.id) return res.status(403).json({ error: 'Not your recording' });
+  try { if (rec.file_path && fs.existsSync(rec.file_path)) fs.unlinkSync(rec.file_path); } catch { /* file already gone */ }
+  d.prepare("DELETE FROM meeting_records WHERE record_id=?").run(id);
+  auditLog(user.id, 'delete_recording', 'meeting_record', id);
+  res.json({ message: 'Recording deleted' });
 });
 
 // Reports
