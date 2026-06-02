@@ -8,6 +8,30 @@ import SessionCard from '../components/SessionCard';
 import VideoRoom from '../components/VideoRoom';
 import usePersistedTab from '../hooks/usePersistedTab';
 
+// Simple horizontal bar chart built from the existing .stats-bars styles
+// (no charting library). rows = [{ label, value }].
+function BarChart({ title, rows = [], color = '#4F46E5', emptyLabel = 'No data yet' }) {
+  const max = Math.max(...rows.map((r) => r.value || 0), 1);
+  return (
+    <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow)', padding: '1.25rem' }}>
+      <h3 style={{ margin: '0 0 1rem' }}>{title}</h3>
+      {rows.length === 0 ? (
+        <p style={{ color: 'var(--color-text-secondary)' }}>{emptyLabel}</p>
+      ) : (
+        <div className="stats-bars">
+          {rows.map((r) => (
+            <div key={r.label} className="stats-bar-item">
+              <span className="stats-bar-label" style={{ textTransform: 'capitalize' }}>{r.label}</span>
+              <div className="stats-bar"><div className="stats-bar-fill" style={{ width: `${(r.value / max) * 100}%`, background: color }} /></div>
+              <span className="stats-bar-value">{r.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SuperadminPortal() {
   const [activeTab, setActiveTab] = usePersistedTab('tab:superadmin');
   const [data, setData] = useState(null);
@@ -522,6 +546,7 @@ export default function SuperadminPortal() {
   }
 
   const stats = data?.stats || {};
+  const charts = data?.charts || {};
   const users = data?.users || [];
   const tutors = users.filter((u) => u.role === 'tutor');
   const students = users.filter((u) => u.role === 'student');
@@ -1115,6 +1140,27 @@ export default function SuperadminPortal() {
               <KPICard title="Total Users" value={stats.total_users} icon="users" color="#06B6D4" onClick={() => setActiveTab('users')} />
               <KPICard title="Advisors" value={stats.total_advisors} icon="users" color="#EC4899" onClick={() => setActiveTab('users')} />
               <KPICard title="Managers" value={stats.total_managers} icon="users" color="#0891B2" onClick={() => setActiveTab('users')} />
+            </div>
+
+            <div className="card-grid" style={{ marginTop: '1.5rem' }}>
+              <BarChart
+                title="Student Progress"
+                color="#10B981"
+                emptyLabel="No enrollment progress yet"
+                rows={(charts.progress_distribution || []).map((p) => ({ label: p.bucket, value: p.count }))}
+              />
+              <BarChart
+                title="Sessions by Status"
+                color="#EF4444"
+                emptyLabel="No sessions yet"
+                rows={(charts.sessions_by_status || []).map((s) => ({ label: s.status, value: s.count }))}
+              />
+              <BarChart
+                title="Enrollments by Category"
+                color="#8B5CF6"
+                emptyLabel="No enrollments yet"
+                rows={(charts.enrollment_by_category || []).map((c) => ({ label: c.category || 'Uncategorized', value: c.count }))}
+              />
             </div>
           </div>
         )}

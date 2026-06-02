@@ -442,6 +442,19 @@ app.get('/api/portal-data', (req, res) => {
       data.users = d.prepare("SELECT id,name,email,portal,role,status,avatar_color,specialization,created_at FROM users ORDER BY created_at DESC").all();
       data.courses = d.prepare("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id ORDER BY c.name").all();
       data.audit_logs = d.prepare("SELECT a.*,u.name as user_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 50").all();
+      // Dashboard charts (read-only aggregates).
+      data.charts = {
+        sessions_by_status: d.prepare("SELECT status, COUNT(*) as count FROM sessions GROUP BY status ORDER BY count DESC").all(),
+        enrollment_by_category: d.prepare("SELECT c.category, COUNT(e.enrollment_id) as count FROM courses c LEFT JOIN enrollments e ON e.course_id=c.id GROUP BY c.category ORDER BY count DESC").all(),
+        progress_distribution: d.prepare(`SELECT bucket, COUNT(*) as count FROM (
+            SELECT CASE
+              WHEN progress_percentage <= 25 THEN '0-25%'
+              WHEN progress_percentage <= 50 THEN '26-50%'
+              WHEN progress_percentage <= 75 THEN '51-75%'
+              ELSE '76-100%' END as bucket
+            FROM enrollments
+          ) GROUP BY bucket ORDER BY bucket`).all(),
+      };
       break;
     }
   }
