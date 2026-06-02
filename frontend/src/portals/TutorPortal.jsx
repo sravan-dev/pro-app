@@ -370,7 +370,7 @@ export default function TutorPortal() {
                     return '—';
                   }},
                 ]}
-                data={sessions.filter((s) => s.status === 'completed')}
+                data={sessions.filter((s) => s.conducted || s.status === 'completed')}
                 searchable={false}
               />
             </div>
