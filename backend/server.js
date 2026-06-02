@@ -1,4 +1,5 @@
 // TijusPro LMS - Node.js Backend (Express + better-sqlite3)
+require('dotenv').config(); // load .env (LiveKit creds, secrets) into process.env
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
