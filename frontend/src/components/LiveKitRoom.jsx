@@ -8,8 +8,9 @@ import {
   useParticipants,
   useLocalParticipant,
   useDataChannel,
+  useRoomContext,
 } from '@livekit/components-react';
-import { Track } from 'livekit-client';
+import { Track, RoomEvent } from 'livekit-client';
 import '@livekit/components-styles';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -76,6 +77,8 @@ function Stage({ session, initialCanPublish, onLeave }) {
   const isHost = HOST_ROLES.includes(user?.role);
   const participants = useParticipants();
   const { localParticipant } = useLocalParticipant();
+  const room = useRoomContext();
+  const stageBodyRef = useRef(null);
 
   // Reactive: a student promoted mid-session gets canPublish flipped by the
   // server, which updates localParticipant.permissions and re-renders this.
@@ -139,9 +142,10 @@ function Stage({ session, initialCanPublish, onLeave }) {
   };
 
   // ---- Session recording (host) ----------------------------------------
-  // Captures the tab (all tiles) + mixes the host mic with the tab audio
-  // (remote participants), records to .webm, and uploads it to the server's
-  // recordings folder via /api/upload-recording on stop.
+  // Records the MEETING AREA ONLY (no screen picker): the participant video
+  // tiles are composited onto a canvas and the room audio (host mic + every
+  // remote participant) is mixed in, then recorded to .webm and uploaded to
+  // the server's recordings folder via /api/upload-recording on stop.
   const [recState, setRecState] = useState('idle'); // idle | recording | uploading
   const recRef = useRef(null);
   const recCleanupRef = useRef(null);
@@ -152,47 +156,82 @@ function Stage({ session, initialCanPublish, onLeave }) {
 
   const startRecording = async () => {
     try {
-      const display = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30 }, audio: true,
-      });
-      // Mix tab audio (everyone you hear) with the host's own mic.
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const dest = ctx.createMediaStreamDestination();
-      if (display.getAudioTracks().length) ctx.createMediaStreamSource(display).connect(dest);
-      let micStream = null;
-      try {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        ctx.createMediaStreamSource(micStream).connect(dest);
-      } catch { /* mic optional */ }
+      const container = stageBodyRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = 1280; canvas.height = 720;
+      const cctx = canvas.getContext('2d');
 
-      const mixed = new MediaStream([display.getVideoTracks()[0], ...dest.stream.getAudioTracks()]);
+      // Composite the rendered <video> tiles into a grid every frame.
+      let raf = 0;
+      const draw = () => {
+        const vids = container
+          ? Array.from(container.querySelectorAll('video')).filter((v) => v.videoWidth > 0)
+          : [];
+        const n = Math.max(vids.length, 1);
+        const cols = Math.ceil(Math.sqrt(n));
+        const rows = Math.ceil(n / cols);
+        const cw = canvas.width / cols, ch = canvas.height / rows;
+        cctx.fillStyle = '#0f172a';
+        cctx.fillRect(0, 0, canvas.width, canvas.height);
+        vids.forEach((v, i) => {
+          const gx = (i % cols) * cw, gy = Math.floor(i / cols) * ch;
+          const vr = v.videoWidth / v.videoHeight, cr = cw / ch;
+          let dw = cw, dh = ch, dx = gx, dy = gy;
+          if (vr > cr) { dh = cw / vr; dy = gy + (ch - dh) / 2; } else { dw = ch * vr; dx = gx + (cw - dw) / 2; }
+          try { cctx.drawImage(v, dx, dy, dw, dh); } catch { /* not ready */ }
+        });
+        raf = requestAnimationFrame(draw);
+      };
+      draw();
+
+      // Mix all audio: host mic + every remote participant (and any that join).
+      const actx = new (window.AudioContext || window.webkitAudioContext)();
+      const dest = actx.createMediaStreamDestination();
+      const seen = new Set();
+      const connect = (mst) => {
+        if (!mst || seen.has(mst.id)) return;
+        seen.add(mst.id);
+        try { actx.createMediaStreamSource(new MediaStream([mst])).connect(dest); } catch { /* ignore */ }
+      };
+      let micStream = null;
+      try { micStream = await navigator.mediaDevices.getUserMedia({ audio: true }); connect(micStream.getAudioTracks()[0]); } catch { /* mic optional */ }
+      const connectRemotes = () => {
+        room?.remoteParticipants?.forEach((p) => {
+          p.trackPublications.forEach((pub) => { if (pub.kind === 'audio' && pub.audioTrack) connect(pub.audioTrack.mediaStreamTrack); });
+        });
+      };
+      connectRemotes();
+      const onSub = () => connectRemotes();
+      room?.on(RoomEvent.TrackSubscribed, onSub);
+
+      const stream = new MediaStream([
+        canvas.captureStream(30).getVideoTracks()[0],
+        ...dest.stream.getAudioTracks(),
+      ]);
       const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
         .find((m) => window.MediaRecorder?.isTypeSupported(m)) || 'video/webm';
-      const rec = new MediaRecorder(mixed, { mimeType: mime });
+      const rec = new MediaRecorder(stream, { mimeType: mime });
       const chunks = [];
       rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       rec.onstop = async () => {
         recCleanupRef.current?.();
         setRecState('uploading');
-        try {
-          const blob = new Blob(chunks, { type: 'video/webm' });
-          await api.uploadRecording(session.session_id, blob);
-        } catch { /* upload failed — surfaced below */ }
+        try { await api.uploadRecording(session.session_id, new Blob(chunks, { type: 'video/webm' })); }
+        catch { /* upload failed */ }
         setRecState('idle');
       };
 
       recCleanupRef.current = () => {
-        display.getTracks().forEach((t) => t.stop());
+        cancelAnimationFrame(raf);
+        room?.off(RoomEvent.TrackSubscribed, onSub);
         micStream?.getTracks().forEach((t) => t.stop());
-        ctx.close().catch(() => {});
+        actx.close().catch(() => {});
       };
-      // If the host clicks the browser's "Stop sharing", end the recording too.
-      display.getVideoTracks()[0].onended = stopRecording;
 
       recRef.current = rec;
       rec.start(1000);
       setRecState('recording');
-    } catch { /* user cancelled the picker */ }
+    } catch { setRecState('idle'); }
   };
 
   // Stop & flush if the host leaves mid-recording.
@@ -212,7 +251,7 @@ function Stage({ session, initialCanPublish, onLeave }) {
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, padding: '8px', overflowY: 'auto' }}>
+      <div ref={stageBodyRef} style={{ flex: 1, minHeight: 0, padding: '8px', overflowY: 'auto' }}>
         {/* Screen share gets the prominent (but still capped) slot. */}
         {screenShares.map((t) => (
           <ParticipantTile

@@ -21,6 +21,7 @@ export default function TutorPortal() {
   const [currency, setCurrency] = useState('INR');
   const [attendance, setAttendance] = useState([]);
   const [recordings, setRecordings] = useState([]);
+  const [playUrl, setPlayUrl] = useState(null);
   const [studentDetail, setStudentDetail] = useState(null);
   const [studentDetailLoading, setStudentDetailLoading] = useState(false);
 
@@ -404,7 +405,7 @@ export default function TutorPortal() {
                   { key: 'date', label: 'Recorded', accessor: 'creation_date', render: (r) => r.creation_date ? new Date(r.creation_date).toLocaleString() : '-' },
                   { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <a className="btn btn-sm btn-primary" href={r.playback_url} target="_blank" rel="noopener noreferrer">▶ Play</a>
+                      <button className="btn btn-sm btn-primary" onClick={() => setPlayUrl(r.playback_url)}>▶ Play</button>
                       <a className="btn btn-sm btn-ghost" href={r.playback_url} download>⬇ Download</a>
                       <button className="btn btn-sm btn-danger" onClick={() => deleteRecording(r.record_id)}>🗑 Delete</button>
                     </div>
@@ -413,6 +414,21 @@ export default function TutorPortal() {
                 data={recordings}
                 searchable={false}
               />
+            )}
+
+            {playUrl && (
+              <div className="modal-overlay" onClick={() => setPlayUrl(null)}>
+                <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '860px', width: '100%' }}>
+                  <div className="page-header" style={{ alignItems: 'center' }}>
+                    <h3 style={{ margin: 0 }}>Recording</h3>
+                    <button className="btn btn-ghost" onClick={() => setPlayUrl(null)}>✕ Close</button>
+                  </div>
+                  <video src={playUrl} controls autoPlay style={{ width: '100%', borderRadius: '8px', background: '#000' }} />
+                  <div style={{ marginTop: '0.75rem', textAlign: 'right' }}>
+                    <a className="btn btn-ghost" href={playUrl} download>⬇ Download</a>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         )}
