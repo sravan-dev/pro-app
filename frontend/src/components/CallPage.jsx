@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
-import VideoRoom from './VideoRoom';
+import SessionRoom from './SessionRoom';
 
 export default function CallPage() {
   const { sessionId } = useParams();
@@ -40,7 +40,7 @@ export default function CallPage() {
   if (activeSession) {
     return (
       <div style={{ height: '100vh' }}>
-        <VideoRoom session={activeSession} onLeave={() => navigate('/')} />
+        <SessionRoom session={activeSession} onLeave={() => navigate('/')} />
       </div>
     );
   }

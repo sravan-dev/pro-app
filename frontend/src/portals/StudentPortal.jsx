@@ -7,7 +7,7 @@ import CourseCard from '../components/CourseCard';
 import SessionCard from '../components/SessionCard';
 import Calendar from '../components/Calendar';
 import DataTable from '../components/DataTable';
-import VideoRoom from '../components/VideoRoom';
+import SessionRoom from '../components/SessionRoom';
 import usePersistedTab from '../hooks/usePersistedTab';
 
 export default function StudentPortal() {
@@ -73,7 +73,7 @@ export default function StudentPortal() {
       <div className="portal-layout portal-student">
         <Sidebar activeTab={activeTab} onTabChange={(tab) => { setActiveSession(null); setActiveTab(tab); }} />
         <main className="portal-content">
-          <VideoRoom session={activeSession} onLeave={() => setActiveSession(null)} />
+          <SessionRoom session={activeSession} onLeave={() => setActiveSession(null)} />
         </main>
       </div>
     );

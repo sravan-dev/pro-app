@@ -17,6 +17,23 @@ const MATERIALS_DIR = path.join(__dirname, 'uploads', 'materials');
 const AVATARS_DIR = path.join(__dirname, 'uploads', 'avatars');
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist');
 
+// LiveKit (SFU) — used for large webinar-style sessions (50-100+ participants).
+// Credentials live in env, NOT the database. Get them from a LiveKit Cloud
+// project (https://cloud.livekit.io) or a self-hosted server.
+const LIVEKIT_URL = process.env.LIVEKIT_URL || '';            // wss://your-project.livekit.cloud
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || '';
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || '';
+const livekitConfigured = () => !!(LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET);
+// livekit-server-sdk v2 is ESM-only; load it lazily via dynamic import so this
+// CommonJS file keeps working even when the package isn't installed.
+let _livekitSdk = null;
+async function getLiveKit() {
+  if (!_livekitSdk) _livekitSdk = await import('livekit-server-sdk');
+  return _livekitSdk;
+}
+const livekitRoomName = (sessionId) => `session-${sessionId}`;
+const livekitHttpUrl = () => LIVEKIT_URL.replace(/^ws/, 'http');
+
 // ============================================================
 // Middleware
 // ============================================================
@@ -1172,6 +1189,8 @@ app.get('/api/app-settings', (req, res) => {
     zoom_client_id: s.zoom_client_id || '',
     // Never echo the secret back; just report whether one is stored.
     zoom_has_secret: !!s.zoom_client_secret,
+    // LiveKit is configured via env vars, not the DB — report availability only.
+    livekit_configured: livekitConfigured(),
   });
 });
 
@@ -1191,8 +1210,11 @@ app.put('/api/app-settings', (req, res) => {
 app.put('/api/video-settings', (req, res) => {
   const user = requireRole(req, res, ['superadmin']); if (!user) return;
   const provider = (req.body.video_provider || 'webrtc').trim();
-  if (!['webrtc', 'zoom'].includes(provider)) {
+  if (!['webrtc', 'zoom', 'livekit'].includes(provider)) {
     return res.status(400).json({ error: 'Unsupported video provider' });
+  }
+  if (provider === 'livekit' && !livekitConfigured()) {
+    return res.status(400).json({ error: 'LiveKit env vars (LIVEKIT_URL/API_KEY/API_SECRET) are not set on the server' });
   }
   const accountId = (req.body.zoom_account_id || '').trim();
   const clientId = (req.body.zoom_client_id || '').trim();
@@ -1250,6 +1272,84 @@ app.get('/api/zoom-status', async (req, res) => {
     res.json({ provider, configured: true, connected: true });
   } catch (err) {
     res.json({ provider, configured: true, connected: false, error: err.message });
+  }
+});
+
+// ============================================================
+// LiveKit (large webinar sessions)
+// ============================================================
+const PUBLISHER_ROLES = ['tutor', 'advisor', 'manager', 'superadmin'];
+
+// Shared access check: can this user be in this session at all?
+function canAccessSession(d, user, sessionId) {
+  const sess = d.prepare("SELECT s.*, c.name as course_name FROM sessions s JOIN courses c ON c.id=s.course_id WHERE s.session_id=?").get(sessionId);
+  if (!sess) return { ok: false, status: 404, error: 'Session not found' };
+  const isTestCall = d.prepare("SELECT 1 FROM courses WHERE id=? AND name='__test_call__'").get(sess.course_id);
+  if (!isTestCall && user.role === 'student') {
+    const enrolled = d.prepare("SELECT 1 FROM enrollments WHERE student_id=? AND course_id=?").get(user.id, sess.course_id);
+    if (!enrolled) return { ok: false, status: 403, error: 'Not enrolled' };
+  }
+  return { ok: true, sess };
+}
+
+// Issue a LiveKit access token for a session. Tutors/admins publish; students
+// join view-only (webinar mode) until a tutor promotes them to the stage.
+app.get('/api/livekit/token', async (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  if (!livekitConfigured()) return res.status(503).json({ error: 'LiveKit not configured on the server' });
+  const sessionId = parseInt(req.query.session_id);
+  if (!sessionId) return res.status(400).json({ error: 'Session ID required' });
+  const d = getDB();
+  const access = canAccessSession(d, user, sessionId);
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+
+  const canPublish = PUBLISHER_ROLES.includes(user.role);
+  try {
+    const { AccessToken } = await getLiveKit();
+    const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+      identity: String(user.id),
+      name: user.name,
+      metadata: JSON.stringify({ role: user.role, name: user.name }),
+    });
+    at.addGrant({
+      roomJoin: true,
+      room: livekitRoomName(sessionId),
+      canPublish,
+      canSubscribe: true,
+      canPublishData: true,         // raise-hand / chat signalling
+      roomAdmin: PUBLISHER_ROLES.includes(user.role),
+    });
+    const token = await at.toJwt();
+    res.json({ url: LIVEKIT_URL, token, can_publish: canPublish, identity: String(user.id), room: livekitRoomName(sessionId) });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to mint LiveKit token' });
+  }
+});
+
+// Promote/demote a participant (tutor → student stage access). Only the
+// session's own tutor or an admin may change permissions.
+app.post('/api/livekit/update-permission', async (req, res) => {
+  const user = requireRole(req, res, PUBLISHER_ROLES); if (!user) return;
+  if (!livekitConfigured()) return res.status(503).json({ error: 'LiveKit not configured on the server' });
+  const { session_id, identity, can_publish } = req.body;
+  if (!session_id || !identity) return res.status(400).json({ error: 'session_id and identity required' });
+  const d = getDB();
+  const sess = d.prepare("SELECT tutor_id FROM sessions WHERE session_id=?").get(session_id);
+  if (!sess) return res.status(404).json({ error: 'Session not found' });
+  if (user.role === 'tutor' && sess.tutor_id !== user.id) {
+    return res.status(403).json({ error: 'Not your session' });
+  }
+  try {
+    const { RoomServiceClient } = await getLiveKit();
+    const svc = new RoomServiceClient(livekitHttpUrl(), LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+    await svc.updateParticipant(livekitRoomName(session_id), String(identity), undefined, {
+      canPublish: !!can_publish,
+      canSubscribe: true,
+      canPublishData: true,
+    });
+    res.json({ message: can_publish ? 'Promoted to stage' : 'Removed from stage', identity: String(identity), can_publish: !!can_publish });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to update participant' });
   }
 });
 

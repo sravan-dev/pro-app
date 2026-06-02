@@ -6,7 +6,7 @@ import KPICard from '../components/KPICard';
 import DataTable from '../components/DataTable';
 import Calendar from '../components/Calendar';
 import SessionCard from '../components/SessionCard';
-import VideoRoom from '../components/VideoRoom';
+import SessionRoom from '../components/SessionRoom';
 import usePersistedTab from '../hooks/usePersistedTab';
 
 export default function TutorPortal() {
@@ -89,7 +89,7 @@ export default function TutorPortal() {
       <div className="portal-layout portal-tutor">
         <Sidebar activeTab={activeTab} onTabChange={(tab) => { setActiveSession(null); setActiveTab(tab); }} />
         <main className="portal-content">
-          <VideoRoom session={activeSession} onLeave={() => setActiveSession(null)} />
+          <SessionRoom session={activeSession} onLeave={() => setActiveSession(null)} />
         </main>
       </div>
     );

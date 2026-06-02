@@ -112,6 +112,7 @@ export default function SuperadminPortal() {
         zoom_client_id: s.zoom_client_id || '',
         zoom_client_secret: '',
         zoom_has_secret: !!s.zoom_has_secret,
+        livekit_configured: !!s.livekit_configured,
       });
     }).catch(() => {});
   }, []);
@@ -1443,11 +1444,20 @@ export default function SuperadminPortal() {
                       value={videoSettings.video_provider}
                       onChange={(e) => setVideoSettings({ ...videoSettings, video_provider: e.target.value })}
                     >
-                      <option value="webrtc">WebRTC — built-in (no setup)</option>
+                      <option value="webrtc">WebRTC — built-in (best for 1:1 / small groups)</option>
                       <option value="zoom">Zoom</option>
+                      <option value="livekit">LiveKit — webinar (50–100+ participants)</option>
                     </select>
                   </div>
                 </div>
+
+                {videoSettings.video_provider === 'livekit' && (
+                  <div className="alert" style={{ marginTop: '1rem', background: videoSettings.livekit_configured ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', color: videoSettings.livekit_configured ? '#065f46' : '#991b1b' }}>
+                    {videoSettings.livekit_configured
+                      ? '✓ LiveKit server credentials detected. Tutors publish; students join view-only and can raise a hand to be promoted onstage.'
+                      : '⚠ LiveKit env vars are not set on the server. Add LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET (see .env.example) and restart the backend.'}
+                  </div>
+                )}
 
                 {videoSettings.video_provider === 'zoom' && (
                   <div style={{ marginTop: '1rem' }}>

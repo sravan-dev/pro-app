@@ -82,6 +82,10 @@ export const api = {
   sendSignal: (data) => request('/signaling', { method: 'POST', body: data }),
   pollSignals: (sessionId, lastId = 0) => request(`/signaling?session_id=${sessionId}&last_id=${lastId}`),
 
+  // LiveKit (large webinar sessions)
+  getLiveKitToken: (sessionId) => request(`/livekit/token?session_id=${sessionId}`),
+  livekitUpdatePermission: (data) => request('/livekit/update-permission', { method: 'POST', body: data }),
+
   // Attendance & Records
   getAttendanceLogs: (sessionId) => request(sessionId ? `/attendance-logs?session_id=${sessionId}` : '/attendance-logs'),
   getMeetingRecords: () => request('/meeting-records'),
