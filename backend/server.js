@@ -159,7 +159,7 @@ function getDB() {
   // Video/meeting provider settings on app_settings
   const appCols = db.prepare("PRAGMA table_info(app_settings)").all().map((c) => c.name);
   if (!appCols.includes('video_provider')) {
-    db.exec("ALTER TABLE app_settings ADD COLUMN video_provider TEXT DEFAULT 'webrtc'");
+    db.exec("ALTER TABLE app_settings ADD COLUMN video_provider TEXT DEFAULT 'livekit'");
   }
   if (!appCols.includes('zoom_account_id')) {
     db.exec("ALTER TABLE app_settings ADD COLUMN zoom_account_id TEXT DEFAULT ''");
@@ -1222,7 +1222,8 @@ app.get('/api/app-settings', (req, res) => {
   const s = getDB().prepare("SELECT currency, video_provider, zoom_account_id, zoom_client_id, zoom_client_secret FROM app_settings WHERE id=1").get() || {};
   res.json({
     currency: s.currency || 'INR',
-    video_provider: s.video_provider || 'webrtc',
+    // Default to LiveKit when it's configured; otherwise fall back to WebRTC.
+    video_provider: s.video_provider || (livekitConfigured() ? 'livekit' : 'webrtc'),
     zoom_account_id: s.zoom_account_id || '',
     zoom_client_id: s.zoom_client_id || '',
     // Never echo the secret back; just report whether one is stored.
