@@ -1304,7 +1304,12 @@ app.get('/api/livekit/token', async (req, res) => {
   const access = canAccessSession(d, user, sessionId);
   if (!access.ok) return res.status(access.status).json({ error: access.error });
 
-  const canPublish = PUBLISHER_ROLES.includes(user.role);
+  // Everyone may publish camera + mic so sessions are interactive (e.g. OET
+  // speaking practice needs the student seen and heard). Hosts also get room
+  // admin rights (mute/remove others). For a true large webinar where students
+  // should be silent by default, this is the single line to gate by role.
+  const isHost = PUBLISHER_ROLES.includes(user.role);
+  const canPublish = true;
   try {
     const { AccessToken } = await getLiveKit();
     const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
@@ -1318,7 +1323,7 @@ app.get('/api/livekit/token', async (req, res) => {
       canPublish,
       canSubscribe: true,
       canPublishData: true,         // raise-hand / chat signalling
-      roomAdmin: PUBLISHER_ROLES.includes(user.role),
+      roomAdmin: isHost,
     });
     const token = await at.toJwt();
     res.json({ url: LIVEKIT_URL, token, can_publish: canPublish, identity: String(user.id), room: livekitRoomName(sessionId) });
