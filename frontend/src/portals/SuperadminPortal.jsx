@@ -77,6 +77,8 @@ export default function SuperadminPortal() {
   const [editingCourse, setEditingCourse] = useState(null);
   const [courseForm, setCourseForm] = useState({ name: '', category: 'Technology', tutor_id: '', color: '#3B82F6', icon: 'book' });
 
+  const [inviteResult, setInviteResult] = useState(null);
+
   // Categories
   const [categories, setCategories] = useState([]);
   const [showCategoryMgr, setShowCategoryMgr] = useState(false);
@@ -574,8 +576,18 @@ export default function SuperadminPortal() {
     </div>
   );
 
+  const handleInvite = async (u) => {
+    try {
+      const res = await api.inviteUser(u.id);
+      setInviteResult({ name: u.name, ...res });
+    } catch (err) { showMsg(err.message || 'Failed to send invite', 'error'); }
+  };
+
   const actionBtns = (onEdit, onDelete, deleteLabel = 'Deactivate', onPermanentDelete = null) => (r) => (
     <div className="table-actions">
+      {r.id && r.email && (
+        <button className="btn btn-sm btn-ghost" style={{ color: '#10B981' }} onClick={(e) => { e.stopPropagation(); handleInvite(r); }}>Invite</button>
+      )}
       <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); onEdit(r); }}>Edit</button>
       {onDelete && r.status !== 'inactive' && r.status !== 'archived' && r.status !== 'dropped' && (
         <button className="btn btn-sm btn-ghost text-danger" onClick={(e) => { e.stopPropagation(); onDelete(r.id || r.enrollment_id); }}>{deleteLabel}</button>
@@ -1133,6 +1145,30 @@ export default function SuperadminPortal() {
       <main className="portal-content">
         {message && <div className={`alert alert-${msgType}`} onClick={() => setMessage('')}>{message}</div>}
         {userFormModal}
+
+        {inviteResult && (
+          <div className="modal-overlay" onClick={() => setInviteResult(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+              <h3>Invite {inviteResult.name}</h3>
+              <p style={{ color: 'var(--color-text-secondary)' }}>
+                {inviteResult.emailed
+                  ? `A login email was sent to ${inviteResult.email}.`
+                  : 'Email could not be sent (SMTP not configured). Share these login details manually:'}
+              </p>
+              <div style={{ background: 'var(--color-bg)', borderRadius: '8px', padding: '12px 14px', fontSize: '14px', lineHeight: 1.9 }}>
+                <div><strong>Login:</strong> {inviteResult.login_url}</div>
+                <div><strong>Email:</strong> {inviteResult.email}</div>
+                <div><strong>Password:</strong> <code style={{ background: 'rgba(0,0,0,0.06)', padding: '2px 6px', borderRadius: '4px' }}>{inviteResult.password}</code></div>
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '8px' }}>
+                They'll be asked to set their own password on first login.
+              </p>
+              <div className="form-actions">
+                <button className="btn btn-primary" onClick={() => setInviteResult(null)}>Done</button>
+              </div>
+            </div>
+          </div>
+        )}
         {courseFormModal}
         {categoryMgrModal}
         {materialsMgrModal}
