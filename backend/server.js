@@ -491,7 +491,7 @@ app.get('/api/portal-data', (req, res) => {
 // Students
 app.get('/api/students', (req, res) => {
   const user = requireRole(req, res, ['tutor','advisor','manager','superadmin']); if (!user) return;
-  res.json(getDB().prepare("SELECT u.id,u.name,u.email,u.status,u.avatar_color,u.created_at, COUNT(e.enrollment_id) as enrolled_courses, ROUND(AVG(e.progress_percentage),1) as avg_progress FROM users u LEFT JOIN enrollments e ON e.student_id=u.id WHERE u.role='student' GROUP BY u.id ORDER BY u.name").all());
+  res.json(getDB().prepare("SELECT u.id,u.name,u.email,u.role,u.specialization,u.status,u.avatar_color,u.created_at, COUNT(e.enrollment_id) as enrolled_courses, ROUND(AVG(e.progress_percentage),1) as avg_progress FROM users u LEFT JOIN enrollments e ON e.student_id=u.id WHERE u.role='student' GROUP BY u.id ORDER BY u.name").all());
 });
 
 // Full profile for a single student (everything related to them)
@@ -526,7 +526,7 @@ app.get('/api/students/:id', (req, res) => {
 // Tutors
 app.get('/api/tutors', (req, res) => {
   const user = requireRole(req, res, ['manager','superadmin']); if (!user) return;
-  res.json(getDB().prepare("SELECT u.id,u.name,u.email,u.status,u.avatar_color,u.specialization,u.payout_rate,u.payout_type, COUNT(DISTINCT c.id) as course_count FROM users u LEFT JOIN courses c ON c.tutor_id=u.id WHERE u.role='tutor' GROUP BY u.id ORDER BY u.name").all());
+  res.json(getDB().prepare("SELECT u.id,u.name,u.email,u.role,u.status,u.avatar_color,u.specialization,u.payout_rate,u.payout_type, COUNT(DISTINCT c.id) as course_count FROM users u LEFT JOIN courses c ON c.tutor_id=u.id WHERE u.role='tutor' GROUP BY u.id ORDER BY u.name").all());
 });
 
 // Courses
