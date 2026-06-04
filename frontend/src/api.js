@@ -105,9 +105,10 @@ export const api = {
   // Settings
   clearData: (target) => request('/clear-data', { method: 'POST', body: { target } }),
 
-  // Export the SQLite database file (returns a Blob + suggested filename)
-  exportDb: async () => {
-    const res = await fetch(`${API}/export-db`, { credentials: 'include' });
+  // Download a backup (returns a Blob + suggested filename). `format`: 'db' | 'sql'
+  exportDb: async (format = 'db') => {
+    const fallback = format === 'sql' ? 'tijuspro-backup.sql' : 'tijuspro-backup.db';
+    const res = await fetch(`${API}/${format === 'sql' ? 'export-sql' : 'export-db'}`, { credentials: 'include' });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || `Export failed: ${res.status}`);
@@ -115,7 +116,14 @@ export const api = {
     const blob = await res.blob();
     const dispo = res.headers.get('Content-Disposition') || '';
     const m = dispo.match(/filename="?([^"]+)"?/);
-    return { blob, filename: m ? m[1] : 'tijuspro-backup.db' };
+    return { blob, filename: m ? m[1] : fallback };
+  },
+
+  // Import a .db or .sql backup, replacing the current database
+  importDb: (file) => {
+    const fd = new FormData();
+    fd.append('database', file);
+    return request('/import-db', { method: 'POST', body: fd });
   },
 
   // Test Call

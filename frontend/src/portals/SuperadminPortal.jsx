@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 import Sidebar from '../components/Sidebar';
 import KPICard from '../components/KPICard';
@@ -123,10 +123,45 @@ export default function SuperadminPortal() {
   const [testCallCreating, setTestCallCreating] = useState(false);
   const [testCallCopied, setTestCallCopied] = useState(false);
 
-  // Database export
+  // Database export / import
   const [exportingDb, setExportingDb] = useState(false);
+  const [exportingSql, setExportingSql] = useState(false);
+  const [importingDb, setImportingDb] = useState(false);
+  const dbImportRef = useRef(null);
 
   const showMsg = (msg, type = 'info') => { setMessage(msg); setMsgType(type); setTimeout(() => setMessage(''), 4000); };
+
+  // Download a database backup in the given format ('db' | 'sql').
+  const exportDatabase = async (format, setBusy) => {
+    setBusy(true);
+    try {
+      const { blob, filename } = await api.exportDb(format);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showMsg(`Database exported (${format.toUpperCase()})`, 'success');
+    } catch (err) { showMsg(err.message, 'error'); }
+    finally { setBusy(false); }
+  };
+
+  // Replace the current database from an uploaded .db or .sql file.
+  const importDatabase = async (file) => {
+    if (!file) return;
+    if (!confirm(`Import "${file.name}"? This REPLACES the entire current database — all current users, courses, and records will be overwritten. A backup of the current database is kept on the server. This cannot be undone from the UI.`)) return;
+    setImportingDb(true);
+    try {
+      const result = await api.importDb(file);
+      showMsg(result.message || 'Database imported', 'success');
+      // Reload so every view reflects the freshly imported data (and re-auth if needed).
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err) { showMsg(err.message, 'error'); }
+    finally { setImportingDb(false); }
+  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -1899,29 +1934,49 @@ export default function SuperadminPortal() {
             <div className="settings-section" style={{ marginBottom: '2rem' }}>
               <h3>Export Database</h3>
               <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
-                Download a full backup of the current SQLite database. The file contains all users, courses,
-                enrollments, sessions, and settings — keep it somewhere safe.
+                Download a full backup of the current database — all users, courses, enrollments, sessions,
+                and settings. Use <strong>.db</strong> for an exact binary copy or <strong>.sql</strong> for a
+                portable, human-readable dump.
               </p>
-              <button
-                className="btn btn-primary"
-                disabled={exportingDb}
-                onClick={async () => {
-                  setExportingDb(true);
-                  try {
-                    const { blob, filename } = await api.exportDb();
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    URL.revokeObjectURL(url);
-                    showMsg('Database exported', 'success');
-                  } catch (err) { showMsg(err.message, 'error'); }
-                  finally { setExportingDb(false); }
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  className="btn btn-primary"
+                  disabled={exportingDb}
+                  onClick={() => exportDatabase('db', setExportingDb)}
+                >{exportingDb ? 'Exporting…' : 'Download Database (.db)'}</button>
+                <button
+                  className="btn btn-ghost"
+                  disabled={exportingSql}
+                  onClick={() => exportDatabase('sql', setExportingSql)}
+                >{exportingSql ? 'Exporting…' : 'Download as SQL (.sql)'}</button>
+              </div>
+            </div>
+
+            {/* Import Database */}
+            <div className="settings-section" style={{ marginBottom: '2rem' }}>
+              <h3>Import Database</h3>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
+                Restore from a backup. Upload a <strong>.db</strong> or <strong>.sql</strong> file exported above —
+                it <strong>replaces the entire current database</strong>. The current data is backed up on the
+                server first, but proceed with care.
+              </p>
+              <input
+                ref={dbImportRef}
+                type="file"
+                accept=".db,.sqlite,.sqlite3,.sql,application/sql,application/octet-stream"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  importDatabase(file);
                 }}
-              >{exportingDb ? 'Exporting…' : 'Download Database (.db)'}</button>
+              />
+              <button
+                className="btn"
+                style={{ background: '#F59E0B', color: '#fff' }}
+                disabled={importingDb}
+                onClick={() => dbImportRef.current?.click()}
+              >{importingDb ? 'Importing…' : 'Import Database…'}</button>
             </div>
 
             <div className="settings-section">

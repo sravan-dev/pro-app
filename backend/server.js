@@ -1507,6 +1507,122 @@ app.get('/api/export-db', (req, res) => {
   });
 });
 
+// Render a SQLite value as a SQL literal for the dump.
+function sqlLiteral(v) {
+  if (v === null || v === undefined) return 'NULL';
+  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : 'NULL';
+  if (typeof v === 'bigint') return v.toString();
+  if (Buffer.isBuffer(v)) return `X'${v.toString('hex')}'`;
+  return `'${String(v).replace(/'/g, "''")}'`;
+}
+
+// Export as a plain-text .sql dump (schema + INSERT statements).
+app.get('/api/export-sql', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const d = getDB();
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  res.setHeader('Content-Type', 'application/sql; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="tijuspro-backup-${stamp}.sql"`);
+  try {
+    res.write('PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n');
+    const objects = d.prepare(
+      "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'"
+    ).all();
+    const tables = objects.filter((o) => o.type === 'table');
+    const others = objects.filter((o) => o.type !== 'table'); // indexes, triggers, views
+
+    for (const t of tables) {
+      res.write(`${t.sql};\n`);
+      const rows = d.prepare(`SELECT * FROM "${t.name}"`).all();
+      if (rows.length) {
+        const cols = Object.keys(rows[0]);
+        const colList = cols.map((c) => `"${c}"`).join(', ');
+        for (const row of rows) {
+          const vals = cols.map((c) => sqlLiteral(row[c])).join(', ');
+          res.write(`INSERT INTO "${t.name}" (${colList}) VALUES (${vals});\n`);
+        }
+      }
+    }
+    for (const o of others) res.write(`${o.sql};\n`);
+
+    res.write('COMMIT;\nPRAGMA foreign_keys=ON;\n');
+    auditLog(user.id, 'export_sql', 'app_settings', 1, 'Exported database as SQL');
+    res.end();
+  } catch (err) {
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to generate SQL dump' });
+    else res.end(`\n-- ERROR: ${err.message}\n`);
+  }
+});
+
+// Import a database — accepts either a binary SQLite (.db) file or a .sql dump.
+// The current database is backed up, then fully replaced. Superadmin only.
+app.post('/api/import-db', upload.single('database'), (req, res) => {
+  const user = requireRole(req, res, ['superadmin']);
+  if (!user) { if (req.file) { try { fs.unlinkSync(req.file.path); } catch {} } return; }
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded (field "database")' });
+
+  const tmpPath = req.file.path;
+  const builtPath = `${tmpPath}.built.db`;
+  const cleanup = () => {
+    for (const p of [tmpPath, builtPath]) { try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {} }
+  };
+
+  try {
+    // Sniff the file header to decide binary-db vs SQL text (don't trust the extension).
+    const head = Buffer.alloc(16);
+    const fd = fs.openSync(tmpPath, 'r');
+    fs.readSync(fd, head, 0, 16, 0);
+    fs.closeSync(fd);
+    const isSqlite = head.toString('latin1').startsWith('SQLite format 3');
+
+    let sourcePath;
+    if (isSqlite) {
+      // Validate the uploaded SQLite file before we trust it.
+      const test = new Database(tmpPath, { readonly: true });
+      const integrity = test.pragma('integrity_check', { simple: true });
+      const hasUsers = test.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").get();
+      test.close();
+      if (integrity !== 'ok') throw new Error('uploaded file failed the SQLite integrity check');
+      if (!hasUsers) throw new Error('this does not look like a TijusPro database (no "users" table)');
+      sourcePath = tmpPath;
+    } else {
+      // Treat as a .sql dump: build a fresh database by executing it.
+      const sql = fs.readFileSync(tmpPath, 'utf8');
+      if (fs.existsSync(builtPath)) fs.unlinkSync(builtPath);
+      const built = new Database(builtPath);
+      try { built.exec(sql); } finally { built.close(); }
+      const verify = new Database(builtPath, { readonly: true });
+      const hasUsers = verify.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").get();
+      verify.close();
+      if (!hasUsers) throw new Error('the SQL dump produced no "users" table');
+      sourcePath = builtPath;
+    }
+
+    // Close the live connection, back up the current DB, then swap the file in.
+    if (db) { try { db.close(); } catch {} db = null; }
+    for (const suffix of ['-wal', '-shm']) {
+      const p = DB_PATH + suffix;
+      try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {}
+    }
+    if (fs.existsSync(DB_PATH)) {
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      fs.copyFileSync(DB_PATH, `${DB_PATH}.bak-${stamp}`);
+    }
+    fs.copyFileSync(sourcePath, DB_PATH);
+
+    // Reopen — getDB() runs migrations/seeds so older backups are brought up to date.
+    getDB();
+    auditLog(user.id, 'import_db', 'app_settings', 1, `Imported database from ${req.file.originalname}`);
+    cleanup();
+    res.json({ message: 'Database imported successfully. Existing accounts were replaced — you may need to log in again.' });
+  } catch (err) {
+    // Make sure we always have a working connection again.
+    try { if (!db) getDB(); } catch {}
+    cleanup();
+    res.status(400).json({ error: `Import failed: ${err.message}` });
+  }
+});
+
 // ============================================================
 // LiveKit (large webinar sessions)
 // ============================================================
