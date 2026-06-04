@@ -871,10 +871,6 @@ export default function SuperadminPortal() {
           </div>
           <div className="form-row">
             <div className="form-group">
-              <label>Specialization</label>
-              <input value={userForm.specialization} onChange={(e) => setUserForm({ ...userForm, specialization: e.target.value })} placeholder="e.g. Web Development" />
-            </div>
-            <div className="form-group">
               <label>Avatar Color</label>
               <input type="color" value={userForm.avatar_color} onChange={(e) => setUserForm({ ...userForm, avatar_color: e.target.value })} />
             </div>
