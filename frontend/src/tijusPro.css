@@ -58,6 +58,22 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
 .sidebar::-webkit-scrollbar-track { background: var(--color-sidebar); }
 .sidebar::-webkit-scrollbar-thumb { border-color: var(--color-sidebar); }
 
+/* Video meeting participant gallery — responsive grid */
+.meeting-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  align-content: start;
+  width: 100%;
+}
+.meeting-tile { width: 100%; aspect-ratio: 16 / 9; position: relative; }
+@media (max-width: 768px) {
+  .meeting-gallery { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .meeting-gallery { grid-template-columns: 1fr; }
+}
+
 /* ========================================
    Layout
    ======================================== */

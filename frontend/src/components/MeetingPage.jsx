@@ -143,12 +143,12 @@ function MeetingStage({ title, onLeave }) {
             style={{ width: '100%', maxHeight: '48vh', borderRadius: '10px', overflow: 'hidden', marginBottom: '8px' }}
           />
         ))}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', alignContent: 'flex-start' }}>
+        <div className="meeting-gallery">
           {participants.map((p) => {
             const ref = cameraByIdentity[p.identity] || { participant: p, source: Track.Source.Camera };
             const isMe = p.identity === localParticipant?.identity;
             return (
-              <div key={p.identity} style={{ width: 'clamp(150px, 22vw, 260px)', aspectRatio: '16 / 9', position: 'relative' }}>
+              <div key={p.identity} className="meeting-tile">
                 <ParticipantTile
                   trackRef={ref}
                   style={{ width: '100%', height: '100%', borderRadius: '10px', overflow: 'hidden', outline: isMe ? '2px solid #6366f1' : '1px solid rgba(255,255,255,0.08)' }}
