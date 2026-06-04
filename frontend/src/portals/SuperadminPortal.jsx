@@ -1461,29 +1461,6 @@ export default function SuperadminPortal() {
           <div className="portal-page">
             <h2>Admin Dashboard</h2>
 
-            {liveSessions.length > 0 && (
-              <div className="section" style={{ marginBottom: '1.5rem' }}>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444', display: 'inline-block', boxShadow: '0 0 0 4px rgba(239,68,68,0.2)' }} />
-                  Live Now ({liveSessions.length})
-                </h3>
-                <div className="card-grid">
-                  {liveSessions.map((s) => (
-                    <div
-                      key={s.session_id}
-                      onClick={() => handleJoinSession(s)}
-                      style={{ cursor: 'pointer', background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow)', padding: '1rem', borderLeft: '4px solid #ef4444', display: 'flex', flexDirection: 'column', gap: '4px' }}
-                    >
-                      <strong>{s.course_name}</strong>
-                      <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem' }}>{s.tutor_name || 'Tutor'}</span>
-                      <span style={{ fontSize: '0.8rem', color: '#10B981' }}>● {s.active_participants} in room</span>
-                      <button className="btn btn-sm btn-primary" style={{ marginTop: '0.5rem', alignSelf: 'flex-start' }} onClick={(e) => { e.stopPropagation(); handleJoinSession(s); }}>Join →</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             <div className="kpi-grid">
               <KPICard variant="small-box" title="Total Students" value={stats.total_students} icon="users" color="#3B82F6" onClick={() => setActiveTab('students')} />
               <KPICard variant="small-box" title="Total Tutors" value={stats.total_tutors} icon="users" color="#10B981" onClick={() => setActiveTab('tutors')} />
@@ -1504,13 +1481,40 @@ export default function SuperadminPortal() {
               />
             </div>
 
-            <div className="card-grid" style={{ marginTop: '1.5rem' }}>
-              <BarChart
-                title="Student Progress"
-                color="#10B981"
-                emptyLabel="No enrollment progress yet"
-                rows={(charts.progress_distribution || []).map((p) => ({ label: p.bucket, value: p.count }))}
-              />
+            <div className="section" style={{ marginTop: '1.5rem' }}>
+              <h3 style={{ marginBottom: '0.75rem' }}>Active Sessions</h3>
+              {liveSessions.length === 0 ? (
+                <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>
+                  No active sessions right now.
+                </div>
+              ) : (
+                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                  <table className="data-table" style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th>Course</th>
+                        <th>Tutor</th>
+                        <th>In Room</th>
+                        <th style={{ textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {liveSessions.map((s) => (
+                        <tr key={s.session_id}>
+                          <td><strong>{s.course_name}</strong></td>
+                          <td>{s.tutor_name || 'Tutor'}</td>
+                          <td><span style={{ color: '#10B981' }}>● {s.active_participants}</span></td>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <button className="btn btn-sm btn-primary" onClick={() => handleJoinSession(s)}>Join</button>
+                            <button className="btn btn-sm btn-danger" onClick={() => endSession(s.session_id)}>End</button>
+                            <button className="btn btn-sm btn-ghost text-danger" onClick={() => deleteSession(s.session_id)}>Delete</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}
