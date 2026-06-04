@@ -1493,6 +1493,12 @@ export default function SuperadminPortal() {
               <KPICard variant="small-box" title="Total Users" value={stats.total_users} icon="users" color="#06B6D4" onClick={() => setActiveTab('users')} />
               <KPICard variant="small-box" title="Advisors" value={stats.total_advisors} icon="users" color="#EC4899" onClick={() => setActiveTab('users')} />
               <KPICard variant="small-box" title="Managers" value={stats.total_managers} icon="users" color="#0891B2" onClick={() => setActiveTab('users')} />
+              <BarChart
+                title="Sessions by Status"
+                color="#EF4444"
+                emptyLabel="No sessions yet"
+                rows={(charts.sessions_by_status || []).map((s) => ({ label: s.status, value: s.count }))}
+              />
             </div>
 
             <div className="card-grid" style={{ marginTop: '1.5rem' }}>
@@ -1501,12 +1507,6 @@ export default function SuperadminPortal() {
                 color="#10B981"
                 emptyLabel="No enrollment progress yet"
                 rows={(charts.progress_distribution || []).map((p) => ({ label: p.bucket, value: p.count }))}
-              />
-              <BarChart
-                title="Sessions by Status"
-                color="#EF4444"
-                emptyLabel="No sessions yet"
-                rows={(charts.sessions_by_status || []).map((s) => ({ label: s.status, value: s.count }))}
               />
             </div>
           </div>
