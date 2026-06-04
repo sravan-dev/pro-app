@@ -158,10 +158,15 @@ function getDB() {
     code TEXT NOT NULL UNIQUE,
     passcode TEXT NOT NULL,
     title TEXT DEFAULT 'Meeting',
+    host_name TEXT DEFAULT '',
+    host_email TEXT DEFAULT '',
     created_by INTEGER REFERENCES users(id),
     status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','ended')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
+  const meetingCols = db.prepare("PRAGMA table_info(meetings)").all().map((c) => c.name);
+  if (!meetingCols.includes('host_name')) db.exec("ALTER TABLE meetings ADD COLUMN host_name TEXT DEFAULT ''");
+  if (!meetingCols.includes('host_email')) db.exec("ALTER TABLE meetings ADD COLUMN host_email TEXT DEFAULT ''");
   db.exec(`CREATE TABLE IF NOT EXISTS app_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     currency TEXT DEFAULT 'INR'
@@ -946,29 +951,32 @@ app.post('/api/meetings', (req, res) => {
   const user = requireRole(req, res, ['superadmin']); if (!user) return;
   const d = getDB();
   const title = (req.body?.title || 'Meeting').toString().trim().slice(0, 80) || 'Meeting';
+  const hostName = (req.body?.name || '').toString().trim().slice(0, 80);
+  const hostEmail = (req.body?.email || '').toString().trim().slice(0, 120);
   const code = genMeetingCode(d);
   const passcode = genPasscode();
-  const r = d.prepare("INSERT INTO meetings (code,passcode,title,created_by) VALUES (?,?,?,?)").run(code, passcode, title, user.id);
+  const r = d.prepare("INSERT INTO meetings (code,passcode,title,host_name,host_email,created_by) VALUES (?,?,?,?,?,?)")
+    .run(code, passcode, title, hostName, hostEmail, user.id);
   auditLog(user.id, 'create_meeting', 'meeting', r.lastInsertRowid, title);
-  res.status(201).json({ id: r.lastInsertRowid, code, passcode, title, status: 'active' });
+  res.status(201).json({ id: r.lastInsertRowid, code, passcode, title, host_name: hostName, host_email: hostEmail, status: 'active' });
 });
 
-// Admin: list meetings (newest first).
+// Admin: list meetings (newest first), active and ended.
 app.get('/api/meetings', (req, res) => {
   const user = requireRole(req, res, ['superadmin']); if (!user) return;
-  res.json(getDB().prepare("SELECT id,code,passcode,title,status,created_at FROM meetings ORDER BY created_at DESC").all());
+  res.json(getDB().prepare("SELECT id,code,passcode,title,host_name,host_email,status,created_at FROM meetings ORDER BY created_at DESC").all());
 });
 
-// Admin: end a meeting (passcode stops working). Also drops the LiveKit room.
+// Admin: end a meeting (passcode stops working) or, with ?permanent=true,
+// delete it from history entirely. Ending also drops the LiveKit room.
 app.delete('/api/meetings', async (req, res) => {
   const user = requireRole(req, res, ['superadmin']); if (!user) return;
   const id = parseInt(req.query.id);
   if (!id) return res.status(400).json({ error: 'Meeting ID required' });
+  const permanent = req.query.permanent === 'true';
   const d = getDB();
   const m = d.prepare("SELECT * FROM meetings WHERE id=?").get(id);
   if (!m) return res.status(404).json({ error: 'Meeting not found' });
-  d.prepare("UPDATE meetings SET status='ended' WHERE id=?").run(id);
-  auditLog(user.id, 'end_meeting', 'meeting', id, m.title);
   if (livekitConfigured()) {
     try {
       const { RoomServiceClient } = await getLiveKit();
@@ -976,6 +984,13 @@ app.delete('/api/meetings', async (req, res) => {
       await svc.deleteRoom(meetingRoomName(m.code));
     } catch { /* room may not exist */ }
   }
+  if (permanent) {
+    d.prepare("DELETE FROM meetings WHERE id=?").run(id);
+    auditLog(user.id, 'delete_meeting', 'meeting', id, m.title);
+    return res.json({ message: 'Meeting deleted' });
+  }
+  d.prepare("UPDATE meetings SET status='ended' WHERE id=?").run(id);
+  auditLog(user.id, 'end_meeting', 'meeting', id, m.title);
   res.json({ message: 'Meeting ended' });
 });
 

@@ -85,9 +85,10 @@ export const api = {
   pollSignals: (sessionId, lastId = 0) => request(`/signaling?session_id=${sessionId}&last_id=${lastId}`),
 
   // Temporary meetings (link + 5-digit passcode, no account)
-  createMeeting: (title) => request('/meetings', { method: 'POST', body: { title } }),
+  createMeeting: (data) => request('/meetings', { method: 'POST', body: data }),
   getMeetings: () => request('/meetings'),
   endMeeting: (id) => request(`/meetings?id=${id}`, { method: 'DELETE' }),
+  deleteMeeting: (id) => request(`/meetings?id=${id}&permanent=true`, { method: 'DELETE' }),
   getMeetingInfo: (code) => request(`/meetings/info?code=${encodeURIComponent(code)}`),
   getMeetingToken: (code, passcode, name) => request('/meetings/token', { method: 'POST', body: { code, passcode, name } }),
 
