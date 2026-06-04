@@ -226,6 +226,7 @@ export default function SuperadminPortal() {
     if (activeTab === 'sessions' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'attendance' && allAttendance.length === 0) api.getAttendanceLogs().then(setAllAttendance).catch(() => {});
     if (activeTab === 'meetings') api.getMeetings().then(setMeetings).catch(() => {});
+    if (activeTab === 'dashboard' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
     if (activeTab === 'integrations' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm(s); setSmtpLoaded(true); }).catch(() => {});
     if (activeTab === 'contacts' && hubspot.hubspot_connected && contacts.length === 0 && !contactsError) loadContacts();
@@ -733,6 +734,11 @@ export default function SuperadminPortal() {
   const stats = data?.stats || {};
   const charts = data?.charts || {};
   const liveSessions = data?.live_sessions || [];
+  // Active = scheduled or live. Pull participant counts from live_sessions.
+  const liveCountById = Object.fromEntries(liveSessions.map((s) => [s.session_id, s.active_participants]));
+  const activeSessions = allSessions
+    .filter((s) => s.status === 'scheduled' || s.status === 'live')
+    .map((s) => ({ ...s, active_participants: liveCountById[s.session_id] ?? 0 }));
   const users = data?.users || [];
   const tutors = users.filter((u) => u.role === 'tutor');
   const students = users.filter((u) => u.role === 'student');
@@ -1483,7 +1489,7 @@ export default function SuperadminPortal() {
 
             <div className="section" style={{ marginTop: '1.5rem' }}>
               <h3 style={{ marginBottom: '0.75rem' }}>Active Sessions</h3>
-              {liveSessions.length === 0 ? (
+              {activeSessions.length === 0 ? (
                 <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>
                   No active sessions right now.
                 </div>
@@ -1494,23 +1500,34 @@ export default function SuperadminPortal() {
                       <tr>
                         <th>Course</th>
                         <th>Tutor</th>
+                        <th>Start</th>
+                        <th>Status</th>
                         <th>In Room</th>
                         <th style={{ textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {liveSessions.map((s) => (
-                        <tr key={s.session_id}>
-                          <td><strong>{s.course_name}</strong></td>
-                          <td>{s.tutor_name || 'Tutor'}</td>
-                          <td><span style={{ color: '#10B981' }}>● {s.active_participants}</span></td>
-                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            <button className="btn btn-sm btn-primary" onClick={() => handleJoinSession(s)}>Join</button>
-                            <button className="btn btn-sm btn-danger" onClick={() => endSession(s.session_id)}>End</button>
-                            <button className="btn btn-sm btn-ghost text-danger" onClick={() => deleteSession(s.session_id)}>Delete</button>
-                          </td>
-                        </tr>
-                      ))}
+                      {activeSessions.map((s) => {
+                        const live = s.status === 'live';
+                        return (
+                          <tr key={s.session_id}>
+                            <td><strong>{s.course_name}</strong></td>
+                            <td>{s.tutor_name || 'Tutor'}</td>
+                            <td style={{ fontSize: '13px', color: '#888' }}>{s.start_time ? new Date(s.start_time).toLocaleString() : '—'}</td>
+                            <td>
+                              <span style={{ fontSize: '12px', fontWeight: 600, padding: '2px 10px', borderRadius: '999px', background: live ? '#FEE2E2' : '#DBEAFE', color: live ? '#991B1B' : '#1E40AF' }}>
+                                {live ? 'Live' : 'Scheduled'}
+                              </span>
+                            </td>
+                            <td>{live ? <span style={{ color: '#10B981' }}>● {s.active_participants}</span> : '—'}</td>
+                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              <button className="btn btn-sm btn-primary" onClick={() => handleJoinSession(s)}>Join</button>
+                              {live && <button className="btn btn-sm btn-danger" onClick={() => endSession(s.session_id)}>End</button>}
+                              <button className="btn btn-sm btn-ghost text-danger" onClick={() => deleteSession(s.session_id)}>Delete</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
