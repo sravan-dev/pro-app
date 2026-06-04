@@ -725,7 +725,6 @@ export default function SuperadminPortal() {
     { key: 'avatar', label: '', sortable: false, render: avatarCol },
     { key: 'name', label: 'Name', accessor: 'name' },
     { key: 'email', label: 'Email', accessor: 'email' },
-    { key: 'specialization', label: 'Specialization', accessor: 'specialization' },
     { key: 'courses', label: 'Courses', accessor: 'course_count' },
     { key: 'payout', label: 'Payout', accessor: 'payout_rate', render: (r) => (
       <span>{formatMoney(r.payout_rate)} <span style={{ color: '#888', fontSize: '12px' }}>/ {r.payout_type || 'monthly'}</span></span>
