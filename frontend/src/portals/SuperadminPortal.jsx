@@ -83,6 +83,7 @@ export default function SuperadminPortal() {
   const [contactsError, setContactsError] = useState('');
 
   const [showCourseForm, setShowCourseForm] = useState(false);
+  const [showCourseMgr, setShowCourseMgr] = useState(false);
   const [editingCourse, setEditingCourse] = useState(null);
   const [courseForm, setCourseForm] = useState({ name: '', category: 'Technology', tutor_id: '', color: '#3B82F6', icon: 'book' });
 
@@ -241,7 +242,9 @@ export default function SuperadminPortal() {
   // Make sure the course/category lists the user form needs are loaded even when
   // opened from a tab that doesn't lazy-fetch them.
   const ensureCourseLists = () => {
-    if (!(data?.courses?.length) && allCourses.length === 0) api.getCourses().then(setAllCourses).catch(() => {});
+    // Always refresh allCourses so the course field/manager stay live after
+    // course add/edit/delete (those handlers update allCourses).
+    api.getCourses().then(setAllCourses).catch(() => {});
     if (categories.length === 0) api.getCategories().then(setCategories).catch(() => {});
   };
 
@@ -266,7 +269,7 @@ export default function SuperadminPortal() {
   // Inline "Add" for the course field: if a course with this name already
   // exists, just select it; otherwise stage it to be created (and assigned to
   // the tutor) when the user is saved.
-  const courseListForUser = () => (data?.courses?.length ? data.courses : allCourses);
+  const courseListForUser = () => (allCourses.length ? allCourses : (data?.courses || []));
   const addCourseInline = () => {
     const name = courseDraft.trim();
     if (!name) return;
@@ -903,7 +906,10 @@ export default function SuperadminPortal() {
           )}
           {userForm.role === 'tutor' && (
             <div className="form-group">
-              <label>Course</label>
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Course</span>
+                <button type="button" className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: '12px' }} onClick={() => { ensureCourseLists(); setShowCourseMgr(true); }}>Manage</button>
+              </label>
               {/* Inline add above the select: type a course name and Add — if it
                   already exists it gets selected, otherwise it's created and
                   assigned to this tutor on save. */}
@@ -1012,6 +1018,44 @@ export default function SuperadminPortal() {
             <button type="submit" className="btn btn-primary">{editingCourse ? 'Update Course' : 'Create Course'}</button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+
+  // Manage existing courses (add / edit / delete) from within the user form.
+  // Reuses the full course form for add/edit and the existing delete handlers.
+  const courseMgrModal = showCourseMgr && (
+    <div className="modal-overlay" onClick={() => setShowCourseMgr(false)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ margin: 0 }}>Manage Courses</h3>
+          <button type="button" className="btn btn-primary" onClick={openCreateCourse}>+ Add Course</button>
+        </div>
+        <div className="form-group" style={{ marginTop: '1rem' }}>
+          <label>Existing Courses ({courseListForUser().length})</label>
+          {courseListForUser().length === 0 ? (
+            <p style={{ color: '#888', fontSize: '14px' }}>No courses yet.</p>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: '320px', overflowY: 'auto' }}>
+              {courseListForUser().map((c) => (
+                <li key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', padding: '8px 12px', borderBottom: '1px solid #eee' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                    <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: c.color || '#3B82F6', flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <strong>{c.name}</strong>
+                      <span style={{ color: '#888', fontSize: '12px' }}>{c.category ? ` · ${c.category}` : ''}{c.tutor_name ? ` · ${c.tutor_name}` : ''}</span>
+                    </span>
+                  </div>
+                  <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: '13px' }} onClick={() => openEditCourse(c)}>Edit</button>
+                  <button type="button" className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: '13px', color: '#dc2626' }} onClick={() => permanentDeleteCourse(c.id)}>Delete</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="form-actions">
+          <button type="button" className="btn btn-primary" onClick={() => setShowCourseMgr(false)}>Done</button>
+        </div>
       </div>
     </div>
   );
@@ -1316,6 +1360,7 @@ export default function SuperadminPortal() {
           </div>
         )}
         {courseFormModal}
+        {courseMgrModal}
         {categoryMgrModal}
         {materialsMgrModal}
         {enrollFormModal}
