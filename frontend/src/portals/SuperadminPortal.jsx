@@ -51,6 +51,7 @@ export default function SuperadminPortal() {
   const [creatingMeeting, setCreatingMeeting] = useState(false);
   const [showMeetingForm, setShowMeetingForm] = useState(false);
   const [meetingForm, setMeetingForm] = useState({ title: '', name: '', email: '' });
+  const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
   const [reports, setReports] = useState(null);
 
   // Student detail view (full profile of one student)
@@ -1777,10 +1778,24 @@ export default function SuperadminPortal() {
           <div className="portal-page">
             <div className="page-header">
               <h2>Session Management</h2>
-              <button className="btn btn-primary" onClick={openCreateSession}>+ Schedule Session</button>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button className="btn btn-ghost" onClick={() => setShowScheduleCalendar(true)}>📅 Show Schedules</button>
+                <button className="btn btn-primary" onClick={openCreateSession}>+ Schedule Session</button>
+              </div>
             </div>
-            <Calendar sessions={allSessions} onSessionClick={handleJoinSession} />
             <DataTable columns={sessionColumns} data={allSessions} pageSize={15} selectable onBulkAction={bulkDeleteSessions} bulkActionLabel="Delete Selected" />
+          </div>
+        )}
+
+        {showScheduleCalendar && (
+          <div className="modal-overlay" onClick={() => setShowScheduleCalendar(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px', width: '95%' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <h3 style={{ margin: 0 }}>Schedules</h3>
+                <button type="button" className="btn btn-ghost" onClick={() => setShowScheduleCalendar(false)}>✕</button>
+              </div>
+              <Calendar sessions={allSessions} onSessionClick={(s) => { setShowScheduleCalendar(false); handleJoinSession(s); }} />
+            </div>
           </div>
         )}
 
