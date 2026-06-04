@@ -56,8 +56,9 @@ export default function SuperadminPortal() {
   // Modals
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [userForm, setUserForm] = useState({ name: '', email: '', role: 'student', password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly' });
+  const [userForm, setUserForm] = useState({ name: '', email: '', role: 'student', password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly', course_id: '', new_course_name: '' });
   const [showUserPassword, setShowUserPassword] = useState(false);
+  const [courseDraft, setCourseDraft] = useState('');
 
   // App settings (currency)
   const [appSettings, setAppSettings] = useState({ currency: 'INR' });
@@ -237,34 +238,79 @@ export default function SuperadminPortal() {
   };
 
   // ===== USER CRUD =====
+  // Make sure the course/category lists the user form needs are loaded even when
+  // opened from a tab that doesn't lazy-fetch them.
+  const ensureCourseLists = () => {
+    if (!(data?.courses?.length) && allCourses.length === 0) api.getCourses().then(setAllCourses).catch(() => {});
+    if (categories.length === 0) api.getCategories().then(setCategories).catch(() => {});
+  };
+
   const openCreateUser = (role = 'student') => {
     setEditingUser(null);
-    setUserForm({ name: '', email: '', role, password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly' });
+    setUserForm({ name: '', email: '', role, password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly', course_id: '', new_course_name: '' });
+    setCourseDraft('');
     setShowUserPassword(false);
+    ensureCourseLists();
     setShowUserForm(true);
   };
 
   const openEditUser = (user) => {
     setEditingUser(user);
-    setUserForm({ name: user.name, email: user.email, role: user.role, password: '', specialization: user.specialization || '', avatar_color: user.avatar_color, status: user.status, payout_rate: user.payout_rate || 0, payout_type: user.payout_type || 'monthly' });
+    setUserForm({ name: user.name, email: user.email, role: user.role, password: '', specialization: user.specialization || '', avatar_color: user.avatar_color, status: user.status, payout_rate: user.payout_rate || 0, payout_type: user.payout_type || 'monthly', course_id: '', new_course_name: '' });
+    setCourseDraft('');
     setShowUserPassword(false);
+    ensureCourseLists();
     setShowUserForm(true);
+  };
+
+  // Inline "Add" for the course field: if a course with this name already
+  // exists, just select it; otherwise stage it to be created (and assigned to
+  // the tutor) when the user is saved.
+  const courseListForUser = () => (data?.courses?.length ? data.courses : allCourses);
+  const addCourseInline = () => {
+    const name = courseDraft.trim();
+    if (!name) return;
+    const existing = courseListForUser().find((c) => c.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      setUserForm((f) => ({ ...f, course_id: String(existing.id), new_course_name: '' }));
+      showMsg(`Course "${existing.name}" already exists — selected it`, 'info');
+    } else {
+      setUserForm((f) => ({ ...f, course_id: '', new_course_name: name }));
+      showMsg(`New course "${name}" will be created and assigned on save`, 'info');
+    }
+    setCourseDraft('');
   };
 
   const saveUser = async (e) => {
     e.preventDefault();
     try {
+      const { course_id, new_course_name, ...userPayload } = userForm;
+      let tutorId;
       if (editingUser) {
-        await api.updateUser({ id: editingUser.id, ...userForm });
+        await api.updateUser({ id: editingUser.id, ...userPayload });
+        tutorId = editingUser.id;
         showMsg('User updated successfully', 'success');
       } else {
-        await api.createUser(userForm);
+        const created = await api.createUser(userPayload);
+        tutorId = created.id;
         showMsg('User created successfully', 'success');
+      }
+      // Course assignment (tutors only): create the staged new course or
+      // re-point the selected existing course at this tutor.
+      if (userForm.role === 'tutor' && tutorId) {
+        if (new_course_name) {
+          await api.createCourse({ name: new_course_name, category: categories[0]?.name || 'Technology', tutor_id: tutorId, color: '#3B82F6', icon: 'book' });
+          showMsg(`Course "${new_course_name}" created and assigned`, 'success');
+        } else if (course_id) {
+          await api.updateCourse({ id: course_id, tutor_id: tutorId });
+          showMsg('Course assigned to tutor', 'success');
+        }
       }
       setShowUserForm(false);
       fetchData();
       api.getStudents().then(setAllStudents);
       api.getTutors().then(setAllTutors);
+      api.getCourses().then(setAllCourses).catch(() => {});
     } catch (err) { showMsg(err.message, 'error'); }
   };
 
@@ -853,6 +899,33 @@ export default function SuperadminPortal() {
                   <option value="per_course">Per Course</option>
                 </select>
               </div>
+            </div>
+          )}
+          {userForm.role === 'tutor' && (
+            <div className="form-group">
+              <label>Course</label>
+              {/* Inline add above the select: type a course name and Add — if it
+                  already exists it gets selected, otherwise it's created and
+                  assigned to this tutor on save. */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                <input
+                  value={courseDraft}
+                  onChange={(e) => setCourseDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCourseInline(); } }}
+                  placeholder="New or existing course name"
+                  style={{ flex: 1 }}
+                />
+                <button type="button" className="btn btn-primary" onClick={addCourseInline}>Add</button>
+              </div>
+              <select
+                value={userForm.new_course_name ? '__new__' : userForm.course_id}
+                onChange={(e) => setUserForm({ ...userForm, course_id: e.target.value === '__new__' ? '' : e.target.value, new_course_name: '' })}
+              >
+                <option value="">No course</option>
+                {userForm.new_course_name && <option value="__new__">+ New: {userForm.new_course_name}</option>}
+                {courseListForUser().map((c) => <option key={c.id} value={c.id}>{c.name}{c.tutor_name ? ` (${c.tutor_name})` : ''}</option>)}
+              </select>
+              <p style={{ color: '#888', fontSize: '12px', margin: '4px 0 0' }}>Assigning a course makes this tutor its owner.</p>
             </div>
           )}
           {editingUser && (
