@@ -84,6 +84,13 @@ export const api = {
   sendSignal: (data) => request('/signaling', { method: 'POST', body: data }),
   pollSignals: (sessionId, lastId = 0) => request(`/signaling?session_id=${sessionId}&last_id=${lastId}`),
 
+  // Temporary meetings (link + 5-digit passcode, no account)
+  createMeeting: (title) => request('/meetings', { method: 'POST', body: { title } }),
+  getMeetings: () => request('/meetings'),
+  endMeeting: (id) => request(`/meetings?id=${id}`, { method: 'DELETE' }),
+  getMeetingInfo: (code) => request(`/meetings/info?code=${encodeURIComponent(code)}`),
+  getMeetingToken: (code, passcode, name) => request('/meetings/token', { method: 'POST', body: { code, passcode, name } }),
+
   // LiveKit (large webinar sessions)
   getLiveKitToken: (sessionId) => request(`/livekit/token?session_id=${sessionId}`),
   livekitUpdatePermission: (data) => request('/livekit/update-permission', { method: 'POST', body: data }),

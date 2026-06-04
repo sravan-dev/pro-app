@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './components/Login';
 import PasswordReset from './components/PasswordReset';
 import CallPage from './components/CallPage';
+import MeetingPage from './components/MeetingPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import StudentPortal from './portals/StudentPortal';
 import TutorPortal from './portals/TutorPortal';
@@ -29,6 +30,7 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to={getDefaultRoute()} replace /> : <Login />} />
       <Route path="/reset-password" element={<PasswordReset />} />
       <Route path="/call/:sessionId" element={<CallPage />} />
+      <Route path="/m/:code" element={<MeetingPage />} />
 
       <Route path="/student/*" element={<ProtectedRoute roles={['student']}><StudentPortal /></ProtectedRoute>} />
       <Route path="/tutor/*" element={<ProtectedRoute roles={['tutor']}><TutorPortal /></ProtectedRoute>} />

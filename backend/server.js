@@ -151,6 +151,17 @@ function getDB() {
   )`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_materials_course ON course_materials(course_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_mat_managers_user ON course_material_managers(user_id)`);
+  // Temporary, account-less meetings: anyone with the link + 5-digit passcode
+  // joins a LiveKit room directly (no user row is created for guests).
+  db.exec(`CREATE TABLE IF NOT EXISTS meetings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    passcode TEXT NOT NULL,
+    title TEXT DEFAULT 'Meeting',
+    created_by INTEGER REFERENCES users(id),
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','ended')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
   db.exec(`CREATE TABLE IF NOT EXISTS app_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     currency TEXT DEFAULT 'INR'
@@ -914,6 +925,96 @@ app.post('/api/test-call', (req, res) => {
     res.status(201).json({ session_id: sessionId, room_name: room });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create test call: ' + err.message });
+  }
+});
+
+// ============================================================
+// Temporary meetings (link + 5-digit passcode, no account needed)
+// ============================================================
+const meetingRoomName = (code) => `meet-${code}`;
+const genMeetingCode = (d) => {
+  for (let i = 0; i < 20; i++) {
+    const code = crypto.randomBytes(5).toString('hex'); // 10 hex chars
+    if (!d.prepare("SELECT 1 FROM meetings WHERE code=?").get(code)) return code;
+  }
+  return crypto.randomBytes(8).toString('hex');
+};
+const genPasscode = () => String(10000 + (crypto.randomBytes(4).readUInt32BE(0) % 90000)); // 5 digits
+
+// Admin: create a meeting → returns the join code + passcode.
+app.post('/api/meetings', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const d = getDB();
+  const title = (req.body?.title || 'Meeting').toString().trim().slice(0, 80) || 'Meeting';
+  const code = genMeetingCode(d);
+  const passcode = genPasscode();
+  const r = d.prepare("INSERT INTO meetings (code,passcode,title,created_by) VALUES (?,?,?,?)").run(code, passcode, title, user.id);
+  auditLog(user.id, 'create_meeting', 'meeting', r.lastInsertRowid, title);
+  res.status(201).json({ id: r.lastInsertRowid, code, passcode, title, status: 'active' });
+});
+
+// Admin: list meetings (newest first).
+app.get('/api/meetings', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  res.json(getDB().prepare("SELECT id,code,passcode,title,status,created_at FROM meetings ORDER BY created_at DESC").all());
+});
+
+// Admin: end a meeting (passcode stops working). Also drops the LiveKit room.
+app.delete('/api/meetings', async (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'Meeting ID required' });
+  const d = getDB();
+  const m = d.prepare("SELECT * FROM meetings WHERE id=?").get(id);
+  if (!m) return res.status(404).json({ error: 'Meeting not found' });
+  d.prepare("UPDATE meetings SET status='ended' WHERE id=?").run(id);
+  auditLog(user.id, 'end_meeting', 'meeting', id, m.title);
+  if (livekitConfigured()) {
+    try {
+      const { RoomServiceClient } = await getLiveKit();
+      const svc = new RoomServiceClient(livekitHttpUrl(), LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+      await svc.deleteRoom(meetingRoomName(m.code));
+    } catch { /* room may not exist */ }
+  }
+  res.json({ message: 'Meeting ended' });
+});
+
+// Public: basic info for the join page (no passcode required).
+app.get('/api/meetings/info', (req, res) => {
+  const code = (req.query.code || '').toString();
+  const m = getDB().prepare("SELECT title,status FROM meetings WHERE code=?").get(code);
+  if (!m) return res.status(404).json({ error: 'Meeting not found' });
+  res.json({ title: m.title, active: m.status === 'active' });
+});
+
+// Public: exchange code + passcode + display name for a LiveKit token. No login.
+app.post('/api/meetings/token', async (req, res) => {
+  const { code, passcode, name } = req.body || {};
+  if (!code || !passcode) return res.status(400).json({ error: 'Code and passcode required' });
+  const d = getDB();
+  const m = d.prepare("SELECT * FROM meetings WHERE code=?").get(code.toString());
+  if (!m || m.status !== 'active') return res.status(404).json({ error: 'Meeting not found or ended' });
+  if (m.passcode !== passcode.toString().trim()) return res.status(403).json({ error: 'Invalid passcode' });
+  if (!livekitConfigured()) return res.status(503).json({ error: 'Video is not configured on the server' });
+  const displayName = (name || 'Guest').toString().trim().slice(0, 40) || 'Guest';
+  const room = meetingRoomName(m.code);
+  const identity = 'g-' + crypto.randomBytes(6).toString('hex');
+  try {
+    const { AccessToken, RoomServiceClient } = await getLiveKit();
+    try {
+      const svc = new RoomServiceClient(livekitHttpUrl(), LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+      await svc.createRoom({ name: room, emptyTimeout: 8 * 60 });
+    } catch { /* room already exists */ }
+    const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+      identity,
+      name: displayName,
+      metadata: JSON.stringify({ name: displayName, guest: true }),
+    });
+    at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true, canPublishData: true });
+    const token = await at.toJwt();
+    res.json({ url: LIVEKIT_URL, token, room, identity, title: m.title, name: displayName });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to join meeting' });
   }
 });
 

@@ -47,6 +47,8 @@ export default function SuperadminPortal() {
   const [allEnrollments, setAllEnrollments] = useState([]);
   const [allSessions, setAllSessions] = useState([]);
   const [allAttendance, setAllAttendance] = useState([]);
+  const [meetings, setMeetings] = useState([]);
+  const [creatingMeeting, setCreatingMeeting] = useState(false);
   const [reports, setReports] = useState(null);
 
   // Student detail view (full profile of one student)
@@ -220,6 +222,7 @@ export default function SuperadminPortal() {
     if (activeTab === 'enrollments' && allEnrollments.length === 0) api.getEnrollments().then(setAllEnrollments).catch(() => {});
     if (activeTab === 'sessions' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'attendance' && allAttendance.length === 0) api.getAttendanceLogs().then(setAllAttendance).catch(() => {});
+    if (activeTab === 'meetings') api.getMeetings().then(setMeetings).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
     if (activeTab === 'integrations' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm(s); setSmtpLoaded(true); }).catch(() => {});
     if (activeTab === 'contacts' && hubspot.hubspot_connected && contacts.length === 0 && !contactsError) loadContacts();
@@ -352,6 +355,38 @@ export default function SuperadminPortal() {
       api.getStudents().then(setAllStudents);
       api.getTutors().then(setAllTutors);
     } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  // ===== MEETINGS (temporary link + passcode) =====
+  const meetingLink = (code) => `${window.location.origin}/m/${code}`;
+
+  const createMeeting = async () => {
+    setCreatingMeeting(true);
+    try {
+      const title = (prompt('Meeting name (optional):', 'Meeting') || 'Meeting').trim() || 'Meeting';
+      const m = await api.createMeeting(title);
+      const list = await api.getMeetings();
+      setMeetings(list);
+      try { await navigator.clipboard.writeText(`${meetingLink(m.code)}\nPasscode: ${m.passcode}`); } catch {}
+      showMsg(`Meeting created — link + passcode ${m.passcode} copied to clipboard`, 'success');
+    } catch (err) { showMsg(err.message, 'error'); }
+    finally { setCreatingMeeting(false); }
+  };
+
+  const endMeeting = async (id) => {
+    if (!confirm('End this meeting? The link and passcode will stop working.')) return;
+    try {
+      await api.endMeeting(id);
+      setMeetings(await api.getMeetings());
+      showMsg('Meeting ended', 'success');
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const copyMeeting = async (m) => {
+    try {
+      await navigator.clipboard.writeText(`${meetingLink(m.code)}\nPasscode: ${m.passcode}`);
+      showMsg('Link + passcode copied', 'success');
+    } catch { showMsg('Copy failed — copy manually', 'error'); }
   };
 
   // ===== COURSE CRUD =====
@@ -1612,6 +1647,59 @@ export default function SuperadminPortal() {
               <button className="btn btn-primary" onClick={openCreateEnroll}>+ Enroll Student</button>
             </div>
             <DataTable columns={enrollColumns} data={allEnrollments} pageSize={15} selectable onBulkAction={bulkDeleteEnrollments} bulkActionLabel="Delete Selected" />
+          </div>
+        )}
+
+        {/* ===== MEETINGS ===== */}
+        {activeTab === 'meetings' && (
+          <div className="portal-page">
+            <div className="page-header">
+              <h2>Meetings</h2>
+              <button className="btn btn-primary" onClick={createMeeting} disabled={creatingMeeting}>
+                {creatingMeeting ? 'Creating…' : '+ New Meeting'}
+              </button>
+            </div>
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
+              Create a temporary meeting link. Share the link and 5-digit passcode — anyone can join directly, no account needed.
+            </p>
+            {meetings.filter((m) => m.status === 'active').length === 0 ? (
+              <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>
+                No active meetings. Click “New Meeting” to create one.
+              </div>
+            ) : (
+              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                <table className="data-table" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th>Meeting</th>
+                      <th>Link</th>
+                      <th>Passcode</th>
+                      <th>Created</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {meetings.filter((m) => m.status === 'active').map((m) => (
+                      <tr key={m.id}>
+                        <td><strong>{m.title}</strong></td>
+                        <td>
+                          <a href={meetingLink(m.code)} target="_blank" rel="noreferrer" style={{ color: 'var(--color-primary, #4F46E5)' }}>
+                            /m/{m.code}
+                          </a>
+                        </td>
+                        <td><span style={{ fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.15em' }}>{m.passcode}</span></td>
+                        <td style={{ color: '#888', fontSize: '13px' }}>{new Date(m.created_at.replace(' ', 'T') + 'Z').toLocaleString()}</td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <button className="btn btn-sm btn-ghost" onClick={() => copyMeeting(m)}>Copy</button>
+                          <a className="btn btn-sm btn-ghost" href={meetingLink(m.code)} target="_blank" rel="noreferrer">Open</a>
+                          <button className="btn btn-sm btn-ghost text-danger" onClick={() => endMeeting(m.id)}>End</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
