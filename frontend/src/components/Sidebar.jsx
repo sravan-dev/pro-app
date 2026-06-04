@@ -30,6 +30,7 @@ const menuItems = {
   ],
   superadmin: [
     { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
+    { key: 'contacts', label: 'Contacts', icon: 'contact' },
     { key: 'students', label: 'Students', icon: 'student' },
     { key: 'tutors', label: 'Tutors', icon: 'tutor' },
     { key: 'users', label: 'All Users', icon: 'users' },
@@ -47,7 +48,7 @@ const iconMap = {
   grid: '⊞', book: '📚', video: '🎥', award: '🏆', users: '👥',
   'check-square': '✅', 'dollar-sign': '💰', 'bar-chart': '📊',
   settings: '⚙️', logout: '🚪', student: '🎓', tutor: '👨‍🏫',
-  layers: '📋', clipboard: '📝', film: '🎬',
+  layers: '📋', clipboard: '📝', film: '🎬', contact: '📇',
 };
 
 export default function Sidebar({ activeTab, onTabChange }) {

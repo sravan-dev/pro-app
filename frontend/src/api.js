@@ -105,6 +105,19 @@ export const api = {
   // Settings
   clearData: (target) => request('/clear-data', { method: 'POST', body: { target } }),
 
+  // Export the SQLite database file (returns a Blob + suggested filename)
+  exportDb: async () => {
+    const res = await fetch(`${API}/export-db`, { credentials: 'include' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Export failed: ${res.status}`);
+    }
+    const blob = await res.blob();
+    const dispo = res.headers.get('Content-Disposition') || '';
+    const m = dispo.match(/filename="?([^"]+)"?/);
+    return { blob, filename: m ? m[1] : 'tijuspro-backup.db' };
+  },
+
   // Test Call
   createTestCall: () => request('/test-call', { method: 'POST' }),
 
@@ -121,6 +134,11 @@ export const api = {
   saveAppSettings: (data) => request('/app-settings', { method: 'PUT', body: data }),
   saveVideoSettings: (data) => request('/video-settings', { method: 'PUT', body: data }),
   getZoomStatus: () => request('/zoom-status'),
+
+  // HubSpot CRM
+  saveHubspotSettings: (data) => request('/hubspot-settings', { method: 'PUT', body: data }),
+  getHubspotStatus: () => request('/hubspot-status'),
+  getHubspotContacts: () => request('/hubspot/contacts'),
 
   // SMTP Settings
   getSmtpSettings: () => request('/smtp-settings'),

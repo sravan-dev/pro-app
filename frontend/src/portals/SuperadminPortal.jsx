@@ -73,6 +73,13 @@ export default function SuperadminPortal() {
   const [videoSaving, setVideoSaving] = useState(false);
   const [livekitUsage, setLivekitUsage] = useState(null);
 
+  // HubSpot CRM integration + contacts list
+  const [hubspot, setHubspot] = useState({ hubspot_token: '', hubspot_connected: false });
+  const [hubspotSaving, setHubspotSaving] = useState(false);
+  const [contacts, setContacts] = useState([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactsError, setContactsError] = useState('');
+
   const [showCourseForm, setShowCourseForm] = useState(false);
   const [editingCourse, setEditingCourse] = useState(null);
   const [courseForm, setCourseForm] = useState({ name: '', category: 'Technology', tutor_id: '', color: '#3B82F6', icon: 'book' });
@@ -115,6 +122,9 @@ export default function SuperadminPortal() {
   const [testCallCreating, setTestCallCreating] = useState(false);
   const [testCallCopied, setTestCallCopied] = useState(false);
 
+  // Database export
+  const [exportingDb, setExportingDb] = useState(false);
+
   const showMsg = (msg, type = 'info') => { setMessage(msg); setMsgType(type); setTimeout(() => setMessage(''), 4000); };
 
   const fetchData = useCallback(async () => {
@@ -142,7 +152,19 @@ export default function SuperadminPortal() {
         livekit_configured: !!s.livekit_configured,
       });
       if (s.livekit_configured) api.getLiveKitUsage().then(setLivekitUsage).catch(() => {});
+      setHubspot({ hubspot_token: '', hubspot_connected: !!s.hubspot_connected });
     }).catch(() => {});
+  }, []);
+
+  // Load HubSpot contacts (used by the Contacts tab). Memoised so the tab and
+  // the Settings "refresh" button can both trigger it.
+  const loadContacts = useCallback(() => {
+    setContactsLoading(true);
+    setContactsError('');
+    api.getHubspotContacts()
+      .then((r) => setContacts(r.contacts || []))
+      .catch((err) => setContactsError(err.message))
+      .finally(() => setContactsLoading(false));
   }, []);
 
   const formatMoney = (amount) => {
@@ -161,6 +183,7 @@ export default function SuperadminPortal() {
     if (activeTab === 'attendance' && allAttendance.length === 0) api.getAttendanceLogs().then(setAllAttendance).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
     if (activeTab === 'settings' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm(s); setSmtpLoaded(true); }).catch(() => {});
+    if (activeTab === 'contacts' && hubspot.hubspot_connected && contacts.length === 0 && !contactsError) loadContacts();
     if (activeTab !== 'students') setStudentDetail(null);
   }, [activeTab]);
 
@@ -629,6 +652,15 @@ export default function SuperadminPortal() {
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
     { key: 'created', label: 'Created', accessor: 'created_at', render: (r) => new Date(r.created_at).toLocaleDateString() },
     { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser) },
+  ];
+
+  const contactColumns = [
+    { key: 'name', label: 'Name', accessor: 'name' },
+    { key: 'email', label: 'Email', accessor: 'email' },
+    { key: 'phone', label: 'Phone', accessor: 'phone' },
+    { key: 'company', label: 'Company', accessor: 'company' },
+    { key: 'lifecycle_stage', label: 'Stage', accessor: 'lifecycle_stage', render: (r) => r.lifecycle_stage ? <span className="role-badge role-advisor">{r.lifecycle_stage}</span> : '—' },
+    { key: 'created_at', label: 'Created', accessor: 'created_at', render: (r) => r.created_at ? new Date(r.created_at).toLocaleDateString() : '—' },
   ];
 
   const courseColumns = [
@@ -1237,6 +1269,37 @@ export default function SuperadminPortal() {
           </div>
         )}
 
+        {/* ===== CONTACTS (HubSpot) ===== */}
+        {activeTab === 'contacts' && (
+          <div className="portal-page">
+            <div className="page-header">
+              <h2>Contacts</h2>
+              {hubspot.hubspot_connected && (
+                <button className="btn btn-ghost" onClick={loadContacts} disabled={contactsLoading}>
+                  {contactsLoading ? 'Refreshing…' : '↻ Refresh'}
+                </button>
+              )}
+            </div>
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+              Contact list synced from your HubSpot CRM account.
+            </p>
+
+            {!hubspot.hubspot_connected ? (
+              <div className="alert" style={{ background: 'rgba(245,158,11,0.12)', color: '#92400e' }}>
+                HubSpot isn’t connected yet. Go to <button className="btn btn-ghost btn-sm" onClick={() => setActiveTab('settings')}>Settings → HubSpot</button> and add a private-app access token to load your contacts.
+              </div>
+            ) : contactsError ? (
+              <div className="alert" style={{ background: 'rgba(239,68,68,0.12)', color: '#991b1b' }}>
+                Failed to load contacts: {contactsError}
+              </div>
+            ) : contactsLoading ? (
+              <div><div className="spinner" /><p>Loading contacts…</p></div>
+            ) : (
+              <DataTable columns={contactColumns} data={contacts} pageSize={15} />
+            )}
+          </div>
+        )}
+
         {/* ===== STUDENTS ===== */}
         {activeTab === 'students' && !studentDetail && !studentDetailLoading && (
           <div className="portal-page">
@@ -1637,6 +1700,69 @@ export default function SuperadminPortal() {
               </form>
             </div>
 
+            {/* HubSpot CRM */}
+            <div className="settings-section" style={{ marginBottom: '2rem' }}>
+              <h3>HubSpot (Contacts)</h3>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
+                Connect HubSpot to pull your CRM contact list into the <strong>Contacts</strong> page.
+                Create a <strong>Private App</strong> in HubSpot (Settings → Integrations → Private Apps) with the
+                <code> crm.objects.contacts.read</code> scope and paste its access token below.
+              </p>
+
+              <div className="alert" style={{ marginBottom: '1rem', background: hubspot.hubspot_connected ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)', color: hubspot.hubspot_connected ? '#065f46' : '#92400e' }}>
+                {hubspot.hubspot_connected
+                  ? '✓ HubSpot is connected. Your contacts appear under the Contacts menu.'
+                  : '⚠ HubSpot is not connected yet. Add a private-app access token to load contacts.'}
+              </div>
+
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setHubspotSaving(true);
+                try {
+                  const result = await api.saveHubspotSettings({ hubspot_token: hubspot.hubspot_token });
+                  setHubspot({ hubspot_token: '', hubspot_connected: !!result.hubspot_connected });
+                  setContacts([]);
+                  setContactsError('');
+                  showMsg(result.message, 'success');
+                } catch (err) { showMsg(err.message, 'error'); }
+                finally { setHubspotSaving(false); }
+              }}>
+                <div className="form-group" style={{ maxWidth: '520px' }}>
+                  <label>HubSpot Private App Token</label>
+                  <input
+                    type="password"
+                    value={hubspot.hubspot_token}
+                    onChange={(e) => setHubspot({ ...hubspot, hubspot_token: e.target.value })}
+                    placeholder={hubspot.hubspot_connected ? '•••••••• (saved — enter a new token to replace)' : 'pat-xxxxxxxx-xxxx-xxxx-...'}
+                  />
+                </div>
+                <div className="form-actions" style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+                  <button type="submit" className="btn btn-primary" disabled={hubspotSaving || !hubspot.hubspot_token.trim()}>
+                    {hubspotSaving ? 'Saving…' : (hubspot.hubspot_connected ? 'Update Token' : 'Connect HubSpot')}
+                  </button>
+                  {hubspot.hubspot_connected && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost text-danger"
+                      disabled={hubspotSaving}
+                      onClick={async () => {
+                        if (!confirm('Disconnect HubSpot? The stored token will be removed.')) return;
+                        setHubspotSaving(true);
+                        try {
+                          const result = await api.saveHubspotSettings({ hubspot_token: '' });
+                          setHubspot({ hubspot_token: '', hubspot_connected: !!result.hubspot_connected });
+                          setContacts([]);
+                          setContactsError('');
+                          showMsg(result.message, 'success');
+                        } catch (err) { showMsg(err.message, 'error'); }
+                        finally { setHubspotSaving(false); }
+                      }}
+                    >Disconnect</button>
+                  )}
+                </div>
+              </form>
+            </div>
+
             {/* SMTP Configuration */}
             <div className="settings-section" style={{ marginBottom: '2rem' }}>
               <h3>Email Configuration (SMTP)</h3>
@@ -1761,6 +1887,35 @@ export default function SuperadminPortal() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Export Database */}
+            <div className="settings-section" style={{ marginBottom: '2rem' }}>
+              <h3>Export Database</h3>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
+                Download a full backup of the current SQLite database. The file contains all users, courses,
+                enrollments, sessions, and settings — keep it somewhere safe.
+              </p>
+              <button
+                className="btn btn-primary"
+                disabled={exportingDb}
+                onClick={async () => {
+                  setExportingDb(true);
+                  try {
+                    const { blob, filename } = await api.exportDb();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(url);
+                    showMsg('Database exported', 'success');
+                  } catch (err) { showMsg(err.message, 'error'); }
+                  finally { setExportingDb(false); }
+                }}
+              >{exportingDb ? 'Exporting…' : 'Download Database (.db)'}</button>
             </div>
 
             <div className="settings-section">

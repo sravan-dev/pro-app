@@ -170,6 +170,10 @@ function getDB() {
   if (!appCols.includes('zoom_client_secret')) {
     db.exec("ALTER TABLE app_settings ADD COLUMN zoom_client_secret TEXT DEFAULT ''");
   }
+  // HubSpot private-app access token (for syncing the contact list)
+  if (!appCols.includes('hubspot_token')) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN hubspot_token TEXT DEFAULT ''");
+  }
   // Add payout columns to users if missing
   const userCols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
   if (!userCols.includes('payout_rate')) {
@@ -1301,7 +1305,7 @@ app.post('/api/clear-data', (req, res) => {
 // ============================================================
 app.get('/api/app-settings', (req, res) => {
   const user = requireAuth(req, res); if (!user) return;
-  const s = getDB().prepare("SELECT currency, video_provider, zoom_account_id, zoom_client_id, zoom_client_secret FROM app_settings WHERE id=1").get() || {};
+  const s = getDB().prepare("SELECT currency, video_provider, zoom_account_id, zoom_client_id, zoom_client_secret, hubspot_token FROM app_settings WHERE id=1").get() || {};
   res.json({
     currency: s.currency || 'INR',
     // Default to LiveKit when it's configured; otherwise fall back to WebRTC.
@@ -1312,6 +1316,8 @@ app.get('/api/app-settings', (req, res) => {
     zoom_has_secret: !!s.zoom_client_secret,
     // LiveKit is configured via env vars, not the DB — report availability only.
     livekit_configured: livekitConfigured(),
+    // Never echo the HubSpot token back; just report whether one is stored.
+    hubspot_connected: !!s.hubspot_token,
   });
 });
 
@@ -1394,6 +1400,111 @@ app.get('/api/zoom-status', async (req, res) => {
   } catch (err) {
     res.json({ provider, configured: true, connected: false, error: err.message });
   }
+});
+
+// ============================================================
+// HubSpot CRM — pull the contact list into the admin Contacts page
+// ============================================================
+function getHubspotToken(d) {
+  const s = d.prepare("SELECT hubspot_token FROM app_settings WHERE id=1").get() || {};
+  return s.hubspot_token || '';
+}
+
+// Save / update the HubSpot private-app access token. Blank token disconnects.
+app.put('/api/hubspot-settings', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const token = (req.body.hubspot_token || '').trim();
+  const d = getDB();
+  d.prepare("INSERT OR IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')").run();
+  // Blank means "disconnect"; only that explicitly clears the stored token.
+  if (req.body.hubspot_token !== undefined) {
+    d.prepare("UPDATE app_settings SET hubspot_token=? WHERE id=1").run(token);
+  }
+  auditLog(user.id, 'update_hubspot_settings', 'app_settings', 1, token ? 'Connected HubSpot' : 'Disconnected HubSpot');
+  res.json({ message: token ? 'HubSpot connected' : 'HubSpot disconnected', hubspot_connected: !!token });
+});
+
+// Live HubSpot status — verifies the token by hitting the account-info endpoint.
+app.get('/api/hubspot-status', async (req, res) => {
+  const user = requireAuth(req, res); if (!user) return;
+  const token = getHubspotToken(getDB());
+  if (!token) return res.json({ connected: false, configured: false });
+  try {
+    const resp = await fetch('https://api.hubapi.com/account-info/v3/details', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      return res.json({ connected: false, configured: true, error: data.message || `HTTP ${resp.status}` });
+    }
+    const info = await resp.json().catch(() => ({}));
+    res.json({ connected: true, configured: true, portal_id: info.portalId });
+  } catch (err) {
+    res.json({ connected: false, configured: true, error: err.message });
+  }
+});
+
+// Fetch the contact list from HubSpot. Pages through the CRM API server-side
+// (100 per page) up to a sane cap; the frontend table paginates 15 per page.
+app.get('/api/hubspot/contacts', async (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  const token = getHubspotToken(getDB());
+  if (!token) return res.status(400).json({ error: 'HubSpot is not connected. Add a private-app token in Settings.' });
+
+  const properties = ['email', 'firstname', 'lastname', 'phone', 'company', 'lifecyclestage', 'createdate'];
+  const MAX_PAGES = 10; // up to ~1000 contacts
+  const contacts = [];
+  let after = '';
+  try {
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const params = new URLSearchParams({ limit: '100', properties: properties.join(',') });
+      if (after) params.set('after', after);
+      const resp = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        return res.status(resp.status === 401 ? 401 : 502).json({ error: data.message || `HubSpot request failed (HTTP ${resp.status})` });
+      }
+      for (const r of data.results || []) {
+        const p = r.properties || {};
+        const name = [p.firstname, p.lastname].filter(Boolean).join(' ').trim();
+        contacts.push({
+          id: r.id,
+          name: name || '—',
+          email: p.email || '',
+          phone: p.phone || '',
+          company: p.company || '',
+          lifecycle_stage: p.lifecyclestage || '',
+          created_at: p.createdate || r.createdAt || '',
+        });
+      }
+      after = data.paging && data.paging.next ? data.paging.next.after : '';
+      if (!after) break;
+    }
+    res.json({ contacts, count: contacts.length, truncated: !!after });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// Database export — download a consistent copy of the SQLite file
+// ============================================================
+app.get('/api/export-db', (req, res) => {
+  const user = requireRole(req, res, ['superadmin']); if (!user) return;
+  try {
+    // Flush the WAL into the main db file so the downloaded copy is complete.
+    getDB().pragma('wal_checkpoint(TRUNCATE)');
+  } catch (err) {
+    console.error('[export-db] checkpoint failed:', err.message);
+  }
+  if (!fs.existsSync(DB_PATH)) return res.status(404).json({ error: 'Database file not found' });
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  auditLog(user.id, 'export_db', 'app_settings', 1, 'Exported database');
+  res.download(DB_PATH, `tijuspro-backup-${stamp}.db`, (err) => {
+    if (err && !res.headersSent) res.status(500).json({ error: 'Failed to send database file' });
+  });
 });
 
 // ============================================================
