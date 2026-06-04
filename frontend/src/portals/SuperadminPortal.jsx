@@ -59,6 +59,7 @@ export default function SuperadminPortal() {
   const [userForm, setUserForm] = useState({ name: '', email: '', role: 'student', password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly', course_id: '', new_course_name: '' });
   const [showUserPassword, setShowUserPassword] = useState(false);
   const [courseDraft, setCourseDraft] = useState('');
+  const [addingCourse, setAddingCourse] = useState(false);
 
   // App settings (currency)
   const [appSettings, setAppSettings] = useState({ currency: 'INR' });
@@ -252,6 +253,7 @@ export default function SuperadminPortal() {
     setEditingUser(null);
     setUserForm({ name: '', email: '', role, password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly', course_id: '', new_course_name: '' });
     setCourseDraft('');
+    setAddingCourse(false);
     setShowUserPassword(false);
     ensureCourseLists();
     setShowUserForm(true);
@@ -261,6 +263,7 @@ export default function SuperadminPortal() {
     setEditingUser(user);
     setUserForm({ name: user.name, email: user.email, role: user.role, password: '', specialization: user.specialization || '', avatar_color: user.avatar_color, status: user.status, payout_rate: user.payout_rate || 0, payout_type: user.payout_type || 'monthly', course_id: '', new_course_name: '' });
     setCourseDraft('');
+    setAddingCourse(false);
     setShowUserPassword(false);
     ensureCourseLists();
     setShowUserForm(true);
@@ -282,6 +285,7 @@ export default function SuperadminPortal() {
       showMsg(`New course "${name}" will be created and assigned on save`, 'info');
     }
     setCourseDraft('');
+    setAddingCourse(false);
   };
 
   const saveUser = async (e) => {
@@ -905,27 +909,33 @@ export default function SuperadminPortal() {
                 <span>Course</span>
                 <button type="button" className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: '12px' }} onClick={() => { ensureCourseLists(); setShowCourseMgr(true); }}>Manage</button>
               </label>
-              {/* Inline add above the select: type a course name and Add — if it
-                  already exists it gets selected, otherwise it's created and
-                  assigned to this tutor on save. */}
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                <input
-                  value={courseDraft}
-                  onChange={(e) => setCourseDraft(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCourseInline(); } }}
-                  placeholder="New or existing course name"
+              {/* Pick an existing course from the dropdown, or click "Add New"
+                  to type a new one (checked for duplicates, created on save). */}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <select
                   style={{ flex: 1 }}
-                />
-                <button type="button" className="btn btn-primary" onClick={addCourseInline}>Add</button>
+                  value={userForm.new_course_name ? '__new__' : userForm.course_id}
+                  onChange={(e) => setUserForm({ ...userForm, course_id: e.target.value === '__new__' ? '' : e.target.value, new_course_name: '' })}
+                >
+                  <option value="">No course</option>
+                  {userForm.new_course_name && <option value="__new__">+ New: {userForm.new_course_name}</option>}
+                  {courseListForUser().map((c) => <option key={c.id} value={c.id}>{c.name}{c.tutor_name ? ` (${c.tutor_name})` : ''}</option>)}
+                </select>
+                <button type="button" className="btn btn-primary" onClick={() => setAddingCourse((v) => !v)}>Add New</button>
               </div>
-              <select
-                value={userForm.new_course_name ? '__new__' : userForm.course_id}
-                onChange={(e) => setUserForm({ ...userForm, course_id: e.target.value === '__new__' ? '' : e.target.value, new_course_name: '' })}
-              >
-                <option value="">No course</option>
-                {userForm.new_course_name && <option value="__new__">+ New: {userForm.new_course_name}</option>}
-                {courseListForUser().map((c) => <option key={c.id} value={c.id}>{c.name}{c.tutor_name ? ` (${c.tutor_name})` : ''}</option>)}
-              </select>
+              {addingCourse && (
+                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                  <input
+                    value={courseDraft}
+                    onChange={(e) => setCourseDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCourseInline(); } }}
+                    placeholder="New course name"
+                    autoFocus
+                    style={{ flex: 1 }}
+                  />
+                  <button type="button" className="btn btn-primary" onClick={addCourseInline}>Add</button>
+                </div>
+              )}
               <p style={{ color: '#888', fontSize: '12px', margin: '4px 0 0' }}>Assigning a course makes this tutor its owner.</p>
             </div>
           )}
