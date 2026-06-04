@@ -40,6 +40,7 @@ const menuItems = {
     { key: 'attendance', label: 'Attendance', icon: 'check-square' },
     { key: 'reports', label: 'Reports', icon: 'bar-chart' },
     { key: 'system', label: 'Audit Logs', icon: 'clipboard' },
+    { key: 'integrations', label: 'Integrations', icon: 'plug' },
     { key: 'settings', label: 'Settings', icon: 'settings' },
   ],
 };
@@ -48,7 +49,7 @@ const iconMap = {
   grid: '⊞', book: '📚', video: '🎥', award: '🏆', users: '👥',
   'check-square': '✅', 'dollar-sign': '💰', 'bar-chart': '📊',
   settings: '⚙️', logout: '🚪', student: '🎓', tutor: '👨‍🏫',
-  layers: '📋', clipboard: '📝', film: '🎬', contact: '📇',
+  layers: '📋', clipboard: '📝', film: '🎬', contact: '📇', plug: '🔌',
 };
 
 export default function Sidebar({ activeTab, onTabChange }) {

@@ -218,7 +218,7 @@ export default function SuperadminPortal() {
     if (activeTab === 'sessions' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'attendance' && allAttendance.length === 0) api.getAttendanceLogs().then(setAllAttendance).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
-    if (activeTab === 'settings' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm(s); setSmtpLoaded(true); }).catch(() => {});
+    if (activeTab === 'integrations' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm(s); setSmtpLoaded(true); }).catch(() => {});
     if (activeTab === 'contacts' && hubspot.hubspot_connected && contacts.length === 0 && !contactsError) loadContacts();
     if (activeTab !== 'students') setStudentDetail(null);
   }, [activeTab]);
@@ -1638,6 +1638,16 @@ export default function SuperadminPortal() {
                 </div>
               </form>
             </div>
+          </div>
+        )}
+
+        {/* ===== INTEGRATIONS ===== */}
+        {activeTab === 'integrations' && (
+          <div className="portal-page">
+            <h2>Integrations</h2>
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem', marginBottom: '1.5rem' }}>
+              Connect external services for video meetings, CRM contacts, and transactional email.
+            </p>
 
             {/* Video / Meeting Provider */}
             <div className="settings-section" style={{ marginBottom: '2rem' }}>
@@ -1872,6 +1882,11 @@ export default function SuperadminPortal() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'settings' && (
+          <div className="portal-page">
 
             {/* Test Video Call */}
             <div className="settings-section" style={{ marginBottom: '2rem' }}>
