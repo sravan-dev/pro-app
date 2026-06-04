@@ -1502,6 +1502,12 @@ export default function SuperadminPortal() {
                 emptyLabel="No enrollment progress yet"
                 rows={(charts.progress_distribution || []).map((p) => ({ label: p.bucket, value: p.count }))}
               />
+              <BarChart
+                title="Sessions by Status"
+                color="#EF4444"
+                emptyLabel="No sessions yet"
+                rows={(charts.sessions_by_status || []).map((s) => ({ label: s.status, value: s.count }))}
+              />
             </div>
           </div>
         )}
