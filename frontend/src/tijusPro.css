@@ -301,6 +301,56 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ========================================
+   Skeleton preloader (shimmer)
+   ======================================== */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-border);
+  opacity: 0.7;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: skeleton-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer { 100% { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none; }
+}
+
+.skeleton-kpi {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.skeleton-table {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+}
+.skeleton-table-head {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 1rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.skeleton-table-row {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.skeleton-table-row:last-child { border-bottom: none; }
+.skeleton-sidebar { background: var(--color-sidebar); }
+
+/* ========================================
    KPI Cards
    ======================================== */
 .kpi-grid {

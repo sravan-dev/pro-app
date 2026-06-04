@@ -8,6 +8,7 @@ import Calendar from '../components/Calendar';
 import SessionCard from '../components/SessionCard';
 import SessionRoom from '../components/SessionRoom';
 import usePersistedTab from '../hooks/usePersistedTab';
+import { MainSkeleton } from '../components/Skeleton';
 
 export default function TutorPortal() {
   const { user } = useAuth();
@@ -105,7 +106,12 @@ export default function TutorPortal() {
     }
   };
 
-  if (loading) return <div className="loading-screen"><div className="spinner" /><p>Loading...</p></div>;
+  if (loading) return (
+    <div className="portal-layout portal-tutor">
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      <main className="portal-content"><MainSkeleton kpis={4} /></main>
+    </div>
+  );
 
   if (activeSession) {
     return (

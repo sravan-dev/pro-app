@@ -9,6 +9,7 @@ import Calendar from '../components/Calendar';
 import DataTable from '../components/DataTable';
 import SessionRoom from '../components/SessionRoom';
 import usePersistedTab from '../hooks/usePersistedTab';
+import { MainSkeleton } from '../components/Skeleton';
 
 export default function StudentPortal() {
   const { user } = useAuth();
@@ -66,7 +67,12 @@ export default function StudentPortal() {
     }
   };
 
-  if (loading) return <div className="loading-screen"><div className="spinner" /><p>Loading...</p></div>;
+  if (loading) return (
+    <div className="portal-layout portal-student">
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      <main className="portal-content"><MainSkeleton kpis={4} /></main>
+    </div>
+  );
 
   if (activeSession) {
     return (

@@ -5,6 +5,7 @@ import Sidebar from '../components/Sidebar';
 import KPICard from '../components/KPICard';
 import DataTable from '../components/DataTable';
 import usePersistedTab from '../hooks/usePersistedTab';
+import { MainSkeleton } from '../components/Skeleton';
 
 export default function ManagerPortal() {
   const { user } = useAuth();
@@ -31,7 +32,12 @@ export default function ManagerPortal() {
     fetchData();
   }, []);
 
-  if (loading) return <div className="loading-screen"><div className="spinner" /><p>Loading...</p></div>;
+  if (loading) return (
+    <div className="portal-layout portal-manager">
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      <main className="portal-content"><MainSkeleton kpis={4} /></main>
+    </div>
+  );
 
   const stats = data?.stats || {};
   const tutors = data?.tutors || [];

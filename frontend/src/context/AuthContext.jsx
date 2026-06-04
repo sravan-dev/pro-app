@@ -3,9 +3,33 @@ import { api } from '../api';
 
 const AuthContext = createContext(null);
 
+const CACHED_USER_KEY = 'auth:user';
+
+function readCachedUser() {
+  try {
+    const raw = localStorage.getItem(CACHED_USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Hydrate from the last-known user so returning visitors render the app shell
+  // instantly instead of waiting on the session round-trip. checkSession then
+  // revalidates in the background and corrects/clears if the session expired.
+  const [user, setUserState] = useState(readCachedUser);
+  const [loading, setLoading] = useState(() => !readCachedUser());
+
+  const setUser = useCallback((u) => {
+    setUserState(u);
+    try {
+      if (u) localStorage.setItem(CACHED_USER_KEY, JSON.stringify(u));
+      else localStorage.removeItem(CACHED_USER_KEY);
+    } catch {
+      /* ignore storage errors (private mode, quota) */
+    }
+  }, []);
 
   const checkSession = useCallback(async () => {
     try {
@@ -20,7 +44,7 @@ export function AuthProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setUser]);
 
   useEffect(() => {
     checkSession();

@@ -6,6 +6,7 @@ import DataTable from '../components/DataTable';
 import Calendar from '../components/Calendar';
 import SessionCard from '../components/SessionCard';
 import SessionRoom from '../components/SessionRoom';
+import { MainSkeleton } from '../components/Skeleton';
 import usePersistedTab from '../hooks/usePersistedTab';
 
 // Simple horizontal bar chart built from the existing .stats-bars styles
@@ -567,7 +568,12 @@ export default function SuperadminPortal() {
     } catch (err) { alert(err.message); }
   };
 
-  if (loading) return <div className="loading-screen"><div className="spinner" /><p>Loading...</p></div>;
+  if (loading) return (
+    <div className="portal-layout portal-superadmin">
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      <main className="portal-content"><MainSkeleton /></main>
+    </div>
+  );
 
   if (activeSession) {
     return (
