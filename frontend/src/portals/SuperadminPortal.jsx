@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import KPICard from '../components/KPICard';
 import DataTable from '../components/DataTable';
@@ -34,6 +35,8 @@ function BarChart({ title, rows = [], color = '#4F46E5', emptyLabel = 'No data y
 }
 
 export default function SuperadminPortal() {
+  const { user } = useAuth();
+  const firstName = user?.name?.split(' ')[0] || 'there';
   const [activeTab, setActiveTab] = usePersistedTab('tab:superadmin');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1465,7 +1468,7 @@ export default function SuperadminPortal() {
         {/* ===== DASHBOARD ===== */}
         {activeTab === 'dashboard' && (
           <div className="portal-page">
-            <h2>Admin Dashboard</h2>
+            <h2>Hello {firstName},</h2>
 
             <div className="kpi-grid">
               <KPICard variant="small-box" title="Total Students" value={stats.total_students} icon="users" color="#3B82F6" onClick={() => setActiveTab('students')} />
