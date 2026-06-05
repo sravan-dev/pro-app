@@ -156,7 +156,8 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
 
 .sidebar-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
 .sidebar-item.active { background: rgba(255,255,255,0.10); color: #fff; }
-.sidebar-icon { font-size: 1.05rem; width: 22px; text-align: center; flex-shrink: 0; }
+.sidebar-icon { font-size: 1.05rem; width: 22px; text-align: center; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+.sidebar-icon svg { display: block; }
 
 .sidebar-footer { padding-top: 12px; margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.08); }
 .sidebar-userbar { display: flex; align-items: center; gap: 6px; }
