@@ -653,6 +653,33 @@ export default function SuperadminPortal() {
     setShowEnrollForm(true);
   };
 
+  // Enroll a HubSpot contact. Reuse an existing student account that matches the
+  // contact's email; otherwise create one (which emails a temp password) after
+  // confirming, then open the enrollment modal with the student pre-selected.
+  const enrollContact = async (contact) => {
+    const email = (contact.email || '').trim();
+    let student = email
+      ? students.find((s) => (s.email || '').toLowerCase() === email.toLowerCase())
+      : null;
+
+    if (!student) {
+      if (!email) { showMsg('This contact has no email — add one in HubSpot before enrolling.', 'error'); return; }
+      const label = contact.name && contact.name !== '—' ? contact.name : email;
+      if (!confirm(`${label} isn't a student yet. Create a student account (a welcome email with a temporary password is sent) and continue to enroll?`)) return;
+      try {
+        const created = await api.createUser({ name: label, email, role: 'student' });
+        await fetchData();                                  // refresh users so the dropdown has the new student
+        await api.getStudents().then(setAllStudents).catch(() => {});
+        student = { id: created.id };
+        showMsg('Student account created', 'success');
+      } catch (err) { showMsg(err.message, 'error'); return; }
+    }
+
+    setEditingEnroll(null);
+    setEnrollForm({ student_id: String(student.id), course_id: '', progress_percentage: 0, grade: '', status: 'active' });
+    setShowEnrollForm(true);
+  };
+
   const saveEnroll = async (e) => {
     e.preventDefault();
     try {
@@ -854,6 +881,11 @@ export default function SuperadminPortal() {
     { key: 'company', label: 'Company', accessor: 'company' },
     { key: 'lifecycle_stage', label: 'Stage', accessor: 'lifecycle_stage', render: (r) => r.lifecycle_stage ? <span className="role-badge role-advisor">{r.lifecycle_stage}</span> : '—' },
     { key: 'created_at', label: 'Created', accessor: 'created_at', render: (r) => r.created_at ? new Date(r.created_at).toLocaleDateString() : '—' },
+    { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
+      <div className="table-actions">
+        <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); enrollContact(r); }}>Enroll</button>
+      </div>
+    ) },
   ];
 
   const courseColumns = [
