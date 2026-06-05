@@ -1432,8 +1432,9 @@ app.get('/api/app-settings', (req, res) => {
     zoom_has_secret: !!s.zoom_client_secret,
     // LiveKit is configured via env vars, not the DB — report availability only.
     livekit_configured: livekitConfigured(),
-    // Never echo the HubSpot token back; just report whether one is stored.
-    hubspot_connected: !!s.hubspot_token,
+    // Never echo the HubSpot token back; report whether one is stored or
+    // available via the .env default.
+    hubspot_connected: !!(s.hubspot_token || process.env.HUBSPOT_TOKEN),
   });
 });
 
@@ -1521,15 +1522,20 @@ app.get('/api/zoom-status', async (req, res) => {
 // ============================================================
 // HubSpot CRM — pull the contact list into the admin Contacts page
 // ============================================================
+// A token saved in Settings always wins; otherwise fall back to the default
+// HUBSPOT_TOKEN from .env so the contact list works out of the box.
 function getHubspotToken(d) {
   const s = d.prepare("SELECT hubspot_token FROM app_settings WHERE id=1").get() || {};
-  return s.hubspot_token || '';
+  return s.hubspot_token || process.env.HUBSPOT_TOKEN || '';
 }
 
 // Save / update the HubSpot private-app access token. Blank token disconnects.
 app.put('/api/hubspot-settings', (req, res) => {
   const user = requireRole(req, res, ['superadmin']); if (!user) return;
-  const token = (req.body.hubspot_token || '').trim();
+  // Strip every whitespace/invisible character — pasted PATs often carry a
+  // trailing newline, non-breaking space, or zero-width char that .trim() misses
+  // and that makes HubSpot reject the token as MALFORMED_TOKEN.
+  const token = (req.body.hubspot_token || '').replace(/[\s\u200B-\u200D\uFEFF]/g, '');
   const d = getDB();
   d.prepare("INSERT OR IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')").run();
   // Blank means "disconnect"; only that explicitly clears the stored token.
