@@ -123,6 +123,8 @@ export default function SuperadminPortal() {
   const [showEnrollForm, setShowEnrollForm] = useState(false);
   const [editingEnroll, setEditingEnroll] = useState(null);
   const [enrollForm, setEnrollForm] = useState({ student_id: '', course_id: '', progress_percentage: 0, grade: '', status: 'active' });
+  const [pendingEnrollContact, setPendingEnrollContact] = useState(null); // contact awaiting "create student" confirm
+  const [enrollBusy, setEnrollBusy] = useState(false);
 
   const [showSessionForm, setShowSessionForm] = useState(false);
   const [sessionForm, setSessionForm] = useState({ course_id: '', tutor_id: '', start_time: '', end_time: '' });
@@ -653,31 +655,46 @@ export default function SuperadminPortal() {
     setShowEnrollForm(true);
   };
 
-  // Enroll a HubSpot contact. Reuse an existing student account that matches the
-  // contact's email; otherwise create one (which emails a temp password) after
-  // confirming, then open the enrollment modal with the student pre-selected.
-  const enrollContact = async (contact) => {
+  // Open the enrollment modal pre-selected for a given student id.
+  const openEnrollFor = (studentId) => {
+    setEditingEnroll(null);
+    setEnrollForm({ student_id: String(studentId), course_id: '', progress_percentage: 0, grade: '', status: 'active' });
+    setShowEnrollForm(true);
+  };
+
+  // Enroll a HubSpot contact. If a student already matches the contact's email,
+  // jump straight to the enrollment modal; otherwise open a confirm modal that
+  // offers to create a student account first.
+  const enrollContact = (contact) => {
     const email = (contact.email || '').trim();
-    let student = email
+    const student = email
       ? students.find((s) => (s.email || '').toLowerCase() === email.toLowerCase())
       : null;
+    if (student) { openEnrollFor(student.id); return; }
+    if (!email) { showMsg('This contact has no email — add one in HubSpot before enrolling.', 'error'); return; }
+    setPendingEnrollContact(contact); // styled confirm modal handles the rest
+  };
 
-    if (!student) {
-      if (!email) { showMsg('This contact has no email — add one in HubSpot before enrolling.', 'error'); return; }
-      const label = contact.name && contact.name !== '—' ? contact.name : email;
-      if (!confirm(`${label} isn't a student yet. Create a student account (a welcome email with a temporary password is sent) and continue to enroll?`)) return;
-      try {
-        const created = await api.createUser({ name: label, email, role: 'student' });
-        await fetchData();                                  // refresh users so the dropdown has the new student
-        await api.getStudents().then(setAllStudents).catch(() => {});
-        student = { id: created.id };
-        showMsg('Student account created', 'success');
-      } catch (err) { showMsg(err.message, 'error'); return; }
+  // Confirmed: create a student account from the pending contact, then enroll.
+  const confirmCreateAndEnroll = async () => {
+    const contact = pendingEnrollContact;
+    if (!contact) return;
+    const email = (contact.email || '').trim();
+    const label = contact.name && contact.name !== '—' ? contact.name : email;
+    setEnrollBusy(true);
+    try {
+      const created = await api.createUser({ name: label, email, role: 'student' });
+      await fetchData();                                  // refresh users so the dropdown has the new student
+      await api.getStudents().then(setAllStudents).catch(() => {});
+      showMsg('Student account created', 'success');
+      setPendingEnrollContact(null);
+      openEnrollFor(created.id);
+    } catch (err) {
+      showMsg(err.message, 'error');
+      setPendingEnrollContact(null);
+    } finally {
+      setEnrollBusy(false);
     }
-
-    setEditingEnroll(null);
-    setEnrollForm({ student_id: String(student.id), course_id: '', progress_percentage: 0, grade: '', status: 'active' });
-    setShowEnrollForm(true);
   };
 
   const saveEnroll = async (e) => {
@@ -1459,6 +1476,24 @@ export default function SuperadminPortal() {
     </div>
   );
 
+  const enrollContactModal = pendingEnrollContact && (
+    <div className="modal-overlay" onClick={() => !enrollBusy && setPendingEnrollContact(null)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+        <h3>Enroll {pendingEnrollContact.name && pendingEnrollContact.name !== '—' ? pendingEnrollContact.name : pendingEnrollContact.email}</h3>
+        <p style={{ color: 'var(--color-text-secondary)' }}>
+          This contact isn’t a student yet. A student account will be created for{' '}
+          <strong>{pendingEnrollContact.email}</strong> and a welcome email with a temporary password will be sent. Continue to enroll?
+        </p>
+        <div className="form-actions">
+          <button type="button" className="btn btn-ghost" onClick={() => setPendingEnrollContact(null)} disabled={enrollBusy}>Cancel</button>
+          <button type="button" className="btn btn-primary" onClick={confirmCreateAndEnroll} disabled={enrollBusy}>
+            {enrollBusy ? 'Creating…' : 'Create & Continue'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   const sessionFormModal = showSessionForm && (
     <div className="modal-overlay" onClick={() => setShowSessionForm(false)}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -1530,6 +1565,7 @@ export default function SuperadminPortal() {
         {meetingFormModal}
         {materialsMgrModal}
         {enrollFormModal}
+        {enrollContactModal}
         {sessionFormModal}
 
         {/* ===== DASHBOARD ===== */}
