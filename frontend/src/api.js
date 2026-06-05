@@ -154,7 +154,13 @@ export const api = {
   // HubSpot CRM
   saveHubspotSettings: (data) => request('/hubspot-settings', { method: 'PUT', body: data }),
   getHubspotStatus: () => request('/hubspot-status'),
-  getHubspotContacts: () => request('/hubspot/contacts'),
+  getHubspotContacts: ({ after = '', q = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (after) params.set('after', after);
+    if (q) params.set('q', q);
+    const qs = params.toString();
+    return request(`/hubspot/contacts${qs ? `?${qs}` : ''}`);
+  },
 
   // SMTP Settings
   getSmtpSettings: () => request('/smtp-settings'),

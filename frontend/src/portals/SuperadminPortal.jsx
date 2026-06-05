@@ -90,6 +90,13 @@ export default function SuperadminPortal() {
   const [contacts, setContacts] = useState([]);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsError, setContactsError] = useState('');
+  const [contactsTotal, setContactsTotal] = useState(null); // total records in HubSpot
+  const [contactSearch, setContactSearch] = useState('');   // committed search term
+  const [contactSearchInput, setContactSearchInput] = useState(''); // live input box
+  const [contactPage, setContactPage] = useState(0);        // 0-based page index
+  const [contactNextAfter, setContactNextAfter] = useState(''); // cursor for the next page
+  const contactCursors = useRef(['']);  // `after` cursor for each visited page; [0] = first page
+  const contactsInit = useRef(false);   // have we loaded the tab at least once?
 
   const [showCourseForm, setShowCourseForm] = useState(false);
   const [showCourseMgr, setShowCourseMgr] = useState(false);
@@ -203,16 +210,41 @@ export default function SuperadminPortal() {
     }).catch(() => {});
   }, []);
 
-  // Load HubSpot contacts (used by the Contacts tab). Memoised so the tab and
-  // the Settings "refresh" button can both trigger it.
-  const loadContacts = useCallback(() => {
+  // Load one server-side page of HubSpot contacts. `pageIndex` looks up its
+  // cursor in contactCursors; `q` is the active search term. The CRM is paged
+  // 100 at a time so this scales to the full contact list (tens of thousands).
+  const loadContacts = useCallback((pageIndex = 0, q = contactSearch) => {
     setContactsLoading(true);
     setContactsError('');
-    api.getHubspotContacts()
-      .then((r) => setContacts(r.contacts || []))
+    const after = contactCursors.current[pageIndex] || '';
+    api.getHubspotContacts({ after, q })
+      .then((r) => {
+        setContacts(r.contacts || []);
+        if (typeof r.total === 'number') setContactsTotal(r.total);
+        contactCursors.current[pageIndex + 1] = r.after || ''; // remember the next page's cursor
+        setContactNextAfter(r.after || '');
+        setContactPage(pageIndex);
+      })
       .catch((err) => setContactsError(err.message))
       .finally(() => setContactsLoading(false));
-  }, []);
+  }, [contactSearch]);
+
+  // Run a new search: reset paging back to the first page, then fetch.
+  const runContactSearch = useCallback((term) => {
+    const q = term.trim();
+    setContactSearch(q);
+    contactCursors.current = ['']; // cursors are query-specific — start fresh
+    loadContacts(0, q);
+  }, [loadContacts]);
+
+  // Debounce the search box so we don't hit HubSpot on every keystroke.
+  useEffect(() => {
+    if (!contactsInit.current) return; // don't fire before the tab's first load
+    const t = setTimeout(() => {
+      if (contactSearchInput.trim() !== contactSearch) runContactSearch(contactSearchInput);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [contactSearchInput]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const formatMoney = (amount) => {
     const n = Number(amount) || 0;
@@ -232,7 +264,10 @@ export default function SuperadminPortal() {
     if (activeTab === 'dashboard' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
     if (activeTab === 'integrations' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm(s); setSmtpLoaded(true); }).catch(() => {});
-    if (activeTab === 'contacts' && hubspot.hubspot_connected && contacts.length === 0 && !contactsError) loadContacts();
+    if (activeTab === 'contacts' && hubspot.hubspot_connected && !contactsInit.current) {
+      contactsInit.current = true;
+      loadContacts(0, '');
+    }
     if (activeTab !== 'students') setStudentDetail(null);
   }, [activeTab]);
 
@@ -1545,7 +1580,7 @@ export default function SuperadminPortal() {
             <div className="page-header">
               <h2>Contacts</h2>
               {hubspot.hubspot_connected && (
-                <button className="btn btn-ghost" onClick={loadContacts} disabled={contactsLoading}>
+                <button className="btn btn-ghost" onClick={() => loadContacts(contactPage)} disabled={contactsLoading}>
                   {contactsLoading ? 'Refreshing…' : '↻ Refresh'}
                 </button>
               )}
@@ -1562,10 +1597,53 @@ export default function SuperadminPortal() {
               <div className="alert" style={{ background: 'rgba(239,68,68,0.12)', color: '#991b1b' }}>
                 Failed to load contacts: {contactsError}
               </div>
-            ) : contactsLoading ? (
+            ) : contactsLoading && contacts.length === 0 ? (
               <div><div className="spinner" /><p>Loading contacts…</p></div>
             ) : (
-              <DataTable columns={contactColumns} data={contacts} pageSize={15} />
+              <div className="data-table-container">
+                <div className="data-table-toolbar">
+                  <input
+                    type="text"
+                    placeholder="Search name, email, phone…"
+                    value={contactSearchInput}
+                    onChange={(e) => setContactSearchInput(e.target.value)}
+                    className="data-table-search"
+                  />
+                  <span className="data-table-count">
+                    {contactsTotal != null ? `${contactsTotal.toLocaleString()} records` : `${contacts.length} records`}
+                  </span>
+                </div>
+
+                <div className="data-table-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>{contactColumns.map((col) => <th key={col.key}>{col.label}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {contacts.length === 0 ? (
+                        <tr><td colSpan={contactColumns.length} className="no-data">No contacts found</td></tr>
+                      ) : (
+                        contacts.map((row) => (
+                          <tr key={row.id}>
+                            {contactColumns.map((col) => (
+                              <td key={col.key}>{col.render ? col.render(row) : (row[col.accessor] || '—')}</td>
+                            ))}
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="data-table-pagination">
+                  <button onClick={() => loadContacts(contactPage - 1)} disabled={contactPage === 0 || contactsLoading}>Prev</button>
+                  <span>
+                    Page {contactPage + 1}
+                    {contactsTotal != null ? ` of ${Math.max(1, Math.ceil(contactsTotal / 100)).toLocaleString()}` : ''}
+                  </span>
+                  <button onClick={() => loadContacts(contactPage + 1)} disabled={!contactNextAfter || contactsLoading}>Next</button>
+                </div>
+              </div>
             )}
           </div>
         )}

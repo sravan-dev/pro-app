@@ -1566,45 +1566,86 @@ app.get('/api/hubspot-status', async (req, res) => {
   }
 });
 
-// Fetch the contact list from HubSpot. Pages through the CRM API server-side
-// (100 per page) up to a sane cap; the frontend table paginates 15 per page.
+const HUBSPOT_CONTACT_PROPS = ['email', 'firstname', 'lastname', 'phone', 'company', 'lifecyclestage', 'createdate'];
+
+// Map a raw HubSpot contact record into the shape the Contacts table expects.
+function mapHubspotContact(r) {
+  const p = r.properties || {};
+  const name = [p.firstname, p.lastname].filter(Boolean).join(' ').trim();
+  return {
+    id: r.id,
+    name: name || '—',
+    email: p.email || '',
+    phone: p.phone || '',
+    company: p.company || '',
+    lifecycle_stage: p.lifecyclestage || '',
+    created_at: p.createdate || r.createdAt || '',
+  };
+}
+
+// Total number of contacts in the portal. The CRM list endpoint doesn't report
+// it, so we ask the search endpoint (limit 1) — its `total` covers all records
+// even though paging through search is capped at 10k.
+async function hubspotContactCount(token) {
+  try {
+    const resp = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: 1 }),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json().catch(() => ({}));
+    return typeof data.total === 'number' ? data.total : null;
+  } catch { return null; }
+}
+
+// One page of contacts (100 at a time), paged server-side so we scale to the
+// full CRM (tens of thousands) without ever loading them all at once.
+//   ?after=<cursor>  advance to the next page (opaque cursor from a prior call)
+//   ?q=<text>        search by name/email/phone/company via the CRM search API
 app.get('/api/hubspot/contacts', async (req, res) => {
   const user = requireRole(req, res, ['superadmin']); if (!user) return;
   const token = getHubspotToken(getDB());
   if (!token) return res.status(400).json({ error: 'HubSpot is not connected. Add a private-app token in Settings.' });
 
-  const properties = ['email', 'firstname', 'lastname', 'phone', 'company', 'lifecyclestage', 'createdate'];
-  const MAX_PAGES = 10; // up to ~1000 contacts
-  const contacts = [];
-  let after = '';
+  const q = (req.query.q || '').trim();
+  const after = (req.query.after || '').trim();
+  const LIMIT = 100;
   try {
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const params = new URLSearchParams({ limit: '100', properties: properties.join(',') });
+    let resp;
+    if (q) {
+      // Search API: free-text query across default searchable properties.
+      // Returns `total` and an offset-based `after` (reachable up to 10k).
+      resp = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: q,
+          limit: LIMIT,
+          ...(after ? { after } : {}),
+          properties: HUBSPOT_CONTACT_PROPS,
+          sorts: ['createdate'],
+        }),
+      });
+    } else {
+      // List API: cursor-based, unlimited paging through every contact.
+      const params = new URLSearchParams({ limit: String(LIMIT), properties: HUBSPOT_CONTACT_PROPS.join(',') });
       if (after) params.set('after', after);
-      const resp = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts?${params.toString()}`, {
+      resp = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        return res.status(resp.status === 401 ? 401 : 502).json({ error: data.message || `HubSpot request failed (HTTP ${resp.status})` });
-      }
-      for (const r of data.results || []) {
-        const p = r.properties || {};
-        const name = [p.firstname, p.lastname].filter(Boolean).join(' ').trim();
-        contacts.push({
-          id: r.id,
-          name: name || '—',
-          email: p.email || '',
-          phone: p.phone || '',
-          company: p.company || '',
-          lifecycle_stage: p.lifecyclestage || '',
-          created_at: p.createdate || r.createdAt || '',
-        });
-      }
-      after = data.paging && data.paging.next ? data.paging.next.after : '';
-      if (!after) break;
     }
-    res.json({ contacts, count: contacts.length, truncated: !!after });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      return res.status(resp.status === 401 ? 401 : 502).json({ error: data.message || `HubSpot request failed (HTTP ${resp.status})` });
+    }
+    const contacts = (data.results || []).map(mapHubspotContact);
+    const next = data.paging && data.paging.next ? data.paging.next.after : '';
+    // Search responses include `total`; the unfiltered list doesn't, so fetch
+    // it once on the first page (when there's no cursor yet).
+    let total = typeof data.total === 'number' ? data.total : null;
+    if (total === null && !after) total = await hubspotContactCount(token);
+    res.json({ contacts, after: next, total });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
