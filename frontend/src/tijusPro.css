@@ -130,9 +130,11 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
 }
 
 .sidebar-subtitle {
+  display: block;
   font-size: 0.72rem;
   color: var(--color-sidebar-text);
   opacity: 0.65;
+  margin-bottom: 8px;
 }
 
 .sidebar-nav { flex: 1; padding: 6px 0; display: flex; flex-direction: column; gap: 3px; }

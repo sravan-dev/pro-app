@@ -132,9 +132,6 @@ export default function Sidebar({ activeTab, onTabChange }) {
     <aside className="sidebar">
       <div className="sidebar-header">
         <img src="/logo.png" alt="Tiju's Academy" className="sidebar-logo" />
-        {user?.role && (
-          <span className="sidebar-subtitle">{user.role[0].toUpperCase() + user.role.slice(1)} portal</span>
-        )}
       </div>
 
       <nav className="sidebar-nav">
@@ -151,6 +148,9 @@ export default function Sidebar({ activeTab, onTabChange }) {
       </nav>
 
       <div className="sidebar-footer">
+        {user?.role && (
+          <span className="sidebar-subtitle">{user.role[0].toUpperCase() + user.role.slice(1)} portal</span>
+        )}
         <div className="sidebar-userbar">
           <button
             type="button"
