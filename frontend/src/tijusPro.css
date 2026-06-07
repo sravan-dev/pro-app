@@ -203,12 +203,26 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
    Login Page
    ======================================== */
 .login-page {
+  /* Brand palette taken from the TIJU'S Academy logo (deep indigo) so the
+     login screen and its modals match the logo instead of the app's orange. */
+  --color-primary: #2D2A6E;
+  --color-primary-dark: #1F1C4E;
+  --color-primary-light: #4A47A3;
+
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #E5E7EB;
   padding: 1.5rem;
+}
+
+/* Match the input focus ring to the login page's indigo brand */
+.login-page input:focus,
+.login-page select:focus,
+.login-page textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(45, 42, 110, 0.18);
 }
 
 /* Split auth layout: form on the left, illustration panel on the right */
@@ -231,7 +245,7 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
 }
 
 .auth-brand { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 3rem; }
-.auth-brand img { height: 36px; width: auto; }
+.auth-brand img { height: 86px; width: auto; }
 
 .auth-heading {
   margin: 0;
