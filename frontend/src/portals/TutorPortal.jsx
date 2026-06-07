@@ -67,6 +67,15 @@ export default function TutorPortal() {
     api.getAppSettings().then((s) => setCurrency(s.currency || 'INR')).catch(() => {});
   }, []);
 
+  // Prefetch the lazy tab data in the background on mount so the first sidebar
+  // click lands on already-loaded content instead of waiting on a fresh request.
+  useEffect(() => {
+    api.getAttendanceLogs().then(setAttendance).catch(() => {});
+    loadRecordings();
+  }, []);
+
+  // Revalidate the tab's data when it's opened. Existing data stays on screen
+  // during the refresh (stale-while-revalidate), so there's no blank flash.
   useEffect(() => {
     if (activeTab === 'attendance') api.getAttendanceLogs().then(setAttendance).catch(() => {});
     if (activeTab === 'recordings') loadRecordings();

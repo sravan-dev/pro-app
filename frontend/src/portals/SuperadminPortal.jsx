@@ -196,6 +196,17 @@ export default function SuperadminPortal() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Warm the cache for the most-used tabs in the background on mount so opening
+  // them from the sidebar is instant. Each list is still lazy-guarded below
+  // (`length === 0`), so this just front-loads the work — tabs opened later
+  // reuse the cached data instead of triggering a fresh fetch on first click.
+  useEffect(() => {
+    api.getStudents().then(setAllStudents).catch(() => {});
+    api.getTutors().then(setAllTutors).catch(() => {});
+    api.getCourses().then(setAllCourses).catch(() => {});
+    api.getSessions().then(setAllSessions).catch(() => {});
+  }, []);
+
   useEffect(() => {
     api.getAppSettings().then((s) => {
       setAppSettings(s);
