@@ -277,12 +277,20 @@ export default function SuperadminPortal() {
     if (activeTab === 'dashboard' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
     if (activeTab === 'integrations' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm(s); setSmtpLoaded(true); }).catch(() => {});
+    if (activeTab !== 'students') setStudentDetail(null);
+  }, [activeTab]);
+
+  // Load HubSpot contacts once the tab is active AND the connection status is
+  // known. `hubspot_connected` resolves asynchronously after mount (via
+  // getAppSettings), so when the persisted tab is already 'contacts' on login
+  // the [activeTab]-only effect above runs before the connection is known.
+  // Depending on hubspot_connected here lets the load fire when it flips true.
+  useEffect(() => {
     if (activeTab === 'contacts' && hubspot.hubspot_connected && !contactsInit.current) {
       contactsInit.current = true;
       loadContacts(0, '');
     }
-    if (activeTab !== 'students') setStudentDetail(null);
-  }, [activeTab]);
+  }, [activeTab, hubspot.hubspot_connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openStudentDetail = async (student) => {
     setStudentDetail(null);
