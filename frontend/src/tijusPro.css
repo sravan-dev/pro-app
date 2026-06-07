@@ -282,8 +282,24 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
   user-select: none;
 }
 .auth-check input { width: 18px; height: 18px; accent-color: var(--color-primary); cursor: pointer; }
-.auth-forgot { font-size: 0.9rem; color: var(--color-text-secondary); }
+.auth-forgot {
+  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
 .auth-forgot:hover { color: var(--color-primary); }
+
+/* Reset-password modal / set-new-password card */
+.auth-modal { max-width: 440px; padding: 2.25rem; }
+.auth-modal-head { text-align: center; margin-bottom: 1.5rem; }
+.auth-modal-logo { height: 56px; width: auto; display: block; margin: 0 auto 1rem; }
+.auth-modal-head h3 { margin: 0 0 0.4rem; font-size: 1.4rem; font-weight: 700; }
+.auth-modal-sub { margin: 0; color: var(--color-text-secondary); font-size: 0.92rem; }
+.auth-modal-form { display: flex; flex-direction: column; gap: 1rem; }
 
 .auth-submit {
   margin-top: 1.5rem;

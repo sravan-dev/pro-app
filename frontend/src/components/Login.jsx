@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import ForgotPasswordModal from './ForgotPasswordModal';
 
 const REMEMBER_KEY = 'login:remember-email';
 
@@ -15,6 +16,7 @@ export default function Login() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -101,7 +103,7 @@ export default function Login() {
                 />
                 Remember me
               </label>
-              <Link to="/reset-password" className="auth-forgot">Forgot Password?</Link>
+              <button type="button" className="auth-forgot" onClick={() => setShowForgot(true)}>Forgot Password?</button>
             </div>
 
             <button type="submit" className="btn btn-primary auth-submit" disabled={loading}>
@@ -119,6 +121,8 @@ export default function Login() {
           <AuthIllustration />
         </div>
       </div>
+
+      {showForgot && <ForgotPasswordModal onClose={() => setShowForgot(false)} />}
     </div>
   );
 }

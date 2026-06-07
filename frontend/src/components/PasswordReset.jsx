@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import { api } from '../api';
 
 export default function PasswordReset() {
@@ -7,31 +7,15 @@ export default function PasswordReset() {
   const token = searchParams.get('token');
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [devToken, setDevToken] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleRequestReset = async (e) => {
-    e.preventDefault();
-    setError('');
-    setMessage('');
-    setLoading(true);
-    try {
-      const data = await api.requestPasswordReset(email);
-      setMessage(data.message);
-      if (data.dev_token) {
-        setDevToken(data.dev_token);
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // The "forgot password" request flow now lives in a modal on the login page.
+  // This route only handles the emailed reset link (which carries a token).
+  if (!token) return <Navigate to="/login" replace />;
 
   const handleResetPassword = async (e) => {
     e.preventDefault();
@@ -58,50 +42,44 @@ export default function PasswordReset() {
 
   return (
     <div className="login-page">
-      <div className="login-card">
-        <div className="login-header">
-          <h1 className="login-logo">TijusPro</h1>
-          <p className="login-subtitle">{token ? 'Set New Password' : 'Reset Password'}</p>
+      <div className="modal auth-modal">
+        <div className="auth-modal-head">
+          <img src="/logo.png" alt="Tiju's Academy" className="auth-modal-logo" />
+          <h3>Set New Password</h3>
+          <p className="auth-modal-sub">Choose a new password for your account.</p>
         </div>
 
         {error && <div className="alert alert-error">{error}</div>}
         {message && <div className="alert alert-success">{message}</div>}
 
-        {token ? (
-          <form onSubmit={handleResetPassword} className="login-form">
-            <div className="form-group">
-              <label>New Password</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
-            </div>
-            <div className="form-group">
-              <label>Confirm Password</label>
-              <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
-            </div>
-            <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
-              {loading ? 'Resetting...' : 'Reset Password'}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={handleRequestReset} className="login-form">
-            <div className="form-group">
-              <label>Email Address</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="Enter your email" />
-            </div>
-            <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
-              {loading ? 'Sending...' : 'Send Reset Link'}
-            </button>
-          </form>
-        )}
+        <form onSubmit={handleResetPassword} className="auth-modal-form">
+          <input
+            className="auth-input"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="New password"
+            aria-label="New password"
+            required
+            minLength={6}
+            autoFocus
+          />
+          <input
+            className="auth-input"
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="Confirm password"
+            aria-label="Confirm password"
+            required
+          />
+          <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
+            {loading ? 'Resetting...' : 'Reset Password'}
+          </button>
+        </form>
 
-        {devToken && (
-          <div className="alert alert-info" style={{ marginTop: '1rem', fontSize: '0.85rem' }}>
-            <strong>Dev Mode:</strong> Use this link to reset:<br />
-            <a href={`/reset-password?token=${devToken}`}>/reset-password?token={devToken}</a>
-          </div>
-        )}
-
-        <div className="login-footer">
-          <button className="btn btn-ghost" onClick={() => navigate('/login')}>Back to Login</button>
+        <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+          <button type="button" className="btn btn-ghost" onClick={() => navigate('/login')}>Back to Login</button>
         </div>
       </div>
     </div>
