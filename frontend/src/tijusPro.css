@@ -61,12 +61,13 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
 /* Video meeting participant gallery — responsive grid */
 .meeting-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 480px));
   gap: 8px;
   align-content: start;
+  justify-content: center;
   width: 100%;
 }
-.meeting-tile { width: 100%; aspect-ratio: 16 / 9; position: relative; }
+.meeting-tile { width: 100%; aspect-ratio: 16 / 9; max-height: 70vh; position: relative; }
 @media (max-width: 768px) {
   .meeting-gallery { grid-template-columns: repeat(2, 1fr); }
 }
