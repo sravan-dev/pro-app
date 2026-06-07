@@ -185,10 +185,14 @@ async function auditLog(userId, action, targetType, targetId, details) {
 // Routes
 // ============================================================
 
-// Health
+// Health — reports DB connectivity (never throws, so the UI can show status).
 app.get('/api/health', async (req, res) => {
-  const count = (await db.get("SELECT COUNT(*) as c FROM users")).c;
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), database: 'connected', users_count: count });
+  try {
+    const count = (await db.get("SELECT COUNT(*) as c FROM users")).c;
+    res.json({ status: 'ok', timestamp: new Date().toISOString(), database: 'connected', users_count: count });
+  } catch (err) {
+    res.status(503).json({ status: 'error', timestamp: new Date().toISOString(), database: 'disconnected', error: err.message });
+  }
 });
 
 // Login

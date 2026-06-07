@@ -19,6 +19,17 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  // Health — returns { database: 'connected' | 'disconnected', ... } even when
+  // the DB is down (resolves rather than throwing).
+  health: async () => {
+    try {
+      const res = await fetch(`${API}/health`, { credentials: 'include' });
+      return await res.json();
+    } catch (err) {
+      return { status: 'error', database: 'disconnected', error: err.message };
+    }
+  },
+
   // Auth
   login: (email, password) => request('/auth/login', { method: 'POST', body: { email, password } }),
   logout: () => request('/auth/logout', { method: 'POST' }),

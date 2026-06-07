@@ -42,6 +42,7 @@ export default function SuperadminPortal() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [msgType, setMsgType] = useState('info');
+  const [dbHealth, setDbHealth] = useState(null); // null=checking, then health payload
 
   // Entity lists
   const [allStudents, setAllStudents] = useState([]);
@@ -205,6 +206,15 @@ export default function SuperadminPortal() {
     api.getTutors().then(setAllTutors).catch(() => {});
     api.getCourses().then(setAllCourses).catch(() => {});
     api.getSessions().then(setAllSessions).catch(() => {});
+  }, []);
+
+  // Poll the backend/DB health so the dashboard can show a live status badge.
+  useEffect(() => {
+    let alive = true;
+    const check = () => api.health().then((h) => { if (alive) setDbHealth(h); });
+    check();
+    const t = setInterval(check, 20000);
+    return () => { alive = false; clearInterval(t); };
   }, []);
 
   useEffect(() => {
@@ -1590,7 +1600,29 @@ export default function SuperadminPortal() {
         {/* ===== DASHBOARD ===== */}
         {activeTab === 'dashboard' && (
           <div className="portal-page">
-            <h2>Hello {firstName},</h2>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+              <h2 style={{ margin: 0 }}>Hello {firstName},</h2>
+              {(() => {
+                const connected = dbHealth?.database === 'connected';
+                const checking = dbHealth === null;
+                const color = checking ? '#9CA3AF' : (connected ? '#10B981' : '#EF4444');
+                const label = checking ? 'Checking database…' : (connected ? 'Database connected' : 'Database offline');
+                return (
+                  <span
+                    title={dbHealth?.error || label}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+                      padding: '0.4rem 0.85rem', borderRadius: '999px',
+                      background: 'var(--color-surface)', boxShadow: 'var(--shadow)',
+                      fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text-secondary)',
+                    }}
+                  >
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: color, boxShadow: `0 0 0 3px ${color}33` }} />
+                    {label}
+                  </span>
+                );
+              })()}
+            </div>
 
             <div className="kpi-grid">
               <KPICard variant="small-box" title="Total Students" value={stats.total_students} icon="users" color="#3B82F6" onClick={() => setActiveTab('students')} />
