@@ -168,22 +168,15 @@ async function initSchema() {
 async function seedUsers() {
   const usersCount = (await get("SELECT COUNT(*) AS n FROM users")).n;
 
-  // Default demo/admin accounts — only seeded into an empty users table so we
-  // never resurrect deleted accounts on an existing install.
+  // Seed ONLY the superadmin into an empty users table, so a fresh database has
+  // a working login. No demo student/tutor/manager/advisor accounts — those
+  // only polluted the dashboard counts. (Only runs when the table is empty, so
+  // it never resurrects a deleted admin on an existing install.)
   if (usersCount === 0) {
-    const seed = [
-      ['Super Admin', 'admin@tijuspro.com', 'superadmin', 'superadmin', 'admin123', '#E97A2B', '', 0],
-      ['Rahul Sharma', 'rahul@tijuspro.com', 'tutor', 'tutor', 'tutor123', '#2563EB', 'Web Development', 0],
-      ['Aarav Mehta', 'aarav.mehta@student.tijuspro.com', 'student', 'student', 'student123', '#3B82F6', '', 0],
-      ['Vikram Singh', 'vikram@tijuspro.com', 'manager', 'manager', 'manager123', '#0891B2', '', 0],
-      ['Dr. Meena Iyer', 'meena@tijuspro.com', 'advisor', 'advisor', 'advisor123', '#8B5CF6', '', 0],
-    ];
-    for (const [name, email, portal, role, pw, color, spec, mcp] of seed) {
-      await run(
-        "INSERT IGNORE INTO users (name,email,portal,role,password_hash,avatar_color,specialization,must_change_password) VALUES (?,?,?,?,?,?,?,?)",
-        [name, email, portal, role, bcrypt.hashSync(pw, 10), color, spec, mcp]
-      );
-    }
+    await run(
+      "INSERT IGNORE INTO users (name,email,portal,role,password_hash,avatar_color,must_change_password) VALUES (?,?,?,?,?,?,0)",
+      ['Super Admin', 'admin@tijuspro.com', 'superadmin', 'superadmin', bcrypt.hashSync('admin123', 10), '#E97A2B']
+    );
   }
 
   // One-time tutor seed (idempotent: only inserts emails that don't exist yet).
