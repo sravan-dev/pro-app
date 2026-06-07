@@ -10,15 +10,24 @@ moving your existing data and deploying on Hostinger.
 - `backend/schema.mysql.sql` — MySQL schema (translated from the SQLite one).
 - `backend/server.js` — every query is now `await`ed; SQL dialect translated
   (`datetime('now')`, `julianday` math, `INSERT OR IGNORE`, `ON CONFLICT`, etc.).
-- `backend/migrate-sqlite-to-mysql.js` — one-time data copy from `tijuspro.db`.
-- `mysql2` added to dependencies; `better-sqlite3` moved to **devDependencies**
-  (only the migration script still reads the old SQLite file).
+- `backend/migrate-sqlite-to-mysql.js` — one-time data copy from `tijuspro.db`,
+  reading the SQLite file with **`sql.js`** (pure WASM, no native build).
+- `mysql2` added to dependencies. `better-sqlite3` (native) was **removed** — it
+  doesn't build on newer Node, and nothing needs it anymore. `sql.js` is a
+  devDependency used only by the migration script.
+
+## Status
+
+- **Validated locally against MySQL**: schema creation, full data migration
+  (all rows from `tijuspro.db`), login, the superadmin dashboard aggregates,
+  inserts, transactions, and reports all return correct JSON. Re-test against
+  your own DB/host before production.
 
 ## Important caveats
 
-- **This was not tested against a live MySQL** in development (no DB was
-  reachable). Test locally or on a staging DB before trusting production — see
-  "Test locally" below.
+- On first boot the server runs `CREATE DATABASE IF NOT EXISTS` (best-effort).
+  On Hostinger the DB user may lack that privilege, but the database already
+  exists, so it's a no-op — make sure `DB_NAME` matches your existing database.
 - The **binary `.db` export/import** (Settings → Database) is SQLite-only and is
   now disabled. Use **Export SQL / import a `.sql` dump** instead. There is no
   automatic backup on import for MySQL — take a SQL export first.
@@ -71,11 +80,10 @@ npm start
    `npm start`).
 2. Create the MySQL database + user in hPanel (you already have these).
 3. Set the environment variables from step 1 in the Node app's settings.
-4. Install dependencies **without** rebuilding the native SQLite addon:
+4. Install dependencies (all pure-JS now — no native build step):
    ```
    npm install --omit=dev
    ```
-   (`better-sqlite3` is a devDependency; production doesn't need it.)
 5. Build the frontend (`npm run build`) and start the app. On first boot
    `initSchema()` creates the tables and seeds the default admin if the DB is
    empty — but if you ran step 2, your real data is already there.

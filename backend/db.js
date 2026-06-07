@@ -116,9 +116,25 @@ async function addColumnIfMissing(table, column, definition) {
   }
 }
 
+// Best-effort: create the target database if it doesn't exist. On managed hosts
+// (e.g. Hostinger) the DB user often lacks CREATE-DATABASE privilege but the
+// database already exists, so a failure here is non-fatal — we log and continue.
+async function ensureDatabase() {
+  try {
+    const conn = await mysql.createConnection({
+      host: CONFIG.host, port: CONFIG.port, user: CONFIG.user, password: CONFIG.password,
+    });
+    await conn.query(`CREATE DATABASE IF NOT EXISTS \`${CONFIG.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+    await conn.end();
+  } catch (err) {
+    console.warn(`[db] could not ensure database '${CONFIG.database}' exists (continuing): ${err.message}`);
+  }
+}
+
 // Create all tables (idempotent), apply column migrations for older databases,
 // and seed default rows. Safe to call on every startup.
 async function initSchema() {
+  await ensureDatabase();
   const schema = fs.readFileSync(path.join(__dirname, 'schema.mysql.sql'), 'utf8');
   await exec(schema);
 
