@@ -172,7 +172,7 @@ export default function SuperadminPortal() {
   // Replace the current database from an uploaded .db or .sql file.
   const importDatabase = async (file) => {
     if (!file) return;
-    if (!confirm(`Import "${file.name}"? This REPLACES the entire current database — all current users, courses, and records will be overwritten. A backup of the current database is kept on the server. This cannot be undone from the UI.`)) return;
+    if (!confirm(`Import "${file.name}"? This REPLACES the entire current database — all current users, courses, and records will be overwritten. There is no automatic server-side backup, so export a fresh copy first. This cannot be undone from the UI.`)) return;
     setImportingDb(true);
     try {
       const result = await api.importDb(file);
@@ -2431,17 +2431,11 @@ export default function SuperadminPortal() {
               <h3>Export Database</h3>
               <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
                 Download a full backup of the current database — all users, courses, enrollments, sessions,
-                and settings. Use <strong>.db</strong> for an exact binary copy or <strong>.sql</strong> for a
-                portable, human-readable dump.
+                and settings — as a portable <strong>.sql</strong> dump.
               </p>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <button
                   className="btn btn-primary"
-                  disabled={exportingDb}
-                  onClick={() => exportDatabase('db', setExportingDb)}
-                >{exportingDb ? 'Exporting…' : 'Download Database (.db)'}</button>
-                <button
-                  className="btn btn-ghost"
                   disabled={exportingSql}
                   onClick={() => exportDatabase('sql', setExportingSql)}
                 >{exportingSql ? 'Exporting…' : 'Download as SQL (.sql)'}</button>
@@ -2452,14 +2446,14 @@ export default function SuperadminPortal() {
             <div className="settings-section" style={{ marginBottom: '2rem' }}>
               <h3>Import Database</h3>
               <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
-                Restore from a backup. Upload a <strong>.db</strong> or <strong>.sql</strong> file exported above —
-                it <strong>replaces the entire current database</strong>. The current data is backed up on the
-                server first, but proceed with care.
+                Restore from a backup. Upload a <strong>.sql</strong> dump exported above —
+                it <strong>replaces the entire current database</strong>. Take a fresh export first;
+                there is no automatic server-side backup.
               </p>
               <input
                 ref={dbImportRef}
                 type="file"
-                accept=".db,.sqlite,.sqlite3,.sql,application/sql,application/octet-stream"
+                accept=".sql,application/sql"
                 style={{ display: 'none' }}
                 onChange={(e) => {
                   const file = e.target.files?.[0];

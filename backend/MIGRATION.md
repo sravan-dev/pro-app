@@ -1,39 +1,19 @@
-# SQLite → MySQL migration (Hostinger)
+# Database & Deployment (MySQL / MariaDB)
 
-The backend now runs on **MySQL/MariaDB** instead of SQLite. This guide covers
-moving your existing data and deploying on Hostinger.
+The backend runs on **MySQL/MariaDB**. SQLite (and `better-sqlite3`) have been
+fully removed.
 
-## What changed
+## Architecture
 
-- `backend/db.js` — new MySQL data layer (mysql2 pool). Async `prepare().get/all/run`,
-  plus `tx()` for transactions and `initSchema()` for setup/seed.
-- `backend/schema.mysql.sql` — MySQL schema (translated from the SQLite one).
-- `backend/server.js` — every query is now `await`ed; SQL dialect translated
-  (`datetime('now')`, `julianday` math, `INSERT OR IGNORE`, `ON CONFLICT`, etc.).
-- `backend/migrate-sqlite-to-mysql.js` — one-time data copy from `tijuspro.db`,
-  reading the SQLite file with **`sql.js`** (pure WASM, no native build).
-- `mysql2` added to dependencies. `better-sqlite3` (native) was **removed** — it
-  doesn't build on newer Node, and nothing needs it anymore. `sql.js` is a
-  devDependency used only by the migration script.
+- `backend/db.js` — MySQL data layer (mysql2 pool). Async `prepare().get/all/run`,
+  `tx()` for transactions, `initSchema()` for setup/seed. On boot it runs
+  `CREATE DATABASE IF NOT EXISTS` (best-effort), creates tables from
+  `schema.mysql.sql`, applies column migrations, and seeds the superadmin +
+  the academy tutor accounts.
+- `backend/schema.mysql.sql` — the schema.
+- `backend/server.js` — all queries are async.
 
-## Status
-
-- **Validated locally against MySQL**: schema creation, full data migration
-  (all rows from `tijuspro.db`), login, the superadmin dashboard aggregates,
-  inserts, transactions, and reports all return correct JSON. Re-test against
-  your own DB/host before production.
-
-## Important caveats
-
-- On first boot the server runs `CREATE DATABASE IF NOT EXISTS` (best-effort).
-  On Hostinger the DB user may lack that privilege, but the database already
-  exists, so it's a no-op — make sure `DB_NAME` matches your existing database.
-- The **binary `.db` export/import** (Settings → Database) is SQLite-only and is
-  now disabled. Use **Export SQL / import a `.sql` dump** instead. There is no
-  automatic backup on import for MySQL — take a SQL export first.
-- **Rotate the DB password** you shared — it has been exposed in chat.
-
-## 1. Configure the connection
+## 1. Configure
 
 Copy `backend/.env.example` to `backend/.env` and fill in:
 
@@ -46,49 +26,28 @@ DB_NAME=u314034055_lms
 SESSION_SECRET=<long random string>
 ```
 
-## 2. Migrate the existing data
-
-Run this **where `tijuspro.db` lives and MySQL is reachable**. For migrating
-into Hostinger from your machine, you must first enable **hPanel → Databases →
-Remote MySQL** and whitelist your IP, then set `DB_HOST` to the public host
-Hostinger shows. (If remote access isn't possible, do step 2 locally against a
-local MySQL, then `Export SQL` and import the dump in Hostinger's phpMyAdmin.)
+## 2. Run
 
 ```
-npm run migrate:mysql            # creates schema, then copies all rows
-# or wipe target tables first:
-node backend/migrate-sqlite-to-mysql.js --fresh
+npm install          # all pure-JS dependencies, no native build step
+npm run build        # build the frontend
+npm start            # boots, creates schema + seeds on an empty DB
 ```
 
-You should see per-table row counts (users: 5, categories: 4, etc.).
+First boot on an empty database seeds only the **superadmin**
+(`admin@tijuspro.com` / `admin123` — change it immediately) plus the academy
+tutor accounts. No demo student/tutor/manager/advisor accounts are created.
 
-## 3. Test locally (recommended before deploying)
+## 3. Deploy on Hostinger
 
-With a local MySQL/MariaDB (or Docker `mysql:8`):
+1. Use a plan with **Node.js** support (VPS/Cloud — most shared plans are
+   PHP-only). Start command: `npm start`.
+2. Create the MySQL database + user in hPanel.
+3. Set the environment variables from step 1 in the Node app settings.
+4. `npm install --omit=dev` then `npm run build`, then start.
 
-```
-# create the database, point backend/.env at it, then:
-npm run migrate:mysql
-npm start
-# open http://localhost:8000 and log in
-```
+## Backups
 
-## 4. Deploy on Hostinger
-
-1. Ensure the plan has **Node.js** support (VPS/Cloud — most shared plans are
-   PHP-only). Set the app's start command to `node backend/server.js` (or
-   `npm start`).
-2. Create the MySQL database + user in hPanel (you already have these).
-3. Set the environment variables from step 1 in the Node app's settings.
-4. Install dependencies (all pure-JS now — no native build step):
-   ```
-   npm install --omit=dev
-   ```
-5. Build the frontend (`npm run build`) and start the app. On first boot
-   `initSchema()` creates the tables and seeds the default admin if the DB is
-   empty — but if you ran step 2, your real data is already there.
-
-## Rollback
-
-The old SQLite file (`backend/tijuspro.db`) is untouched. To revert, restore the
-previous `server.js`/`package.json` from git and run on SQLite again.
+Use **Settings → Export Database** to download a `.sql` dump, and **Import
+Database** to restore one (it executes the dump and replaces current data —
+there is no automatic server-side backup, so export first).

@@ -1476,12 +1476,6 @@ function sqlLiteral(v) {
   return `'${String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
-// Binary .db export was SQLite-only. On MySQL, direct the admin to SQL export.
-app.get('/api/export-db', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  res.status(400).json({ error: 'Binary .db export is only available on SQLite. Use "Export SQL" to download a MySQL dump.' });
-});
-
 // Export as a plain-text .sql dump (schema + INSERT statements), MySQL dialect.
 app.get('/api/export-sql', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
@@ -1514,9 +1508,8 @@ app.get('/api/export-sql', async (req, res) => {
   }
 });
 
-// Import a database from a .sql dump (executes it). Binary SQLite files are
-// rejected. Superadmin only. NOTE: there is no automatic backup on MySQL —
-// take a dump (Export SQL) first.
+// Import a database from a .sql dump (executes it). Superadmin only.
+// NOTE: there is no automatic backup — take a dump (Export SQL) first.
 app.post('/api/import-db', upload.single('database'), async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']);
   if (!user) { if (req.file) { try { fs.unlinkSync(req.file.path); } catch {} } return; }
@@ -1526,15 +1519,9 @@ app.post('/api/import-db', upload.single('database'), async (req, res) => {
   const cleanup = () => { try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {} };
 
   try {
-    const head = Buffer.alloc(16);
-    const fd = fs.openSync(tmpPath, 'r');
-    fs.readSync(fd, head, 0, 16, 0);
-    fs.closeSync(fd);
-    if (head.toString('latin1').startsWith('SQLite format 3')) {
-      throw new Error('Binary SQLite import is not supported on MySQL. Upload a .sql dump (use "Export SQL").');
-    }
     const sql = fs.readFileSync(tmpPath, 'utf8');
     if (!sql.trim()) throw new Error('the uploaded file is empty');
+    if (sql.includes(' ')) throw new Error('this looks like a binary file — upload a .sql dump');
     await db.exec(sql);
     const hasUsers = await db.get("SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='users'");
     if (!hasUsers) throw new Error('the SQL dump produced no "users" table');

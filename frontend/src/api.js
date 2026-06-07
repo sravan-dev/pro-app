@@ -113,10 +113,9 @@ export const api = {
   // Settings
   clearData: (target) => request('/clear-data', { method: 'POST', body: { target } }),
 
-  // Download a backup (returns a Blob + suggested filename). `format`: 'db' | 'sql'
-  exportDb: async (format = 'db') => {
-    const fallback = format === 'sql' ? 'tijuspro-backup.sql' : 'tijuspro-backup.db';
-    const res = await fetch(`${API}/${format === 'sql' ? 'export-sql' : 'export-db'}`, { credentials: 'include' });
+  // Download a SQL backup (returns a Blob + suggested filename).
+  exportDb: async () => {
+    const res = await fetch(`${API}/export-sql`, { credentials: 'include' });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || `Export failed: ${res.status}`);
@@ -124,10 +123,10 @@ export const api = {
     const blob = await res.blob();
     const dispo = res.headers.get('Content-Disposition') || '';
     const m = dispo.match(/filename="?([^"]+)"?/);
-    return { blob, filename: m ? m[1] : fallback };
+    return { blob, filename: m ? m[1] : 'tijuspro-backup.sql' };
   },
 
-  // Import a .db or .sql backup, replacing the current database
+  // Import a .sql backup, replacing the current database
   importDb: (file) => {
     const fd = new FormData();
     fd.append('database', file);
