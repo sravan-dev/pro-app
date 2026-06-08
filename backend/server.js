@@ -1387,7 +1387,8 @@ app.get('/api/hubspot-status', async (req, res) => {
       return res.json({ connected: false, configured: true, error: data.message || `HTTP ${resp.status}` });
     }
     const info = await resp.json().catch(() => ({}));
-    res.json({ connected: true, configured: true, portal_id: info.portalId });
+    const count = await hubspotContactCount(token);
+    res.json({ connected: true, configured: true, portal_id: info.portalId, count });
   } catch (err) {
     res.json({ connected: false, configured: true, error: err.message });
   }

@@ -43,6 +43,7 @@ export default function SuperadminPortal() {
   const [message, setMessage] = useState('');
   const [msgType, setMsgType] = useState('info');
   const [dbHealth, setDbHealth] = useState(null); // null=checking, then health payload
+  const [hubspotCount, setHubspotCount] = useState(null); // total HubSpot contacts (null until loaded)
 
   // Entity lists
   const [allStudents, setAllStudents] = useState([]);
@@ -215,6 +216,13 @@ export default function SuperadminPortal() {
     check();
     const t = setInterval(check, 20000);
     return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  // Total HubSpot contact count for the dashboard card (no-op if not connected).
+  useEffect(() => {
+    api.getHubspotStatus()
+      .then((s) => { if (s?.connected && typeof s.count === 'number') setHubspotCount(s.count); })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1625,6 +1633,7 @@ export default function SuperadminPortal() {
             </div>
 
             <div className="kpi-grid">
+              <KPICard variant="small-box" title="Contacts" value={hubspotCount == null ? '—' : hubspotCount} icon="users" color="#FF7A59" onClick={() => setActiveTab('contacts')} />
               <KPICard variant="small-box" title="Total Students" value={stats.total_students} icon="users" color="#3B82F6" onClick={() => setActiveTab('students')} />
               <KPICard variant="small-box" title="Total Tutors" value={stats.total_tutors} icon="users" color="#10B981" onClick={() => setActiveTab('tutors')} />
               <KPICard variant="small-box" title="Active Courses" value={stats.total_courses} icon="book" color="#8B5CF6" onClick={() => setActiveTab('courses')} />
