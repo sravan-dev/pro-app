@@ -1034,6 +1034,31 @@ app.delete('/api/availability', async (req, res) => {
   res.json({ message: 'Slot removed' });
 });
 
+// Tutor (or admin) edits one of their OPEN slots (booked slots can't be edited here).
+app.put('/api/availability', async (req, res) => {
+  const user = await requireRole(req, res, ['tutor', 'superadmin']); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'Slot ID required' });
+  const slot = await db.get("SELECT * FROM availability_slots WHERE id=?", [id]);
+  if (!slot) return res.status(404).json({ error: 'Slot not found' });
+  if (user.role === 'tutor' && slot.tutor_id !== user.id) return res.status(403).json({ error: 'Not your slot' });
+  if (slot.status === 'booked') return res.status(400).json({ error: 'This slot is booked — end/cancel the session instead' });
+  const start_time = (req.body.start_time || '').toString().trim();
+  const end_time = (req.body.end_time || '').toString().trim();
+  const note = (req.body.note || '').toString().trim().slice(0, 255);
+  if (!start_time || !end_time) return res.status(400).json({ error: 'Start and end time required' });
+  if (!(new Date(start_time) < new Date(end_time))) return res.status(400).json({ error: 'End time must be after start time' });
+  if (!(new Date(end_time) > new Date())) return res.status(400).json({ error: 'Slot must be in the future' });
+  // Reject overlap with any OTHER (non-cancelled) slot for this tutor.
+  const clash = await db.get(
+    "SELECT 1 FROM availability_slots WHERE tutor_id=? AND id<>? AND status<>'cancelled' AND start_time < ? AND end_time > ? LIMIT 1",
+    [slot.tutor_id, id, end_time, start_time]);
+  if (clash) return res.status(400).json({ error: 'Overlaps an existing slot' });
+  await db.run("UPDATE availability_slots SET start_time=?, end_time=?, note=? WHERE id=?", [start_time, end_time, note, id]);
+  auditLog(user.id, 'update_availability', 'availability_slot', id);
+  res.json({ message: 'Slot updated' });
+});
+
 // Student books an open slot → creates a session (+ room) atomically.
 app.post('/api/book-slot', async (req, res) => {
   const user = await requireRole(req, res, ['student']); if (!user) return;

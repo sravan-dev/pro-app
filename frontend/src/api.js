@@ -95,6 +95,7 @@ export const api = {
   getAvailabilityTutors: () => request('/availability/tutors'),
   getAvailability: (tutorId) => request(tutorId ? `/availability?tutor_id=${tutorId}` : '/availability'),
   createAvailability: (data) => request('/availability', { method: 'POST', body: data }),
+  updateAvailability: (id, data) => request(`/availability?id=${id}`, { method: 'PUT', body: data }),
   deleteAvailability: (id) => request(`/availability?id=${id}`, { method: 'DELETE' }),
   bookSlot: (slotId) => request('/book-slot', { method: 'POST', body: { slot_id: slotId } }),
   getMyBookings: () => request('/my-bookings'),

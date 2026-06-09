@@ -53,6 +53,8 @@ export default function SuperadminPortal() {
   const [allSessions, setAllSessions] = useState([]);
   const [allAttendance, setAllAttendance] = useState([]);
   const [allTimeSlots, setAllTimeSlots] = useState([]);
+  const [editingSlot, setEditingSlot] = useState(null);
+  const [slotForm, setSlotForm] = useState({ start_time: '', end_time: '', note: '' });
   const [meetings, setMeetings] = useState([]);
   const [creatingMeeting, setCreatingMeeting] = useState(false);
   const [showMeetingForm, setShowMeetingForm] = useState(false);
@@ -827,6 +829,41 @@ export default function SuperadminPortal() {
     } catch (err) { showMsg(err.message, 'error'); }
   };
 
+  // ===== Time slot (tutor availability) edit / delete =====
+  // Convert a stored timestamp to the value a datetime-local input expects (local time, no tz/seconds).
+  const toLocalInput = (ts) => {
+    const d = new Date(ts);
+    if (isNaN(d)) return '';
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const openEditSlot = (slot) => {
+    if (slot.status === 'booked') { showMsg('This slot is booked — end/cancel the session instead', 'error'); return; }
+    setEditingSlot(slot);
+    setSlotForm({ start_time: toLocalInput(slot.start_time), end_time: toLocalInput(slot.end_time), note: slot.note || '' });
+  };
+
+  const saveSlot = async (e) => {
+    e.preventDefault();
+    try {
+      await api.updateAvailability(editingSlot.id, slotForm);
+      showMsg('Slot updated', 'success');
+      setEditingSlot(null);
+      api.getAvailability().then(setAllTimeSlots).catch(() => {});
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  const deleteSlot = async (slot) => {
+    if (slot.status === 'booked') { showMsg('This slot is booked — end/cancel the session instead', 'error'); return; }
+    if (!confirm('Delete this time slot? This cannot be undone.')) return;
+    try {
+      await api.deleteAvailability(slot.id);
+      showMsg('Slot removed', 'success');
+      api.getAvailability().then(setAllTimeSlots).catch(() => {});
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
   const handleJoinSession = async (session) => {
     try {
       const result = await api.joinSession(session.session_id);
@@ -1568,6 +1605,34 @@ export default function SuperadminPortal() {
     </div>
   );
 
+  const slotFormModal = editingSlot && (
+    <div className="modal-overlay" onClick={() => setEditingSlot(null)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Edit Time Slot{editingSlot.tutor_name ? ` — ${editingSlot.tutor_name}` : ''}</h3>
+        <form onSubmit={saveSlot}>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Start Time *</label>
+              <input type="datetime-local" value={slotForm.start_time} onChange={(e) => setSlotForm({ ...slotForm, start_time: e.target.value })} required />
+            </div>
+            <div className="form-group">
+              <label>End Time *</label>
+              <input type="datetime-local" value={slotForm.end_time} onChange={(e) => setSlotForm({ ...slotForm, end_time: e.target.value })} required />
+            </div>
+          </div>
+          <div className="form-group">
+            <label>Note</label>
+            <input value={slotForm.note} onChange={(e) => setSlotForm({ ...slotForm, note: e.target.value })} maxLength={255} placeholder="Optional note" />
+          </div>
+          <div className="form-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setEditingSlot(null)}>Cancel</button>
+            <button type="submit" className="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+
   return (
     <div className="portal-layout portal-superadmin">
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
@@ -1606,6 +1671,7 @@ export default function SuperadminPortal() {
         {enrollFormModal}
         {enrollContactModal}
         {sessionFormModal}
+        {slotFormModal}
 
         {/* ===== DASHBOARD ===== */}
         {activeTab === 'dashboard' && (
@@ -2062,6 +2128,12 @@ export default function SuperadminPortal() {
                   { key: 'note', label: 'Note', accessor: 'note', render: (r) => r.note || '—' },
                   { key: 'status', label: 'Status', accessor: 'status', render: (r) => <span className={`status-badge status-${r.status === 'open' ? 'active' : r.status === 'booked' ? 'live' : 'inactive'}`}>{r.status}</span> },
                   { key: 'booked_by', label: 'Booked By', accessor: 'student_name', render: (r) => r.student_name || '—' },
+                  { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
+                    <div className="table-actions">
+                      <button className="btn btn-sm btn-ghost" disabled={r.status === 'booked'} title={r.status === 'booked' ? 'Booked slots cannot be edited' : 'Edit'} onClick={(e) => { e.stopPropagation(); openEditSlot(r); }}>Edit</button>
+                      <button className="btn btn-sm btn-ghost text-danger" disabled={r.status === 'booked'} title={r.status === 'booked' ? 'Booked slots cannot be deleted' : 'Delete'} onClick={(e) => { e.stopPropagation(); deleteSlot(r); }}>Delete</button>
+                    </div>
+                  )},
                 ]}
                 data={allTimeSlots}
                 pageSize={20}
