@@ -17,6 +17,7 @@ export default function TutorPortal() {
   const [loading, setLoading] = useState(true);
   const [activeSession, setActiveSession] = useState(null);
   const [showSessionForm, setShowSessionForm] = useState(false);
+  const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
   const [sessionForm, setSessionForm] = useState({ course_id: '', student_id: '', start_time: '', end_time: '' });
   const [message, setMessage] = useState('');
   const [currency, setCurrency] = useState('INR');
@@ -345,7 +346,10 @@ export default function TutorPortal() {
           <div className="portal-page">
             <div className="page-header">
               <h2>Sessions</h2>
-              <button className="btn btn-primary" onClick={() => setShowSessionForm(true)}>+ Schedule Session</button>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button className="btn btn-ghost" onClick={() => setShowScheduleCalendar(true)}>📅 View Schedules</button>
+                <button className="btn btn-primary" onClick={() => setShowSessionForm(true)}>+ Schedule Session</button>
+              </div>
             </div>
 
             {showSessionForm && (
@@ -385,12 +389,22 @@ export default function TutorPortal() {
               </div>
             )}
 
-            <Calendar sessions={sessions} onSessionClick={handleJoinSession} />
-
             <div className="section">
               <h3>All Sessions</h3>
               <DataTable columns={attendanceColumns} data={sessions} searchable={false} />
             </div>
+
+            {showScheduleCalendar && (
+              <div className="modal-overlay" onClick={() => setShowScheduleCalendar(false)}>
+                <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px', width: '95%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <h3 style={{ margin: 0 }}>Schedules</h3>
+                    <button type="button" className="btn btn-ghost" onClick={() => setShowScheduleCalendar(false)}>✕</button>
+                  </div>
+                  <Calendar sessions={sessions} onSessionClick={(s) => { setShowScheduleCalendar(false); handleJoinSession(s); }} />
+                </div>
+              </div>
+            )}
           </div>
         )}
 
