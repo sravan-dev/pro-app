@@ -17,7 +17,7 @@ export default function TutorPortal() {
   const [loading, setLoading] = useState(true);
   const [activeSession, setActiveSession] = useState(null);
   const [showSessionForm, setShowSessionForm] = useState(false);
-  const [sessionForm, setSessionForm] = useState({ course_id: '', start_time: '', end_time: '' });
+  const [sessionForm, setSessionForm] = useState({ course_id: '', student_id: '', start_time: '', end_time: '' });
   const [message, setMessage] = useState('');
   const [currency, setCurrency] = useState('INR');
   const [attendance, setAttendance] = useState([]);
@@ -93,6 +93,7 @@ export default function TutorPortal() {
       await api.createSession(sessionForm);
       setMessage('Session created!');
       setShowSessionForm(false);
+      setSessionForm({ course_id: '', student_id: '', start_time: '', end_time: '' });
       const d = await api.portalData();
       setData(d);
     } catch (err) {
@@ -354,10 +355,18 @@ export default function TutorPortal() {
                   <form onSubmit={handleCreateSession}>
                     <div className="form-group">
                       <label>Course</label>
-                      <select value={sessionForm.course_id} onChange={(e) => setSessionForm({ ...sessionForm, course_id: e.target.value })} required>
+                      <select value={sessionForm.course_id} onChange={(e) => setSessionForm({ ...sessionForm, course_id: e.target.value, student_id: '' })} required>
                         <option value="">Select course...</option>
                         {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Student</label>
+                      <select value={sessionForm.student_id} onChange={(e) => setSessionForm({ ...sessionForm, student_id: e.target.value })} disabled={!sessionForm.course_id}>
+                        <option value="">All Students (common session)</option>
+                        {students.filter((s) => String(s.course_id) === String(sessionForm.course_id)).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.email})</option>)}
+                      </select>
+                      <small style={{ color: 'var(--color-text-secondary)' }}>{sessionForm.course_id ? 'Pick a student for a private 1-on-1, or leave on "All" for everyone enrolled.' : 'Select a course first to choose a student.'}</small>
                     </div>
                     <div className="form-group">
                       <label>Start Time</label>
