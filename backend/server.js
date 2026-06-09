@@ -1876,15 +1876,21 @@ app.post('/api/upload-recording', upload.single('recording'), async (req, res) =
   res.status(201).json({ message: 'Uploaded', playback_url: `/uploads/recordings/${filename}` });
 });
 
+// Any unmatched /api or /uploads request must return JSON, never the SPA's HTML
+// — otherwise the client does JSON.parse('<!DOCTYPE ...') and throws "Unexpected
+// token '<'". This guard runs after all real routes are registered, so it only
+// catches paths that matched nothing above.
+app.use(['/api', '/uploads'], (req, res) => {
+  res.status(404).json({ error: `No such endpoint: ${req.method} ${req.path}` });
+});
+
 // ============================================================
 // Serve frontend in production
 // ============================================================
 if (fs.existsSync(FRONTEND_DIST)) {
   app.use(express.static(FRONTEND_DIST));
   app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api/') && !req.path.startsWith('/uploads/')) {
-      res.sendFile(path.join(FRONTEND_DIST, 'index.html'));
-    }
+    res.sendFile(path.join(FRONTEND_DIST, 'index.html'));
   });
 }
 
