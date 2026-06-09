@@ -980,6 +980,16 @@ app.get('/api/availability', async (req, res) => {
        WHERE a.tutor_id=? ORDER BY a.start_time`, [user.id]);
     return res.json(rows);
   }
+  // Admin overview: every tutor's slots (with tutor + booking-student names).
+  if (user.role === 'superadmin' && !req.query.tutor_id) {
+    const rows = await db.all(
+      `SELECT a.*, t.name AS tutor_name, t.avatar_color AS tutor_color, st.name AS student_name
+       FROM availability_slots a
+       JOIN users t ON t.id=a.tutor_id
+       LEFT JOIN users st ON st.id=a.booked_by
+       ORDER BY a.start_time DESC`);
+    return res.json(rows);
+  }
   const tutorId = parseInt(req.query.tutor_id);
   if (!tutorId) return res.status(400).json({ error: 'tutor_id required' });
   const rows = await db.all(

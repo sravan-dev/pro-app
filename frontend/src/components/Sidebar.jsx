@@ -40,6 +40,7 @@ const menuItems = {
     { key: 'enrollments', label: 'Enrollments', icon: 'layers' },
     { key: 'meetings', label: 'Meetings', icon: 'link' },
     { key: 'sessions', label: 'Sessions', icon: 'video' },
+    { key: 'timeslots', label: 'Time Slots', icon: 'clock' },
     { key: 'attendance', label: 'Attendance', icon: 'check-square' },
     { key: 'reports', label: 'Reports', icon: 'bar-chart' },
     { key: 'system', label: 'Audit Logs', icon: 'clipboard' },

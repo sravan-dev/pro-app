@@ -52,6 +52,7 @@ export default function SuperadminPortal() {
   const [allEnrollments, setAllEnrollments] = useState([]);
   const [allSessions, setAllSessions] = useState([]);
   const [allAttendance, setAllAttendance] = useState([]);
+  const [allTimeSlots, setAllTimeSlots] = useState([]);
   const [meetings, setMeetings] = useState([]);
   const [creatingMeeting, setCreatingMeeting] = useState(false);
   const [showMeetingForm, setShowMeetingForm] = useState(false);
@@ -291,6 +292,7 @@ export default function SuperadminPortal() {
     if (activeTab === 'enrollments' && allEnrollments.length === 0) api.getEnrollments().then(setAllEnrollments).catch(() => {});
     if (activeTab === 'sessions' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'attendance' && allAttendance.length === 0) api.getAttendanceLogs().then(setAllAttendance).catch(() => {});
+    if (activeTab === 'timeslots') api.getAvailability().then(setAllTimeSlots).catch(() => {});
     if (activeTab === 'meetings') api.getMeetings().then(setMeetings).catch(() => {});
     if (activeTab === 'dashboard' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
@@ -2031,6 +2033,40 @@ export default function SuperadminPortal() {
           <div className="portal-page">
             <h2>Attendance Records</h2>
             <DataTable columns={attendanceColumns} data={allAttendance} pageSize={20} />
+          </div>
+        )}
+
+        {/* ===== TIME SLOTS (tutor availability) ===== */}
+        {activeTab === 'timeslots' && (
+          <div className="portal-page">
+            <div className="page-header">
+              <h2>Time Slots</h2>
+              <button className="btn btn-ghost" onClick={() => api.getAvailability().then(setAllTimeSlots).catch(() => {})}>↻ Refresh</button>
+            </div>
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
+              All availability slots published by tutors. Booked slots show the student who reserved them.
+            </p>
+            {allTimeSlots.length === 0 ? (
+              <p style={{ color: 'var(--color-text-secondary)' }}>No tutor has published any slots yet.</p>
+            ) : (
+              <DataTable
+                columns={[
+                  { key: 'tutor', label: 'Tutor', accessor: 'tutor_name', render: (r) => (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div className="avatar-sm" style={{ backgroundColor: r.tutor_color }}>{r.tutor_name?.[0]}</div>
+                      {r.tutor_name}
+                    </div>
+                  )},
+                  { key: 'date', label: 'Date', accessor: 'start_time', render: (r) => new Date(r.start_time).toLocaleDateString() },
+                  { key: 'time', label: 'Time', accessor: 'start_time', render: (r) => `${new Date(r.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(r.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` },
+                  { key: 'note', label: 'Note', accessor: 'note', render: (r) => r.note || '—' },
+                  { key: 'status', label: 'Status', accessor: 'status', render: (r) => <span className={`status-badge status-${r.status === 'open' ? 'active' : r.status === 'booked' ? 'live' : 'inactive'}`}>{r.status}</span> },
+                  { key: 'booked_by', label: 'Booked By', accessor: 'student_name', render: (r) => r.student_name || '—' },
+                ]}
+                data={allTimeSlots}
+                pageSize={20}
+              />
+            )}
           </div>
         )}
 
