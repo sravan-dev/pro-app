@@ -8,12 +8,14 @@ const menuItems = {
     { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
     { key: 'courses', label: 'My Courses', icon: 'book' },
     { key: 'sessions', label: 'Sessions', icon: 'video' },
+    { key: 'booktutor', label: 'Book a Tutor', icon: 'clock' },
     { key: 'grades', label: 'Grades', icon: 'award' },
   ],
   tutor: [
     { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
     { key: 'students', label: 'Students', icon: 'users' },
     { key: 'sessions', label: 'Sessions', icon: 'video' },
+    { key: 'availability', label: 'My Availability', icon: 'clock' },
     { key: 'attendance', label: 'Attendance', icon: 'check-square' },
     { key: 'recordings', label: 'Recordings', icon: 'film' },
     { key: 'payouts', label: 'Payouts', icon: 'dollar-sign' },
@@ -73,6 +75,7 @@ const iconMap = {
   contact: <Svg><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /><circle cx="12" cy="9" r="2" /><path d="M9 14c.5-1.5 1.6-2 3-2s2.5.5 3 2" /></Svg>,
   plug: <Svg><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0z" /><path d="M12 17v5" /></Svg>,
   link: <Svg><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></Svg>,
+  clock: <Svg><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></Svg>,
 };
 
 export default function Sidebar({ activeTab, onTabChange }) {

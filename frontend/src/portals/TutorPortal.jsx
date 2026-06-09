@@ -25,8 +25,12 @@ export default function TutorPortal() {
   const [playUrl, setPlayUrl] = useState(null);
   const [studentDetail, setStudentDetail] = useState(null);
   const [studentDetailLoading, setStudentDetailLoading] = useState(false);
+  const [availSlots, setAvailSlots] = useState([]);
+  const [showAvailForm, setShowAvailForm] = useState(false);
+  const [availForm, setAvailForm] = useState({ start_time: '', end_time: '', note: '' });
 
   const loadRecordings = () => api.getMeetingRecords().then(setRecordings).catch(() => {});
+  const loadAvailability = () => api.getAvailability().then(setAvailSlots).catch(() => {});
 
   const deleteRecording = async (id) => {
     if (!window.confirm('Delete this recording? This permanently removes the file.')) return;
@@ -72,6 +76,7 @@ export default function TutorPortal() {
   useEffect(() => {
     api.getAttendanceLogs().then(setAttendance).catch(() => {});
     loadRecordings();
+    loadAvailability();
   }, []);
 
   // Revalidate the tab's data when it's opened. Existing data stays on screen
@@ -79,6 +84,7 @@ export default function TutorPortal() {
   useEffect(() => {
     if (activeTab === 'attendance') api.getAttendanceLogs().then(setAttendance).catch(() => {});
     if (activeTab === 'recordings') loadRecordings();
+    if (activeTab === 'availability') loadAvailability();
   }, [activeTab]);
 
   const handleCreateSession = async (e) => {
@@ -112,6 +118,29 @@ export default function TutorPortal() {
       setData(d);
     } catch (err) {
       setMessage(err.message || 'Failed to end session');
+    }
+  };
+
+  const handleCreateAvailability = async (e) => {
+    e.preventDefault();
+    try {
+      await api.createAvailability(availForm);
+      setMessage('Availability added!');
+      setShowAvailForm(false);
+      setAvailForm({ start_time: '', end_time: '', note: '' });
+      loadAvailability();
+    } catch (err) {
+      setMessage(err.message || 'Failed to add availability');
+    }
+  };
+
+  const handleDeleteSlot = async (slot) => {
+    if (!window.confirm('Remove this availability slot?')) return;
+    try {
+      await api.deleteAvailability(slot.id);
+      setAvailSlots((s) => s.filter((x) => x.id !== slot.id));
+    } catch (err) {
+      setMessage(err.message || 'Failed to remove slot');
     }
   };
 
@@ -353,6 +382,65 @@ export default function TutorPortal() {
               <h3>All Sessions</h3>
               <DataTable columns={attendanceColumns} data={sessions} searchable={false} />
             </div>
+          </div>
+        )}
+
+        {activeTab === 'availability' && (
+          <div className="portal-page">
+            <div className="page-header">
+              <h2>My Availability</h2>
+              <button className="btn btn-primary" onClick={() => setShowAvailForm(true)}>+ Add Slot</button>
+            </div>
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
+              Publish the times you're free. Students can book an open slot, which creates a 1-on-1 session you both can join.
+            </p>
+
+            {showAvailForm && (
+              <div className="modal-overlay" onClick={() => setShowAvailForm(false)}>
+                <div className="modal" onClick={(e) => e.stopPropagation()}>
+                  <h3>Add Availability Slot</h3>
+                  <form onSubmit={handleCreateAvailability}>
+                    <div className="form-group">
+                      <label>Start Time</label>
+                      <input type="datetime-local" value={availForm.start_time} onChange={(e) => setAvailForm({ ...availForm, start_time: e.target.value })} required />
+                    </div>
+                    <div className="form-group">
+                      <label>End Time</label>
+                      <input type="datetime-local" value={availForm.end_time} onChange={(e) => setAvailForm({ ...availForm, end_time: e.target.value })} required />
+                    </div>
+                    <div className="form-group">
+                      <label>Note (optional)</label>
+                      <input type="text" maxLength={255} placeholder="e.g. Doubt-clearing, Algebra" value={availForm.note} onChange={(e) => setAvailForm({ ...availForm, note: e.target.value })} />
+                    </div>
+                    <div className="form-actions">
+                      <button type="button" className="btn btn-ghost" onClick={() => setShowAvailForm(false)}>Cancel</button>
+                      <button type="submit" className="btn btn-primary">Add</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {availSlots.length === 0 ? (
+              <p style={{ color: 'var(--color-text-secondary)' }}>No slots yet. Add one so students can book you.</p>
+            ) : (
+              <DataTable
+                columns={[
+                  { key: 'date', label: 'Date', accessor: 'start_time', render: (r) => new Date(r.start_time).toLocaleDateString() },
+                  { key: 'time', label: 'Time', accessor: 'start_time', render: (r) => `${new Date(r.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(r.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` },
+                  { key: 'note', label: 'Note', accessor: 'note', render: (r) => r.note || '—' },
+                  { key: 'status', label: 'Status', accessor: 'status', render: (r) => <span className={`status-badge status-${r.status === 'open' ? 'active' : r.status === 'booked' ? 'live' : 'inactive'}`}>{r.status}</span> },
+                  { key: 'booked_by', label: 'Booked By', accessor: 'student_name', render: (r) => r.student_name || '—' },
+                  { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
+                    r.status === 'booked'
+                      ? <button className="btn btn-sm btn-primary" onClick={() => handleJoinSession({ session_id: r.session_id, start_time: r.start_time, end_time: r.end_time })}>Join</button>
+                      : <button className="btn btn-sm btn-danger" onClick={() => handleDeleteSlot(r)}>Remove</button>
+                  )},
+                ]}
+                data={availSlots}
+                searchable={false}
+              />
+            )}
           </div>
         )}
 

@@ -889,7 +889,9 @@ app.post('/api/join-session', async (req, res) => {
   const isTestCall = await db.get("SELECT 1 FROM courses WHERE id=? AND name='__test_call__'", [sess.course_id]);
   if (!isTestCall && user.role === 'student') {
     const enrolled = await db.get("SELECT 1 FROM enrollments WHERE student_id=? AND course_id=?", [user.id, sess.course_id]);
-    if (!enrolled) return res.status(403).json({ error: 'Not enrolled' });
+    // A student who booked this session (1-on-1 slot) gets in without enrollment.
+    const booked = enrolled ? null : await db.get("SELECT 1 FROM availability_slots WHERE session_id=? AND booked_by=?", [session_id, user.id]);
+    if (!enrolled && !booked) return res.status(403).json({ error: 'Not enrolled' });
   }
   await db.run("INSERT INTO attendance_logs (session_id,student_id,join_time) VALUES (?,?,?)", [session_id, user.id, nowStr()]);
   if (sess.status === 'scheduled') await db.run("UPDATE sessions SET status='live' WHERE session_id=?", [session_id]);
@@ -941,6 +943,129 @@ app.post('/api/end-session', async (req, res) => {
   }
   auditLog(user.id, 'end_session', 'session', session_id);
   res.json({ message: 'Session ended' });
+});
+
+// ============================================================
+// Tutor availability & student booking
+//
+// Tutors publish specific date/time slots they're free. A student can browse
+// any tutor's open slots and book one — booking creates a real session (with a
+// LiveKit room) that both sides join. The booked student is granted access to
+// that session via availability_slots.booked_by (see join-session /
+// canAccessSession), so no course enrollment is needed. Booked sessions hang off
+// one shared hidden '1-on-1 Session' course (tutor_id 0, status 'draft') purely
+// to satisfy sessions.course_id — it stays out of course lists because those
+// INNER JOIN users.
+// ============================================================
+
+// Tutors that have at least one open, future slot (student browse list).
+app.get('/api/availability/tutors', async (req, res) => {
+  const user = await requireAuth(req, res); if (!user) return;
+  const rows = await db.all(
+    `SELECT u.id, u.name, u.avatar_color, u.avatar_url, u.specialization,
+       (SELECT COUNT(*) FROM availability_slots a WHERE a.tutor_id=u.id AND a.status='open' AND a.start_time > ?) AS open_slots
+     FROM users u WHERE u.role='tutor' AND u.status='active'
+     HAVING open_slots > 0 ORDER BY u.name`, [nowStr()]);
+  res.json(rows);
+});
+
+// List slots. A tutor sees ALL their own slots (with the booking student's name);
+// everyone else must pass ?tutor_id and sees only that tutor's OPEN future slots.
+app.get('/api/availability', async (req, res) => {
+  const user = await requireAuth(req, res); if (!user) return;
+  if (user.role === 'tutor') {
+    const rows = await db.all(
+      `SELECT a.*, u.name AS student_name, u.avatar_color AS student_color
+       FROM availability_slots a LEFT JOIN users u ON u.id=a.booked_by
+       WHERE a.tutor_id=? ORDER BY a.start_time`, [user.id]);
+    return res.json(rows);
+  }
+  const tutorId = parseInt(req.query.tutor_id);
+  if (!tutorId) return res.status(400).json({ error: 'tutor_id required' });
+  const rows = await db.all(
+    `SELECT a.id, a.tutor_id, a.start_time, a.end_time, a.note, a.status
+     FROM availability_slots a
+     WHERE a.tutor_id=? AND a.status='open' AND a.start_time > ?
+     ORDER BY a.start_time`, [tutorId, nowStr()]);
+  res.json(rows);
+});
+
+// Tutor (or admin on a tutor's behalf) publishes a new availability slot.
+app.post('/api/availability', async (req, res) => {
+  const user = await requireRole(req, res, ['tutor', 'superadmin']); if (!user) return;
+  const start_time = (req.body.start_time || '').toString().trim();
+  const end_time = (req.body.end_time || '').toString().trim();
+  const note = (req.body.note || '').toString().trim().slice(0, 255);
+  if (!start_time || !end_time) return res.status(400).json({ error: 'Start and end time required' });
+  const tid = user.role === 'tutor' ? user.id : (parseInt(req.body.tutor_id) || user.id);
+  if (!(new Date(start_time) < new Date(end_time))) return res.status(400).json({ error: 'End time must be after start time' });
+  if (!(new Date(end_time) > new Date())) return res.status(400).json({ error: 'Slot must be in the future' });
+  // Reject overlap with an existing (non-cancelled) slot for this tutor.
+  const clash = await db.get(
+    "SELECT 1 FROM availability_slots WHERE tutor_id=? AND status<>'cancelled' AND start_time < ? AND end_time > ? LIMIT 1",
+    [tid, end_time, start_time]);
+  if (clash) return res.status(400).json({ error: 'Overlaps an existing slot' });
+  const r = await db.run("INSERT INTO availability_slots (tutor_id,start_time,end_time,note) VALUES (?,?,?,?)", [tid, start_time, end_time, note]);
+  auditLog(user.id, 'create_availability', 'availability_slot', r.lastInsertRowid);
+  res.status(201).json({ id: r.lastInsertRowid, message: 'Availability added' });
+});
+
+// Tutor removes one of their OPEN slots (booked slots can't be deleted here).
+app.delete('/api/availability', async (req, res) => {
+  const user = await requireRole(req, res, ['tutor', 'superadmin']); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'Slot ID required' });
+  const slot = await db.get("SELECT * FROM availability_slots WHERE id=?", [id]);
+  if (!slot) return res.status(404).json({ error: 'Slot not found' });
+  if (user.role === 'tutor' && slot.tutor_id !== user.id) return res.status(403).json({ error: 'Not your slot' });
+  if (slot.status === 'booked') return res.status(400).json({ error: 'This slot is booked — end/cancel the session instead' });
+  await db.run("DELETE FROM availability_slots WHERE id=?", [id]);
+  auditLog(user.id, 'delete_availability', 'availability_slot', id);
+  res.json({ message: 'Slot removed' });
+});
+
+// Student books an open slot → creates a session (+ room) atomically.
+app.post('/api/book-slot', async (req, res) => {
+  const user = await requireRole(req, res, ['student']); if (!user) return;
+  const slotId = parseInt(req.body.slot_id);
+  if (!slotId) return res.status(400).json({ error: 'slot_id required' });
+  try {
+    const result = await db.tx(async (t) => {
+      const slot = await t.get("SELECT * FROM availability_slots WHERE id=? FOR UPDATE", [slotId]);
+      if (!slot) throw Object.assign(new Error('Slot not found'), { http: 404 });
+      if (slot.status !== 'open') throw Object.assign(new Error('Slot is no longer available'), { http: 409 });
+      if (!(new Date(slot.start_time) > new Date())) throw Object.assign(new Error('Slot is in the past'), { http: 400 });
+      // Shared hidden course that exists only to satisfy sessions.course_id.
+      let c = await t.get("SELECT id FROM courses WHERE name='1-on-1 Session' AND status='draft' LIMIT 1");
+      if (!c) {
+        const cr = await t.run("INSERT INTO courses (name,category,tutor_id,status) VALUES ('1-on-1 Session','Tutoring',0,'draft')", []);
+        c = { id: cr.lastInsertRowid };
+      }
+      const room = 'tijus-bk-' + slotId + '-' + crypto.randomBytes(5).toString('hex');
+      const sr = await t.run("INSERT INTO sessions (course_id,tutor_id,start_time,end_time,room_name) VALUES (?,?,?,?,?)",
+        [c.id, slot.tutor_id, slot.start_time, slot.end_time, room]);
+      await t.run("UPDATE availability_slots SET status='booked', booked_by=?, session_id=? WHERE id=?", [user.id, sr.lastInsertRowid, slotId]);
+      return { session_id: sr.lastInsertRowid, room_name: room, start_time: slot.start_time, end_time: slot.end_time, tutor_id: slot.tutor_id };
+    });
+    auditLog(user.id, 'book_slot', 'availability_slot', slotId);
+    res.status(201).json({ message: 'Booked', ...result });
+  } catch (err) {
+    res.status(err.http || 500).json({ error: err.message || 'Failed to book slot' });
+  }
+});
+
+// A student's booked sessions (upcoming + past), with tutor + session status.
+app.get('/api/my-bookings', async (req, res) => {
+  const user = await requireRole(req, res, ['student']); if (!user) return;
+  const rows = await db.all(
+    `SELECT a.id, a.start_time, a.end_time, a.note, a.session_id,
+       s.status AS session_status, s.room_name,
+       t.name AS tutor_name, t.avatar_color AS tutor_color
+     FROM availability_slots a
+     JOIN sessions s ON s.session_id=a.session_id
+     JOIN users t ON t.id=a.tutor_id
+     WHERE a.booked_by=? ORDER BY a.start_time DESC`, [user.id]);
+  res.json(rows);
 });
 
 // Signaling
@@ -1553,7 +1678,9 @@ async function canAccessSession(user, sessionId) {
   const isTestCall = await db.get("SELECT 1 FROM courses WHERE id=? AND name='__test_call__'", [sess.course_id]);
   if (!isTestCall && user.role === 'student') {
     const enrolled = await db.get("SELECT 1 FROM enrollments WHERE student_id=? AND course_id=?", [user.id, sess.course_id]);
-    if (!enrolled) return { ok: false, status: 403, error: 'Not enrolled' };
+    // A student who booked this session (1-on-1 slot) gets in without enrollment.
+    const booked = enrolled ? null : await db.get("SELECT 1 FROM availability_slots WHERE session_id=? AND booked_by=?", [sessionId, user.id]);
+    if (!enrolled && !booked) return { ok: false, status: 403, error: 'Not enrolled' };
   }
   return { ok: true, sess };
 }

@@ -91,6 +91,14 @@ export const api = {
   leaveSession: (sessionId) => request('/leave-session', { method: 'POST', body: { session_id: sessionId } }),
   endSession: (sessionId) => request('/end-session', { method: 'POST', body: { session_id: sessionId } }),
 
+  // Tutor availability & student booking
+  getAvailabilityTutors: () => request('/availability/tutors'),
+  getAvailability: (tutorId) => request(tutorId ? `/availability?tutor_id=${tutorId}` : '/availability'),
+  createAvailability: (data) => request('/availability', { method: 'POST', body: data }),
+  deleteAvailability: (id) => request(`/availability?id=${id}`, { method: 'DELETE' }),
+  bookSlot: (slotId) => request('/book-slot', { method: 'POST', body: { slot_id: slotId } }),
+  getMyBookings: () => request('/my-bookings'),
+
   // Signaling (WebRTC)
   sendSignal: (data) => request('/signaling', { method: 'POST', body: data }),
   pollSignals: (sessionId, lastId = 0) => request(`/signaling?session_id=${sessionId}&last_id=${lastId}`),

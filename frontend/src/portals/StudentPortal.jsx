@@ -22,6 +22,51 @@ export default function StudentPortal() {
   const [viewMaterials, setViewMaterials] = useState([]);
   const [materialsLoading, setMaterialsLoading] = useState(false);
   const [materialsError, setMaterialsError] = useState('');
+  const [bookTutors, setBookTutors] = useState([]);
+  const [selectedTutor, setSelectedTutor] = useState(null);
+  const [tutorSlots, setTutorSlots] = useState([]);
+  const [myBookings, setMyBookings] = useState([]);
+  const [bookingMsg, setBookingMsg] = useState('');
+  const [bookingId, setBookingId] = useState(null);
+
+  const loadBookingData = () => {
+    api.getAvailabilityTutors().then(setBookTutors).catch(() => {});
+    api.getMyBookings().then(setMyBookings).catch(() => {});
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'booktutor') return;
+    loadBookingData();
+    // Keep booking statuses fresh (e.g. a tutor starting the session) while the
+    // tab is open, mirroring the dashboard's 30s poll.
+    const interval = setInterval(() => api.getMyBookings().then(setMyBookings).catch(() => {}), 30000);
+    return () => clearInterval(interval);
+  }, [activeTab]);
+
+  const openTutorSlots = async (tutor) => {
+    setSelectedTutor(tutor);
+    setTutorSlots([]);
+    try {
+      setTutorSlots(await api.getAvailability(tutor.id));
+    } catch (err) {
+      setBookingMsg(err.message);
+    }
+  };
+
+  const handleBookSlot = async (slot) => {
+    setBookingId(slot.id);
+    setBookingMsg('');
+    try {
+      await api.bookSlot(slot.id);
+      setBookingMsg('Booked! Find it under "My Bookings" below.');
+      setTutorSlots((s) => s.filter((x) => x.id !== slot.id));
+      loadBookingData();
+    } catch (err) {
+      setBookingMsg(err.message || 'Failed to book');
+    } finally {
+      setBookingId(null);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -182,6 +227,94 @@ export default function StudentPortal() {
                   <SessionCard key={s.session_id} session={s} onJoin={handleJoinSession} />
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'booktutor' && (
+          <div className="portal-page">
+            <h2>Book a Tutor</h2>
+            {bookingMsg && <div className="alert alert-info" onClick={() => setBookingMsg('')}>{bookingMsg}</div>}
+
+            {!selectedTutor ? (
+              <div className="section">
+                <h3>Available Tutors</h3>
+                {bookTutors.length === 0 ? (
+                  <p className="empty-state">No tutors have open slots right now. Check back later.</p>
+                ) : (
+                  <div className="card-grid">
+                    {bookTutors.map((t) => (
+                      <div
+                        key={t.id}
+                        onClick={() => openTutorSlots(t)}
+                        style={{ cursor: 'pointer', background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow)', padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}
+                      >
+                        <div className="avatar" style={{ width: '44px', height: '44px', fontSize: '16px', backgroundColor: t.avatar_color || '#4F46E5', backgroundImage: t.avatar_url ? `url(${t.avatar_url})` : undefined, backgroundSize: 'cover', backgroundPosition: 'center', color: t.avatar_url ? 'transparent' : '#fff' }}>
+                          {!t.avatar_url && t.name?.[0]}
+                        </div>
+                        <div>
+                          <strong>{t.name}</strong>
+                          {t.specialization && <div style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>{t.specialization}</div>}
+                          <div style={{ fontSize: '0.8rem', color: '#10B981' }}>{t.open_slots} open slot{t.open_slots === 1 ? '' : 's'}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="section">
+                <button className="btn btn-ghost" onClick={() => { setSelectedTutor(null); setTutorSlots([]); }} style={{ marginBottom: '1rem' }}>← Back to Tutors</button>
+                <h3>{selectedTutor.name} — Open Slots</h3>
+                {tutorSlots.length === 0 ? (
+                  <p className="empty-state">No open slots for this tutor anymore.</p>
+                ) : (
+                  <div className="card-grid">
+                    {tutorSlots.map((s) => (
+                      <div key={s.id} style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow)', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <strong>{new Date(s.start_time).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</strong>
+                        <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem' }}>
+                          {new Date(s.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(s.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        {s.note && <span style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>{s.note}</span>}
+                        <button className="btn btn-sm btn-primary" style={{ marginTop: '0.5rem', alignSelf: 'flex-start' }} disabled={bookingId === s.id} onClick={() => handleBookSlot(s)}>
+                          {bookingId === s.id ? 'Booking…' : 'Book'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="section">
+              <h3>My Bookings</h3>
+              {myBookings.length === 0 ? (
+                <p className="empty-state">You haven't booked any sessions yet.</p>
+              ) : (
+                <DataTable
+                  columns={[
+                    { key: 'tutor', label: 'Tutor', accessor: 'tutor_name', render: (r) => (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div className="avatar-sm" style={{ backgroundColor: r.tutor_color }}>{r.tutor_name?.[0]}</div>
+                        {r.tutor_name}
+                      </div>
+                    )},
+                    { key: 'date', label: 'Date', accessor: 'start_time', render: (r) => new Date(r.start_time).toLocaleDateString() },
+                    { key: 'time', label: 'Time', accessor: 'start_time', render: (r) => `${new Date(r.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(r.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` },
+                    { key: 'note', label: 'Note', accessor: 'note', render: (r) => r.note || '—' },
+                    { key: 'status', label: 'Status', accessor: 'session_status', render: (r) => <span className={`status-badge status-${r.session_status}`}>{r.session_status}</span> },
+                    { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
+                      (r.session_status === 'scheduled' || r.session_status === 'live') &&
+                        <button className="btn btn-sm btn-primary" onClick={() => handleJoinSession({ session_id: r.session_id, start_time: r.start_time, end_time: r.end_time })}>
+                          {r.session_status === 'live' ? 'Join' : 'Start'}
+                        </button>
+                    )},
+                  ]}
+                  data={myBookings}
+                  searchable={false}
+                />
+              )}
             </div>
           </div>
         )}

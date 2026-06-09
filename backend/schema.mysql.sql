@@ -3,7 +3,6 @@
 -- app stores as ISO/`YYYY-MM-DD HH:MM:SS` strings are kept as VARCHAR to
 -- preserve exact string semantics for display/ordering; created_at columns use
 -- a real DATETIME default.
-
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
@@ -61,6 +60,25 @@ CREATE TABLE IF NOT EXISTS sessions (
   INDEX idx_sessions_course (course_id),
   INDEX idx_sessions_tutor (tutor_id),
   INDEX idx_sessions_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tutor-published availability slots that students can book. A booked slot
+-- points at the session created for it (session_id) and the student who booked
+-- it (booked_by). start_time/end_time are stored as the same datetime strings
+-- sessions use, so ordering/display stay consistent.
+CREATE TABLE IF NOT EXISTS availability_slots (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tutor_id INT NOT NULL,
+  start_time VARCHAR(40) NOT NULL,
+  end_time VARCHAR(40) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'open',
+  booked_by INT DEFAULT NULL,
+  session_id INT DEFAULT NULL,
+  note VARCHAR(255) DEFAULT '',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_avail_tutor (tutor_id),
+  INDEX idx_avail_status (status),
+  INDEX idx_avail_booked (booked_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS attendance_logs (
