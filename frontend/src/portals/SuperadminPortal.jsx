@@ -132,12 +132,12 @@ export default function SuperadminPortal() {
   const [enrollBusy, setEnrollBusy] = useState(false);
 
   const [showSessionForm, setShowSessionForm] = useState(false);
-  const [sessionForm, setSessionForm] = useState({ course_id: '', tutor_id: '', start_time: '', end_time: '' });
+  const [sessionForm, setSessionForm] = useState({ course_id: '', tutor_id: '', student_id: '', start_time: '', end_time: '' });
 
   const [activeSession, setActiveSession] = useState(null);
 
   // SMTP settings
-  const [smtpForm, setSmtpForm] = useState({ host: '', port: 587, user: '', pass: '', from_email: '', provider: 'smtp', resend_api_key: '' });
+  const [smtpForm, setSmtpForm] = useState({ host: '', port: 587, user: '', pass: '', from_email: '', provider: 'smtp', resend_api_key: '', resend_monthly_cap: 0, resend_quota_used: '', resend_quota_at: null });
   const [smtpLoaded, setSmtpLoaded] = useState(false);
   const [smtpTestEmail, setSmtpTestEmail] = useState('');
   const [smtpSaving, setSmtpSaving] = useState(false);
@@ -298,7 +298,7 @@ export default function SuperadminPortal() {
     if (activeTab === 'meetings') api.getMeetings().then(setMeetings).catch(() => {});
     if (activeTab === 'dashboard' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
-    if (activeTab === 'integrations' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm({ provider: 'smtp', resend_api_key: '', ...s }); setSmtpLoaded(true); }).catch(() => {});
+    if (activeTab === 'integrations' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm({ provider: 'smtp', resend_api_key: '', resend_monthly_cap: 0, resend_quota_used: '', resend_quota_at: null, ...s }); setSmtpLoaded(true); }).catch(() => {});
     if (activeTab !== 'students') setStudentDetail(null);
   }, [activeTab]);
 
@@ -785,7 +785,7 @@ export default function SuperadminPortal() {
 
   // ===== SESSION CREATE =====
   const openCreateSession = () => {
-    setSessionForm({ course_id: '', tutor_id: '', start_time: '', end_time: '' });
+    setSessionForm({ course_id: '', tutor_id: '', student_id: '', start_time: '', end_time: '' });
     setShowSessionForm(true);
   };
 
@@ -1015,6 +1015,7 @@ export default function SuperadminPortal() {
   const sessionColumns = [
     { key: 'course', label: 'Course', accessor: 'course_name' },
     { key: 'tutor', label: 'Tutor', accessor: 'tutor_name' },
+    { key: 'student', label: 'Student', accessor: (r) => r.student_name || 'All', render: (r) => r.student_name || <span style={{ color: 'var(--color-text-secondary)' }}>All</span> },
     { key: 'start', label: 'Start', accessor: 'start_time', render: (r) => new Date(r.start_time).toLocaleString() },
     { key: 'end', label: 'End', accessor: 'end_time', render: (r) => new Date(r.end_time).toLocaleString() },
     { key: 'room', label: 'Room', accessor: 'room_name' },
@@ -1585,6 +1586,14 @@ export default function SuperadminPortal() {
               <option value="">Select course...</option>
               {(data?.courses || []).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.tutor_name})</option>)}
             </select>
+          </div>
+          <div className="form-group">
+            <label>Student</label>
+            <select value={sessionForm.student_id} onChange={(e) => setSessionForm({ ...sessionForm, student_id: e.target.value })}>
+              <option value="">All Students (common session)</option>
+              {(allStudents.length ? allStudents : students).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.email})</option>)}
+            </select>
+            <small style={{ color: 'var(--color-text-secondary)' }}>Choose a specific student for a private session, or leave on "All" to make it common to everyone enrolled.</small>
           </div>
           <div className="form-row">
             <div className="form-group">
@@ -2491,11 +2500,44 @@ export default function SuperadminPortal() {
                 )}
 
                 {smtpForm.provider === 'resend' && (
-                  <div className="form-group">
-                    <label>Resend API Key</label>
-                    <input type="password" value={smtpForm.resend_api_key} onChange={(e) => setSmtpForm({ ...smtpForm, resend_api_key: e.target.value })} placeholder="re_xxxxxxxx_xxxxxxxxxxxxxxxxxxxx" />
-                    <small style={{ color: 'var(--color-text-secondary)' }}>Create a key at resend.com → API Keys. The From domain below must be a verified domain in Resend.</small>
-                  </div>
+                  <>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Resend API Key</label>
+                        <input type="password" value={smtpForm.resend_api_key} onChange={(e) => setSmtpForm({ ...smtpForm, resend_api_key: e.target.value })} placeholder="re_xxxxxxxx_xxxxxxxxxxxxxxxxxxxx" />
+                        <small style={{ color: 'var(--color-text-secondary)' }}>Create a key at resend.com → API Keys. The From domain below must be a verified domain in Resend.</small>
+                      </div>
+                      <div className="form-group">
+                        <label>Monthly Email Cap (optional)</label>
+                        <input type="number" min="0" value={smtpForm.resend_monthly_cap} onChange={(e) => setSmtpForm({ ...smtpForm, resend_monthly_cap: parseInt(e.target.value) || 0 })} placeholder="3000" />
+                        <small style={{ color: 'var(--color-text-secondary)' }}>Your Resend plan's monthly limit (free = 3000). Used to show remaining quota.</small>
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const used = parseInt(smtpForm.resend_quota_used);
+                      if (smtpForm.resend_quota_used === '' || smtpForm.resend_quota_used == null || isNaN(used)) {
+                        return (
+                          <div className="alert" style={{ background: 'rgba(148,163,184,0.12)', color: 'var(--color-text-secondary)' }}>
+                            Usage will appear here after the first email is sent via Resend. Resend has no quota-polling API — the figure refreshes each time an email is sent.
+                          </div>
+                        );
+                      }
+                      const cap = parseInt(smtpForm.resend_monthly_cap) || 0;
+                      const remaining = cap > 0 ? Math.max(0, cap - used) : null;
+                      const when = smtpForm.resend_quota_at ? new Date(smtpForm.resend_quota_at.replace(' ', 'T')).toLocaleString() : 'unknown';
+                      return (
+                        <div className="alert" style={{ background: 'rgba(16,185,129,0.12)', color: '#065f46' }}>
+                          <strong>Resend usage this month:</strong>{' '}
+                          {cap > 0
+                            ? `${used.toLocaleString()} / ${cap.toLocaleString()} used · ${remaining.toLocaleString()} remaining`
+                            : `${used.toLocaleString()} emails used`}
+                          <br />
+                          <small>As of {when} · updates each time an email is sent via Resend.</small>
+                        </div>
+                      );
+                    })()}
+                  </>
                 )}
 
                 <div className="form-group">

@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   session_id INT AUTO_INCREMENT PRIMARY KEY,
   course_id INT NOT NULL,
   tutor_id INT NOT NULL,
+  student_id INT NULL,
   start_time VARCHAR(40) NOT NULL,
   end_time VARCHAR(40) NOT NULL,
   room_name VARCHAR(255) NOT NULL UNIQUE,
@@ -59,6 +60,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_sessions_course (course_id),
   INDEX idx_sessions_tutor (tutor_id),
+  INDEX idx_sessions_student (student_id),
   INDEX idx_sessions_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -143,7 +145,10 @@ CREATE TABLE IF NOT EXISTS smtp_settings (
   pass VARCHAR(255),
   from_email VARCHAR(255),
   provider VARCHAR(20) DEFAULT 'smtp',
-  resend_api_key VARCHAR(255) DEFAULT ''
+  resend_api_key VARCHAR(255) DEFAULT '',
+  resend_monthly_cap INT DEFAULT 0,
+  resend_quota_used VARCHAR(64) DEFAULT '',
+  resend_quota_at DATETIME NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS categories (

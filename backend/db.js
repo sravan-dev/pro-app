@@ -152,6 +152,10 @@ async function initSchema() {
   await addColumnIfMissing('meetings', 'host_email', "host_email VARCHAR(160) DEFAULT ''");
   await addColumnIfMissing('smtp_settings', 'provider', "provider VARCHAR(20) DEFAULT 'smtp'");
   await addColumnIfMissing('smtp_settings', 'resend_api_key', "resend_api_key VARCHAR(255) DEFAULT ''");
+  await addColumnIfMissing('smtp_settings', 'resend_monthly_cap', 'resend_monthly_cap INT DEFAULT 0');
+  await addColumnIfMissing('smtp_settings', 'resend_quota_used', "resend_quota_used VARCHAR(64) DEFAULT ''");
+  await addColumnIfMissing('smtp_settings', 'resend_quota_at', 'resend_quota_at DATETIME NULL');
+  await addColumnIfMissing('sessions', 'student_id', 'student_id INT NULL');
 
   // Single-row settings defaults.
   await run("INSERT IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')");

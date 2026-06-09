@@ -152,6 +152,12 @@ async function sendEmail(to, subject, html) {
         console.error(`[EMAIL] Resend failed to ${to}:`, data.message || resp.status);
         return { sent: false, reason: data.message || `Resend error ${resp.status}` };
       }
+      // Resend reports used monthly quota via this response header (no polling
+      // endpoint exists). Cache the latest value so the UI can display it.
+      const quota = resp.headers.get('x-resend-monthly-quota');
+      if (quota != null && quota !== '') {
+        try { await db.run("UPDATE smtp_settings SET resend_quota_used=?, resend_quota_at=NOW() WHERE id=1", [String(quota)]); } catch { /* non-fatal */ }
+      }
       console.log(`[EMAIL] Sent via Resend to ${to}: ${subject}`);
       return { sent: true };
     } catch (err) {
@@ -319,10 +325,10 @@ app.get('/api/portal-data', async (req, res) => {
   switch (user.role) {
     case 'student': {
       data.courses = await db.all("SELECT c.*,u.name as tutor_name,e.progress_percentage,e.grade,e.status as enrollment_status FROM courses c JOIN enrollments e ON e.course_id=c.id JOIN users u ON u.id=c.tutor_id WHERE e.student_id=? ORDER BY c.name", [user.id]);
-      data.upcoming_sessions = await db.all("SELECT s.*,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? WHERE s.start_time>? AND s.status='scheduled' ORDER BY s.start_time LIMIT 20", [user.id, nowStr()]);
+      data.upcoming_sessions = await db.all("SELECT s.*,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? WHERE s.start_time>? AND s.status='scheduled' AND (s.student_id IS NULL OR s.student_id=?) ORDER BY s.start_time LIMIT 20", [user.id, nowStr(), user.id]);
       // Sessions in the student's enrolled courses happening right now.
-      data.live_sessions = await db.all("SELECT s.*, c.name as course_name, u.name as tutor_name, (SELECT COUNT(*) FROM attendance_logs a WHERE a.session_id=s.session_id AND a.leave_time IS NULL) as active_participants FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? WHERE s.status='live' ORDER BY s.start_time DESC", [user.id]);
-      data.attendance_stats = await db.get("SELECT COUNT(*) as total_sessions, SUM(CASE WHEN a.log_id IS NOT NULL THEN 1 ELSE 0 END) as attended FROM sessions s JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? LEFT JOIN attendance_logs a ON a.session_id=s.session_id AND a.student_id=? WHERE s.status='completed'", [user.id, user.id]);
+      data.live_sessions = await db.all("SELECT s.*, c.name as course_name, u.name as tutor_name, (SELECT COUNT(*) FROM attendance_logs a WHERE a.session_id=s.session_id AND a.leave_time IS NULL) as active_participants FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? WHERE s.status='live' AND (s.student_id IS NULL OR s.student_id=?) ORDER BY s.start_time DESC", [user.id, user.id]);
+      data.attendance_stats = await db.get("SELECT COUNT(*) as total_sessions, SUM(CASE WHEN a.log_id IS NOT NULL THEN 1 ELSE 0 END) as attended FROM sessions s JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? LEFT JOIN attendance_logs a ON a.session_id=s.session_id AND a.student_id=? WHERE s.status='completed' AND (s.student_id IS NULL OR s.student_id=?)", [user.id, user.id, user.id]);
       break;
     }
     case 'tutor': {
@@ -418,7 +424,7 @@ app.get('/api/students/:id', async (req, res) => {
 
   const enrollments = await db.all("SELECT e.enrollment_id,e.course_id,e.progress_percentage,e.grade,e.status,e.enrollment_date,c.name as course_name,c.category,u.name as tutor_name FROM enrollments e JOIN courses c ON c.id=e.course_id LEFT JOIN users u ON u.id=c.tutor_id WHERE e.student_id=? ORDER BY e.enrollment_date DESC", [id]);
 
-  const sessions = await db.all("SELECT s.session_id,s.start_time,s.end_time,s.status,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id LEFT JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? ORDER BY s.start_time DESC LIMIT 50", [id]);
+  const sessions = await db.all("SELECT s.session_id,s.start_time,s.end_time,s.status,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id LEFT JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? WHERE (s.student_id IS NULL OR s.student_id=?) ORDER BY s.start_time DESC LIMIT 50", [id, id]);
 
   const attendance = await db.all("SELECT a.log_id,a.session_id,a.join_time,a.leave_time,a.duration_minutes,c.name as course_name,s.start_time FROM attendance_logs a JOIN sessions s ON s.session_id=a.session_id JOIN courses c ON c.id=s.course_id WHERE a.student_id=? ORDER BY a.timestamp DESC LIMIT 100", [id]);
 
@@ -751,22 +757,27 @@ app.get('/api/sessions', async (req, res) => {
   const user = await requireAuth(req, res); if (!user) return;
   let rows;
   if (user.role === 'student') {
-    rows = await db.all("SELECT s.*,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? ORDER BY s.start_time DESC", [user.id]);
+    // Common sessions (student_id IS NULL) for enrolled courses, plus any
+    // session assigned privately to this student.
+    rows = await db.all("SELECT s.*,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? WHERE (s.student_id IS NULL OR s.student_id=?) ORDER BY s.start_time DESC", [user.id, user.id]);
   } else if (user.role === 'tutor') {
-    rows = await db.all("SELECT s.*,c.name as course_name FROM sessions s JOIN courses c ON c.id=s.course_id WHERE s.tutor_id=? ORDER BY s.start_time DESC", [user.id]);
+    rows = await db.all("SELECT s.*,c.name as course_name,su.name as student_name FROM sessions s JOIN courses c ON c.id=s.course_id LEFT JOIN users su ON su.id=s.student_id WHERE s.tutor_id=? ORDER BY s.start_time DESC", [user.id]);
   } else {
-    rows = await db.all("SELECT s.*,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id ORDER BY s.start_time DESC");
+    rows = await db.all("SELECT s.*,c.name as course_name,u.name as tutor_name,su.name as student_name FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id LEFT JOIN users su ON su.id=s.student_id ORDER BY s.start_time DESC");
   }
   res.json(rows);
 });
 
 app.post('/api/sessions', async (req, res) => {
   const user = await requireRole(req, res, ['tutor','superadmin']); if (!user) return;
-  const { course_id, start_time, end_time, tutor_id } = req.body;
+  const { course_id, start_time, end_time, tutor_id, student_id } = req.body;
   if (!course_id || !start_time || !end_time) return res.status(400).json({ error: 'Missing fields' });
   const room = 'tijus-' + course_id + '-' + crypto.randomBytes(6).toString('hex');
   const tid = user.role === 'tutor' ? user.id : (tutor_id || user.id);
-  const r = await db.run("INSERT INTO sessions (course_id,tutor_id,start_time,end_time,room_name) VALUES (?,?,?,?,?)", [course_id, tid, start_time, end_time, room]);
+  // student_id null/empty/'all' => a common session visible to every enrolled
+  // student; a numeric id => a private session for just that student.
+  const sid = (student_id && student_id !== 'all') ? parseInt(student_id) || null : null;
+  const r = await db.run("INSERT INTO sessions (course_id,tutor_id,student_id,start_time,end_time,room_name) VALUES (?,?,?,?,?,?)", [course_id, tid, sid, start_time, end_time, room]);
   auditLog(user.id, 'create_session', 'session', r.lastInsertRowid);
   res.status(201).json({ session_id: r.lastInsertRowid, room_name: room });
 });
@@ -1859,16 +1870,19 @@ app.get('/api/livekit/usage', async (req, res) => {
 // ============================================================
 app.get('/api/smtp-settings', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  const smtp = await db.get("SELECT host, port, `user`, pass, from_email, provider, resend_api_key FROM smtp_settings WHERE id=1");
-  res.json(smtp || { host: '', port: 587, user: '', pass: '', from_email: '', provider: 'smtp', resend_api_key: '' });
+  const smtp = await db.get("SELECT host, port, `user`, pass, from_email, provider, resend_api_key, resend_monthly_cap, resend_quota_used, resend_quota_at FROM smtp_settings WHERE id=1");
+  res.json(smtp || { host: '', port: 587, user: '', pass: '', from_email: '', provider: 'smtp', resend_api_key: '', resend_monthly_cap: 0, resend_quota_used: '', resend_quota_at: null });
 });
 
 app.post('/api/smtp-settings', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  const { host, port, user: smtpUser, pass, from_email, provider, resend_api_key } = req.body;
-  await db.run(`INSERT INTO smtp_settings (id, host, port, \`user\`, pass, from_email, provider, resend_api_key) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
-    ON DUPLICATE KEY UPDATE host=VALUES(host), port=VALUES(port), \`user\`=VALUES(\`user\`), pass=VALUES(pass), from_email=VALUES(from_email), provider=VALUES(provider), resend_api_key=VALUES(resend_api_key)`,
-    [host || '', port || 587, smtpUser || '', pass || '', from_email || '', provider || 'smtp', resend_api_key || '']);
+  const { host, port, user: smtpUser, pass, from_email, provider, resend_api_key, resend_monthly_cap } = req.body;
+  // Note: resend_quota_used/resend_quota_at are written only by sendEmail (from
+  // Resend's response header) and deliberately left out here so saving settings
+  // never clobbers the cached usage figure.
+  await db.run(`INSERT INTO smtp_settings (id, host, port, \`user\`, pass, from_email, provider, resend_api_key, resend_monthly_cap) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE host=VALUES(host), port=VALUES(port), \`user\`=VALUES(\`user\`), pass=VALUES(pass), from_email=VALUES(from_email), provider=VALUES(provider), resend_api_key=VALUES(resend_api_key), resend_monthly_cap=VALUES(resend_monthly_cap)`,
+    [host || '', port || 587, smtpUser || '', pass || '', from_email || '', provider || 'smtp', resend_api_key || '', parseInt(resend_monthly_cap) || 0]);
   auditLog(user.id, 'update_smtp_settings', 'settings', 1);
   res.json({ message: 'SMTP settings saved' });
 });
