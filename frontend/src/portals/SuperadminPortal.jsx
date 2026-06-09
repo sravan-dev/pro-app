@@ -137,7 +137,7 @@ export default function SuperadminPortal() {
   const [activeSession, setActiveSession] = useState(null);
 
   // SMTP settings
-  const [smtpForm, setSmtpForm] = useState({ host: '', port: 587, user: '', pass: '', from_email: '' });
+  const [smtpForm, setSmtpForm] = useState({ host: '', port: 587, user: '', pass: '', from_email: '', provider: 'smtp', resend_api_key: '' });
   const [smtpLoaded, setSmtpLoaded] = useState(false);
   const [smtpTestEmail, setSmtpTestEmail] = useState('');
   const [smtpSaving, setSmtpSaving] = useState(false);
@@ -298,7 +298,7 @@ export default function SuperadminPortal() {
     if (activeTab === 'meetings') api.getMeetings().then(setMeetings).catch(() => {});
     if (activeTab === 'dashboard' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
-    if (activeTab === 'integrations' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm(s); setSmtpLoaded(true); }).catch(() => {});
+    if (activeTab === 'integrations' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm({ provider: 'smtp', resend_api_key: '', ...s }); setSmtpLoaded(true); }).catch(() => {});
     if (activeTab !== 'students') setStudentDetail(null);
   }, [activeTab]);
 
@@ -2446,43 +2446,64 @@ export default function SuperadminPortal() {
 
             {/* SMTP Configuration */}
             <div className="settings-section" style={{ marginBottom: '2rem' }}>
-              <h3>Email Configuration (SMTP)</h3>
-              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1.5rem' }}>Configure SMTP to send welcome emails to new users and password reset links.</p>
+              <h3>Email Configuration</h3>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1.5rem' }}>Choose how transactional email (welcome emails, password reset links) is delivered. Hostinger uses standard SMTP; Resend uses the Resend HTTP API.</p>
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 setSmtpSaving(true);
                 try {
                   await api.saveSmtpSettings(smtpForm);
-                  showMsg('SMTP settings saved', 'success');
+                  showMsg('Email settings saved', 'success');
                 } catch (err) { showMsg(err.message, 'error'); }
                 finally { setSmtpSaving(false); }
               }}>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>SMTP Host</label>
-                    <input value={smtpForm.host} onChange={(e) => setSmtpForm({ ...smtpForm, host: e.target.value })} placeholder="smtp.hostinger.com" />
-                  </div>
-                  <div className="form-group">
-                    <label>Port</label>
-                    <input type="number" value={smtpForm.port} onChange={(e) => setSmtpForm({ ...smtpForm, port: parseInt(e.target.value) || 587 })} placeholder="587" />
-                  </div>
+                <div className="form-group">
+                  <label>Email Provider</label>
+                  <select value={smtpForm.provider} onChange={(e) => setSmtpForm({ ...smtpForm, provider: e.target.value })}>
+                    <option value="smtp">Hostinger — SMTP</option>
+                    <option value="resend">Resend — API</option>
+                  </select>
                 </div>
-                <div className="form-row">
+
+                {smtpForm.provider === 'smtp' && (
+                  <>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>SMTP Host</label>
+                        <input value={smtpForm.host} onChange={(e) => setSmtpForm({ ...smtpForm, host: e.target.value })} placeholder="smtp.hostinger.com" />
+                      </div>
+                      <div className="form-group">
+                        <label>Port</label>
+                        <input type="number" value={smtpForm.port} onChange={(e) => setSmtpForm({ ...smtpForm, port: parseInt(e.target.value) || 587 })} placeholder="587" />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>SMTP Username / Email</label>
+                        <input value={smtpForm.user} onChange={(e) => setSmtpForm({ ...smtpForm, user: e.target.value })} placeholder="noreply@yourdomain.com" />
+                      </div>
+                      <div className="form-group">
+                        <label>SMTP Password</label>
+                        <input type="password" value={smtpForm.pass} onChange={(e) => setSmtpForm({ ...smtpForm, pass: e.target.value })} placeholder="••••••••" />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {smtpForm.provider === 'resend' && (
                   <div className="form-group">
-                    <label>SMTP Username / Email</label>
-                    <input value={smtpForm.user} onChange={(e) => setSmtpForm({ ...smtpForm, user: e.target.value })} placeholder="noreply@yourdomain.com" />
+                    <label>Resend API Key</label>
+                    <input type="password" value={smtpForm.resend_api_key} onChange={(e) => setSmtpForm({ ...smtpForm, resend_api_key: e.target.value })} placeholder="re_xxxxxxxx_xxxxxxxxxxxxxxxxxxxx" />
+                    <small style={{ color: 'var(--color-text-secondary)' }}>Create a key at resend.com → API Keys. The From domain below must be a verified domain in Resend.</small>
                   </div>
-                  <div className="form-group">
-                    <label>SMTP Password</label>
-                    <input type="password" value={smtpForm.pass} onChange={(e) => setSmtpForm({ ...smtpForm, pass: e.target.value })} placeholder="••••••••" />
-                  </div>
-                </div>
+                )}
+
                 <div className="form-group">
                   <label>From Address</label>
                   <input value={smtpForm.from_email} onChange={(e) => setSmtpForm({ ...smtpForm, from_email: e.target.value })} placeholder="Tiju's Academy <noreply@yourdomain.com>" />
                 </div>
                 <div className="form-actions" style={{ marginTop: '1rem' }}>
-                  <button type="submit" className="btn btn-primary" disabled={smtpSaving}>{smtpSaving ? 'Saving...' : 'Save SMTP Settings'}</button>
+                  <button type="submit" className="btn btn-primary" disabled={smtpSaving}>{smtpSaving ? 'Saving...' : 'Save Email Settings'}</button>
                 </div>
               </form>
 

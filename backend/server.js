@@ -130,20 +130,50 @@ const getDB = () => db;
 // Email Helper
 // ============================================================
 async function sendEmail(to, subject, html) {
-  const smtp = await db.get("SELECT * FROM smtp_settings WHERE id=1");
-  if (!smtp || !smtp.host || !smtp.user) {
+  const cfg = await db.get("SELECT * FROM smtp_settings WHERE id=1");
+  const provider = (cfg && cfg.provider) || 'smtp';
+  const from = (cfg && (cfg.from_email || cfg.user)) || '';
+
+  // ---- Resend (HTTP API) -------------------------------------------------
+  if (provider === 'resend') {
+    if (!cfg || !cfg.resend_api_key) {
+      console.log(`[EMAIL] Resend not configured. Would send to ${to}: ${subject}`);
+      return { sent: false, reason: 'Resend not configured' };
+    }
+    if (!from) return { sent: false, reason: 'From address required for Resend' };
+    try {
+      const resp = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${cfg.resend_api_key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to, subject, html }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        console.error(`[EMAIL] Resend failed to ${to}:`, data.message || resp.status);
+        return { sent: false, reason: data.message || `Resend error ${resp.status}` };
+      }
+      console.log(`[EMAIL] Sent via Resend to ${to}: ${subject}`);
+      return { sent: true };
+    } catch (err) {
+      console.error(`[EMAIL] Resend error to ${to}:`, err.message);
+      return { sent: false, reason: err.message };
+    }
+  }
+
+  // ---- Hostinger / generic SMTP (nodemailer) -----------------------------
+  if (!cfg || !cfg.host || !cfg.user) {
     console.log(`[EMAIL] SMTP not configured. Would send to ${to}: ${subject}`);
     return { sent: false, reason: 'SMTP not configured' };
   }
   try {
     const transporter = nodemailer.createTransport({
-      host: smtp.host,
-      port: smtp.port || 587,
-      secure: smtp.port === 465,
-      auth: { user: smtp.user, pass: smtp.pass },
+      host: cfg.host,
+      port: cfg.port || 587,
+      secure: cfg.port === 465,
+      auth: { user: cfg.user, pass: cfg.pass },
     });
     await transporter.sendMail({
-      from: smtp.from_email || smtp.user,
+      from: from || cfg.user,
       to,
       subject,
       html,
@@ -1829,16 +1859,16 @@ app.get('/api/livekit/usage', async (req, res) => {
 // ============================================================
 app.get('/api/smtp-settings', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  const smtp = await db.get("SELECT host, port, `user`, pass, from_email FROM smtp_settings WHERE id=1");
-  res.json(smtp || { host: '', port: 587, user: '', pass: '', from_email: '' });
+  const smtp = await db.get("SELECT host, port, `user`, pass, from_email, provider, resend_api_key FROM smtp_settings WHERE id=1");
+  res.json(smtp || { host: '', port: 587, user: '', pass: '', from_email: '', provider: 'smtp', resend_api_key: '' });
 });
 
 app.post('/api/smtp-settings', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  const { host, port, user: smtpUser, pass, from_email } = req.body;
-  await db.run(`INSERT INTO smtp_settings (id, host, port, \`user\`, pass, from_email) VALUES (1, ?, ?, ?, ?, ?)
-    ON DUPLICATE KEY UPDATE host=VALUES(host), port=VALUES(port), \`user\`=VALUES(\`user\`), pass=VALUES(pass), from_email=VALUES(from_email)`,
-    [host || '', port || 587, smtpUser || '', pass || '', from_email || '']);
+  const { host, port, user: smtpUser, pass, from_email, provider, resend_api_key } = req.body;
+  await db.run(`INSERT INTO smtp_settings (id, host, port, \`user\`, pass, from_email, provider, resend_api_key) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE host=VALUES(host), port=VALUES(port), \`user\`=VALUES(\`user\`), pass=VALUES(pass), from_email=VALUES(from_email), provider=VALUES(provider), resend_api_key=VALUES(resend_api_key)`,
+    [host || '', port || 587, smtpUser || '', pass || '', from_email || '', provider || 'smtp', resend_api_key || '']);
   auditLog(user.id, 'update_smtp_settings', 'settings', 1);
   res.json({ message: 'SMTP settings saved' });
 });

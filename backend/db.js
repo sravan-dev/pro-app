@@ -150,6 +150,8 @@ async function initSchema() {
   await addColumnIfMissing('app_settings', 'hubspot_token', "hubspot_token TEXT");
   await addColumnIfMissing('meetings', 'host_name', "host_name VARCHAR(120) DEFAULT ''");
   await addColumnIfMissing('meetings', 'host_email', "host_email VARCHAR(160) DEFAULT ''");
+  await addColumnIfMissing('smtp_settings', 'provider', "provider VARCHAR(20) DEFAULT 'smtp'");
+  await addColumnIfMissing('smtp_settings', 'resend_api_key', "resend_api_key VARCHAR(255) DEFAULT ''");
 
   // Single-row settings defaults.
   await run("INSERT IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')");

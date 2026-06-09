@@ -141,7 +141,9 @@ CREATE TABLE IF NOT EXISTS smtp_settings (
   port INT DEFAULT 587,
   `user` VARCHAR(255),
   pass VARCHAR(255),
-  from_email VARCHAR(255)
+  from_email VARCHAR(255),
+  provider VARCHAR(20) DEFAULT 'smtp',
+  resend_api_key VARCHAR(255) DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS categories (
