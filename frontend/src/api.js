@@ -185,6 +185,16 @@ export const api = {
   createContactEnrollment: (contact) => request('/contact-enrollments', { method: 'POST', body: contact }),
   getContactEnrollments: () => request('/contact-enrollments'),
 
+  // Teams, assignment & ratings
+  getTeams: () => request('/teams'),
+  createTeam: (data) => request('/teams', { method: 'POST', body: data }),
+  updateTeam: (data) => request('/teams', { method: 'PUT', body: data }),
+  deleteTeam: (id) => request(`/teams?id=${id}`, { method: 'DELETE' }),
+  assignStudent: (data) => request('/assignments', { method: 'POST', body: data }),
+  getMyTeam: () => request('/my-team'),
+  submitRating: (data) => request('/ratings', { method: 'POST', body: data }),
+  getRatings: () => request('/ratings'),
+
   // SMTP Settings
   getSmtpSettings: () => request('/smtp-settings'),
   saveSmtpSettings: (data) => request('/smtp-settings', { method: 'POST', body: data }),

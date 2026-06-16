@@ -350,23 +350,36 @@ app.get('/api/portal-data', async (req, res) => {
       break;
     }
     case 'advisor': {
-      data.students = await db.all("SELECT u.id,u.name,u.email,u.status,u.avatar_color, COUNT(e.enrollment_id) as enrolled_courses, ROUND(AVG(e.progress_percentage),1) as avg_progress, GROUP_CONCAT(DISTINCT e.grade) as grades FROM users u LEFT JOIN enrollments e ON e.student_id=u.id WHERE u.role='student' GROUP BY u.id ORDER BY u.name");
-      data.at_risk = await db.all("SELECT u.id,u.name,u.email,u.avatar_color, ROUND(AVG(e.progress_percentage),1) as avg_progress FROM users u JOIN enrollments e ON e.student_id=u.id WHERE u.role='student' GROUP BY u.id HAVING avg_progress<40 ORDER BY avg_progress");
+      // Scoped to the students assigned to this advisor (manual assignment).
+      data.students = await db.all("SELECT u.id,u.name,u.email,u.status,u.avatar_color, COUNT(e.enrollment_id) as enrolled_courses, ROUND(AVG(e.progress_percentage),1) as avg_progress, GROUP_CONCAT(DISTINCT e.grade) as grades FROM users u LEFT JOIN enrollments e ON e.student_id=u.id WHERE u.role='student' AND u.advisor_id=? GROUP BY u.id ORDER BY u.name", [user.id]);
+      data.at_risk = await db.all("SELECT u.id,u.name,u.email,u.avatar_color, ROUND(AVG(e.progress_percentage),1) as avg_progress FROM users u JOIN enrollments e ON e.student_id=u.id WHERE u.role='student' AND u.advisor_id=? GROUP BY u.id HAVING avg_progress<40 ORDER BY avg_progress", [user.id]);
       data.courses = await db.all("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id");
       break;
     }
     case 'manager': {
+      // Manager scope = users whose team is one this manager owns.
+      const teamIds = (await db.all("SELECT id FROM teams WHERE manager_id=?", [user.id])).map((t) => t.id);
+      const tids = teamIds.length ? teamIds : [0]; // avoid empty IN ()
+      const inClause = tids.map(() => '?').join(',');
+      data.team_ids = teamIds;
       data.stats = {
-        total_students: (await db.get("SELECT COUNT(*) as c FROM users WHERE role='student'")).c,
-        total_tutors: (await db.get("SELECT COUNT(*) as c FROM users WHERE role='tutor'")).c,
+        total_students: (await db.get(`SELECT COUNT(*) as c FROM users WHERE role='student' AND team_id IN (${inClause})`, tids)).c,
+        total_tutors: (await db.get(`SELECT COUNT(*) as c FROM users WHERE role='tutor' AND team_id IN (${inClause})`, tids)).c,
+        total_advisors: (await db.get(`SELECT COUNT(*) as c FROM users WHERE role='advisor' AND team_id IN (${inClause})`, tids)).c,
         total_courses: (await db.get("SELECT COUNT(*) as c FROM courses WHERE status='active'")).c,
-        total_enrollments: (await db.get("SELECT COUNT(*) as c FROM enrollments WHERE status='active'")).c,
+        total_enrollments: (await db.get(`SELECT COUNT(*) as c FROM enrollments e JOIN users u ON u.id=e.student_id WHERE e.status='active' AND u.team_id IN (${inClause})`, tids)).c,
         total_sessions: (await db.get("SELECT COUNT(*) as c FROM sessions")).c,
         completed_sessions: (await db.get("SELECT COUNT(*) as c FROM sessions WHERE status='completed'")).c,
       };
-      data.tutors = await db.all("SELECT u.id,u.name,u.email,u.status,u.avatar_color,u.specialization, COUNT(DISTINCT c.id) as course_count, SUM(c.students_count) as total_students, COUNT(DISTINCT CASE WHEN s.status='completed' THEN s.session_id END) as sessions_completed FROM users u LEFT JOIN courses c ON c.tutor_id=u.id LEFT JOIN sessions s ON s.tutor_id=u.id WHERE u.role='tutor' GROUP BY u.id ORDER BY u.name");
+      data.tutors = await db.all(`SELECT u.id,u.name,u.email,u.status,u.avatar_color,u.specialization, COUNT(DISTINCT c.id) as course_count, SUM(c.students_count) as total_students, COUNT(DISTINCT CASE WHEN s.status='completed' THEN s.session_id END) as sessions_completed FROM users u LEFT JOIN courses c ON c.tutor_id=u.id LEFT JOIN sessions s ON s.tutor_id=u.id WHERE u.role='tutor' AND u.team_id IN (${inClause}) GROUP BY u.id ORDER BY u.name`, tids);
       data.courses = await db.all("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id ORDER BY c.category,c.name");
-      data.enrollment_by_category = await db.all("SELECT c.category, COUNT(e.enrollment_id) as count FROM courses c LEFT JOIN enrollments e ON e.course_id=c.id GROUP BY c.category ORDER BY count DESC");
+      data.enrollment_by_category = await db.all(`SELECT c.category, COUNT(e.enrollment_id) as count FROM courses c LEFT JOIN enrollments e ON e.course_id=c.id LEFT JOIN users u ON u.id=e.student_id WHERE u.team_id IN (${inClause}) GROUP BY c.category ORDER BY count DESC`, tids);
+      // Assignment UI data: this manager's teams, their students (with current
+      // advisor/tutor), and the advisor & tutor pools within those teams.
+      data.teams_list = await db.all("SELECT id, name FROM teams WHERE manager_id=? ORDER BY name", [user.id]);
+      data.team_students = await db.all(`SELECT u.id,u.name,u.email,u.avatar_color,u.status,u.team_id,u.advisor_id,u.assigned_tutor_id, a.name as advisor_name, t.name as tutor_name, tm.name as team_name FROM users u LEFT JOIN users a ON a.id=u.advisor_id LEFT JOIN users t ON t.id=u.assigned_tutor_id LEFT JOIN teams tm ON tm.id=u.team_id WHERE u.role='student' AND u.team_id IN (${inClause}) ORDER BY u.name`, tids);
+      data.team_advisors = await db.all(`SELECT id,name,team_id FROM users WHERE role='advisor' AND team_id IN (${inClause}) ORDER BY name`, tids);
+      data.team_tutors = await db.all(`SELECT id,name,team_id FROM users WHERE role='tutor' AND team_id IN (${inClause}) ORDER BY name`, tids);
       break;
     }
     case 'superadmin': {
@@ -380,7 +393,7 @@ app.get('/api/portal-data', async (req, res) => {
         active_sessions: (await db.get("SELECT COUNT(*) as c FROM sessions WHERE status IN ('scheduled','live')")).c,
         total_enrollments: (await db.get("SELECT COUNT(*) as c FROM enrollments")).c,
       };
-      data.users = await db.all("SELECT id,name,email,portal,role,status,avatar_color,specialization,created_at FROM users ORDER BY created_at DESC");
+      data.users = await db.all("SELECT id,name,email,portal,role,status,avatar_color,specialization,gender,team_id,advisor_id,assigned_tutor_id,created_at FROM users ORDER BY created_at DESC");
       data.courses = await db.all("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id ORDER BY c.name");
       data.audit_logs = await db.all("SELECT a.*,u.name as user_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 50");
       // Sessions happening right now (status='live'), with who's currently in.
@@ -1253,13 +1266,13 @@ app.get('/api/users', async (req, res) => {
 
 app.post('/api/users', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  const { name, email, role, password, specialization, avatar_color } = req.body;
+  const { name, email, role, password, specialization, avatar_color, gender, team_id } = req.body;
   if (!name || !email || !role) return res.status(400).json({ error: 'Name, email, role required' });
   if (!['student','tutor','advisor','manager','superadmin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (await db.get("SELECT 1 FROM users WHERE email=?", [email])) return res.status(400).json({ error: 'Email exists' });
   const plainPassword = password || 'password123';
   const hash = bcrypt.hashSync(plainPassword, 10);
-  const r = await db.run("INSERT INTO users (name,email,portal,role,password_hash,avatar_color,specialization,must_change_password) VALUES (?,?,?,?,?,?,?,1)", [name, email, role, role, hash, avatar_color || '#4F46E5', specialization || '']);
+  const r = await db.run("INSERT INTO users (name,email,portal,role,password_hash,avatar_color,specialization,gender,team_id,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,1)", [name, email, role, role, hash, avatar_color || '#4F46E5', specialization || '', gender || '', team_id || null]);
   auditLog(user.id, 'create_user', 'user', r.lastInsertRowid, `Created: ${name} (${role})`);
   // Send welcome email (non-blocking, don't fail user creation if email fails)
   const loginUrl = `${req.protocol}://${req.get('host')}/login`;
@@ -1286,11 +1299,12 @@ app.put('/api/users', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   const { id, password, ...fields } = req.body;
   if (!id) return res.status(400).json({ error: 'User ID required' });
-  const allowed = ['name','email','role','status','specialization','avatar_color','payout_rate','payout_type'];
+  const allowed = ['name','email','role','status','specialization','avatar_color','payout_rate','payout_type','gender','team_id','advisor_id','assigned_tutor_id'];
+  const nullable = ['team_id','advisor_id','assigned_tutor_id'];
   const sets = []; const vals = [];
   for (const k of allowed) {
     if (fields[k] !== undefined) {
-      sets.push(`${k}=?`); vals.push(fields[k]);
+      sets.push(`${k}=?`); vals.push(nullable.includes(k) && (fields[k] === '' || fields[k] === null) ? null : fields[k]);
       if (k === 'role') { sets.push('portal=?'); vals.push(fields[k]); }
     }
   }
@@ -1721,6 +1735,170 @@ app.post('/api/contact-enrollments', async (req, res) => {
 app.get('/api/contact-enrollments', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin', 'manager', 'advisor']); if (!user) return;
   res.json(await db.all("SELECT * FROM contact_enrollments ORDER BY created_at DESC"));
+});
+
+// ============================================================
+// Teams, manual assignment & ratings
+// ============================================================
+
+// Team ids a manager owns (helper used for scoping).
+async function managerTeamIds(managerId) {
+  return (await db.all("SELECT id FROM teams WHERE manager_id=?", [managerId])).map((t) => t.id);
+}
+
+// Resolve a student's three rateable people: manager (via team), advisor, tutor.
+async function resolveStudentTeam(student) {
+  const out = { manager: null, advisor: null, tutor: null };
+  const pick = (u) => (u ? { id: u.id, name: u.name, role: u.role, avatar_color: u.avatar_color } : null);
+  if (student.advisor_id) out.advisor = pick(await db.get("SELECT id,name,role,avatar_color FROM users WHERE id=?", [student.advisor_id]));
+  if (student.assigned_tutor_id) out.tutor = pick(await db.get("SELECT id,name,role,avatar_color FROM users WHERE id=?", [student.assigned_tutor_id]));
+  if (student.team_id) {
+    const team = await db.get("SELECT manager_id FROM teams WHERE id=?", [student.team_id]);
+    if (team && team.manager_id) out.manager = pick(await db.get("SELECT id,name,role,avatar_color FROM users WHERE id=?", [team.manager_id]));
+  }
+  return out;
+}
+
+// --- Teams CRUD ---
+app.get('/api/teams', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
+  const where = user.role === 'manager' ? 'WHERE t.manager_id=?' : '';
+  const params = user.role === 'manager' ? [user.id] : [];
+  const teams = await db.all(
+    `SELECT t.*, m.name as manager_name,
+       (SELECT COUNT(*) FROM users u WHERE u.team_id=t.id AND u.role='advisor') as advisors,
+       (SELECT COUNT(*) FROM users u WHERE u.team_id=t.id AND u.role='tutor') as tutors,
+       (SELECT COUNT(*) FROM users u WHERE u.team_id=t.id AND u.role='student') as students
+     FROM teams t LEFT JOIN users m ON m.id=t.manager_id ${where} ORDER BY t.name`, params);
+  res.json(teams);
+});
+
+app.post('/api/teams', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const { name, manager_id } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Team name required' });
+  const r = await db.run("INSERT INTO teams (name, manager_id) VALUES (?,?)", [name.trim(), manager_id || null]);
+  auditLog(user.id, 'create_team', 'team', r.lastInsertRowid, `Created team ${name}`);
+  res.status(201).json({ id: r.lastInsertRowid, message: 'Team created' });
+});
+
+app.put('/api/teams', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const { id, ...fields } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'Team ID required' });
+  const allowed = ['name', 'manager_id', 'status'];
+  const sets = []; const vals = [];
+  for (const k of allowed) { if (fields[k] !== undefined) { sets.push(`${k}=?`); vals.push(fields[k] === '' ? null : fields[k]); } }
+  if (!sets.length) return res.status(400).json({ error: 'No fields' });
+  vals.push(id);
+  await db.run(`UPDATE teams SET ${sets.join(',')} WHERE id=?`, vals);
+  auditLog(user.id, 'update_team', 'team', id);
+  res.json({ message: 'Team updated' });
+});
+
+app.delete('/api/teams', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'Team ID required' });
+  await db.tx(async (t) => {
+    // Detach members and clear student assignments tied to this team.
+    await t.run("UPDATE users SET team_id=NULL WHERE team_id=?", [id]);
+    await t.run("DELETE FROM teams WHERE id=?", [id]);
+  });
+  auditLog(user.id, 'delete_team', 'team', id);
+  res.json({ message: 'Team deleted' });
+});
+
+// --- Assignment: set a student's team / advisor / tutor ---
+app.post('/api/assignments', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
+  const { student_id, team_id, advisor_id, assigned_tutor_id } = req.body || {};
+  if (!student_id) return res.status(400).json({ error: 'student_id required' });
+  const student = await db.get("SELECT id, role, team_id FROM users WHERE id=?", [student_id]);
+  if (!student || student.role !== 'student') return res.status(404).json({ error: 'Student not found' });
+
+  // Managers may only touch their own team's students, and may only assign
+  // advisors/tutors that belong to one of their teams.
+  if (user.role === 'manager') {
+    const myTeams = await managerTeamIds(user.id);
+    if (!myTeams.includes(student.team_id)) return res.status(403).json({ error: 'Student is not in your team' });
+    for (const [field, val] of [['advisor', advisor_id], ['tutor', assigned_tutor_id]]) {
+      if (val) {
+        const u = await db.get("SELECT team_id, role FROM users WHERE id=?", [val]);
+        if (!u || !myTeams.includes(u.team_id)) return res.status(400).json({ error: `Selected ${field} is not in your team` });
+      }
+    }
+  }
+
+  const sets = []; const vals = [];
+  if (team_id !== undefined) { sets.push('team_id=?'); vals.push(team_id || null); }
+  if (advisor_id !== undefined) { sets.push('advisor_id=?'); vals.push(advisor_id || null); }
+  if (assigned_tutor_id !== undefined) { sets.push('assigned_tutor_id=?'); vals.push(assigned_tutor_id || null); }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to assign' });
+  vals.push(student_id);
+  await db.run(`UPDATE users SET ${sets.join(',')} WHERE id=?`, vals);
+  auditLog(user.id, 'assign_student', 'user', student_id, 'Updated team/advisor/tutor assignment');
+  res.json({ message: 'Assignment saved' });
+});
+
+// --- Ratings ---
+// Student view: their three people + their current rating of each.
+app.get('/api/my-team', async (req, res) => {
+  const user = await requireRole(req, res, ['student']); if (!user) return;
+  const student = await db.get("SELECT id, team_id, advisor_id, assigned_tutor_id FROM users WHERE id=?", [user.id]);
+  const people = await resolveStudentTeam(student);
+  const mine = await db.all("SELECT ratee_id, stars, comment FROM ratings WHERE student_id=?", [user.id]);
+  const byId = Object.fromEntries(mine.map((r) => [r.ratee_id, { stars: r.stars, comment: r.comment }]));
+  const attach = (p) => (p ? { ...p, my_rating: byId[p.id] || null } : null);
+  res.json({ manager: attach(people.manager), advisor: attach(people.advisor), tutor: attach(people.tutor) });
+});
+
+// Student submits/updates a rating (re-ratable; one live row per pair).
+app.post('/api/ratings', async (req, res) => {
+  const user = await requireRole(req, res, ['student']); if (!user) return;
+  const { ratee_id, ratee_role, stars, comment } = req.body || {};
+  const s = parseInt(stars);
+  if (!ratee_id || !(s >= 1 && s <= 5)) return res.status(400).json({ error: 'ratee_id and stars (1-5) required' });
+  // Only allow rating one of the student's resolved manager/advisor/tutor.
+  const student = await db.get("SELECT id, team_id, advisor_id, assigned_tutor_id FROM users WHERE id=?", [user.id]);
+  const people = await resolveStudentTeam(student);
+  const allowedIds = [people.manager, people.advisor, people.tutor].filter(Boolean).map((p) => p.id);
+  if (!allowedIds.includes(ratee_id)) return res.status(403).json({ error: 'You can only rate your assigned manager, advisor or tutor' });
+  const role = ['manager', 'advisor', 'tutor'].includes(ratee_role) ? ratee_role : '';
+  await db.run(
+    `INSERT INTO ratings (student_id, ratee_id, ratee_role, stars, comment) VALUES (?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE stars=VALUES(stars), comment=VALUES(comment), ratee_role=VALUES(ratee_role)`,
+    [user.id, ratee_id, role, s, comment || '']
+  );
+  auditLog(user.id, 'submit_rating', 'user', ratee_id, `${s}★`);
+  res.json({ message: 'Rating saved' });
+});
+
+// Aggregated ratings — superadmin sees all; manager sees their team's people.
+app.get('/api/ratings', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
+  let scope = '';
+  let params = [];
+  if (user.role === 'manager') {
+    const myTeams = await managerTeamIds(user.id);
+    const tids = myTeams.length ? myTeams : [0];
+    const inClause = tids.map(() => '?').join(',');
+    // The manager themself + advisors/tutors in their teams.
+    scope = `AND (u.id=? OR u.team_id IN (${inClause}))`;
+    params = [user.id, ...tids];
+  }
+  const rows = await db.all(
+    `SELECT u.id, u.name, u.role, u.avatar_color,
+        ROUND(AVG(r.stars),2) as avg_stars, COUNT(r.id) as rating_count
+     FROM ratings r JOIN users u ON u.id=r.ratee_id
+     WHERE 1=1 ${scope}
+     GROUP BY u.id ORDER BY avg_stars DESC`, params);
+  // Per-person detail (each student's rating).
+  const detail = await db.all(
+    `SELECT r.ratee_id, r.stars, r.comment, r.updated_at, s.name as student_name
+     FROM ratings r JOIN users u ON u.id=r.ratee_id JOIN users s ON s.id=r.student_id
+     WHERE 1=1 ${scope} ORDER BY r.updated_at DESC`, params);
+  res.json({ people: rows, detail });
 });
 
 // ============================================================

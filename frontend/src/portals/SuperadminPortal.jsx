@@ -8,6 +8,7 @@ import Calendar from '../components/Calendar';
 import SessionCard from '../components/SessionCard';
 import SessionRoom from '../components/SessionRoom';
 import { MainSkeleton } from '../components/Skeleton';
+import RatingsView from '../components/RatingsView';
 import usePersistedTab from '../hooks/usePersistedTab';
 
 // Simple horizontal bar chart built from the existing .stats-bars styles
@@ -50,6 +51,11 @@ export default function SuperadminPortal() {
   const [allTutors, setAllTutors] = useState([]);
   const [allCourses, setAllCourses] = useState([]);
   const [allEnrollments, setAllEnrollments] = useState([]);
+  // Teams
+  const [teams, setTeams] = useState([]);
+  const [showTeamForm, setShowTeamForm] = useState(false);
+  const [editingTeam, setEditingTeam] = useState(null);
+  const [teamForm, setTeamForm] = useState({ name: '', manager_id: '' });
   const [allSessions, setAllSessions] = useState([]);
   const [allAttendance, setAllAttendance] = useState([]);
   const [allTimeSlots, setAllTimeSlots] = useState([]);
@@ -69,7 +75,7 @@ export default function SuperadminPortal() {
   // Modals
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [userForm, setUserForm] = useState({ name: '', email: '', role: 'student', password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly', course_id: '', new_course_name: '' });
+  const [userForm, setUserForm] = useState({ name: '', email: '', role: 'student', password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly', gender: '', team_id: '', course_id: '', new_course_name: '' });
   const [showUserPassword, setShowUserPassword] = useState(false);
   const [courseDraft, setCourseDraft] = useState('');
   const [addingCourse, setAddingCourse] = useState(false);
@@ -292,6 +298,8 @@ export default function SuperadminPortal() {
     if (activeTab === 'courses' && allCourses.length === 0) api.getCourses().then(setAllCourses).catch(() => {});
     if (activeTab === 'courses' && categories.length === 0) api.getCategories().then(setCategories).catch(() => {});
     if (activeTab === 'enrollments' && allEnrollments.length === 0) api.getEnrollments().then(setAllEnrollments).catch(() => {});
+    // Teams list — needed by the Teams tab AND the team selector in the user form.
+    if (['teams', 'students', 'tutors', 'users'].includes(activeTab) && teams.length === 0) api.getTeams().then(setTeams).catch(() => {});
     if (activeTab === 'sessions' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'attendance' && allAttendance.length === 0) api.getAttendanceLogs().then(setAllAttendance).catch(() => {});
     if (activeTab === 'timeslots') api.getAvailability().then(setAllTimeSlots).catch(() => {});
@@ -339,7 +347,7 @@ export default function SuperadminPortal() {
 
   const openCreateUser = (role = 'student') => {
     setEditingUser(null);
-    setUserForm({ name: '', email: '', role, password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly', course_id: '', new_course_name: '' });
+    setUserForm({ name: '', email: '', role, password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly', gender: '', team_id: '', course_id: '', new_course_name: '' });
     setCourseDraft('');
     setAddingCourse(false);
     setShowUserPassword(false);
@@ -349,7 +357,7 @@ export default function SuperadminPortal() {
 
   const openEditUser = (user) => {
     setEditingUser(user);
-    setUserForm({ name: user.name, email: user.email, role: user.role, password: '', specialization: user.specialization || '', avatar_color: user.avatar_color, status: user.status, payout_rate: user.payout_rate || 0, payout_type: user.payout_type || 'monthly', course_id: '', new_course_name: '' });
+    setUserForm({ name: user.name, email: user.email, role: user.role, password: '', specialization: user.specialization || '', avatar_color: user.avatar_color, status: user.status, payout_rate: user.payout_rate || 0, payout_type: user.payout_type || 'monthly', gender: user.gender || '', team_id: user.team_id || '', course_id: '', new_course_name: '' });
     setCourseDraft('');
     setAddingCourse(false);
     setShowUserPassword(false);
@@ -406,6 +414,32 @@ export default function SuperadminPortal() {
       api.getStudents().then(setAllStudents);
       api.getTutors().then(setAllTutors);
       api.getCourses().then(setAllCourses).catch(() => {});
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  // ===== TEAMS =====
+  const openCreateTeam = () => { setEditingTeam(null); setTeamForm({ name: '', manager_id: '' }); setShowTeamForm(true); };
+  const openEditTeam = (team) => { setEditingTeam(team); setTeamForm({ name: team.name, manager_id: team.manager_id || '' }); setShowTeamForm(true); };
+  const saveTeam = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingTeam) {
+        await api.updateTeam({ id: editingTeam.id, ...teamForm });
+        showMsg('Team updated', 'success');
+      } else {
+        await api.createTeam(teamForm);
+        showMsg('Team created', 'success');
+      }
+      setShowTeamForm(false);
+      api.getTeams().then(setTeams).catch(() => {});
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+  const deleteTeam = async (id) => {
+    if (!confirm('Delete this team? Members will be unassigned from it.')) return;
+    try {
+      await api.deleteTeam(id);
+      showMsg('Team deleted', 'success');
+      api.getTeams().then(setTeams).catch(() => {});
     } catch (err) { showMsg(err.message, 'error'); }
   };
 
@@ -1126,7 +1160,25 @@ export default function SuperadminPortal() {
               <label>Avatar Color</label>
               <input type="color" value={userForm.avatar_color} onChange={(e) => setUserForm({ ...userForm, avatar_color: e.target.value })} />
             </div>
+            <div className="form-group">
+              <label>Gender</label>
+              <select value={userForm.gender || ''} onChange={(e) => setUserForm({ ...userForm, gender: e.target.value })}>
+                <option value="">— Not set —</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
           </div>
+          {userForm.role !== 'superadmin' && (
+            <div className="form-group">
+              <label>Team</label>
+              <select value={userForm.team_id || ''} onChange={(e) => setUserForm({ ...userForm, team_id: e.target.value })}>
+                <option value="">— No team —</option>
+                {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+          )}
           {userForm.role === 'tutor' && (
             <div className="form-row">
               <div className="form-group">
@@ -1671,6 +1723,42 @@ export default function SuperadminPortal() {
         {message && <div className={`alert alert-${msgType}`} onClick={() => setMessage('')}>{message}</div>}
         {userFormModal}
 
+        {showTeamForm && (
+          <div className="modal-overlay" onClick={() => setShowTeamForm(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
+              <h3>{editingTeam ? 'Edit Team' : 'Add Team'}</h3>
+              <form onSubmit={saveTeam}>
+                <div className="form-group">
+                  <label>Team Name</label>
+                  <input value={teamForm.name} onChange={(e) => setTeamForm({ ...teamForm, name: e.target.value })} required placeholder="e.g. Team 1" />
+                </div>
+                <div className="form-group">
+                  <label>Manager</label>
+                  <select value={teamForm.manager_id || ''} onChange={(e) => setTeamForm({ ...teamForm, manager_id: e.target.value })}>
+                    <option value="">— Unassigned —</option>
+                    {(data?.users || []).filter((u) => u.role === 'manager').map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                </div>
+                {editingTeam && (
+                  <div className="form-group">
+                    <label>Status</label>
+                    <select value={teamForm.status || editingTeam.status || 'active'} onChange={(e) => setTeamForm({ ...teamForm, status: e.target.value })}>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
+                )}
+                <div className="form-actions">
+                  <button type="button" className="btn btn-ghost" onClick={() => setShowTeamForm(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary">{editingTeam ? 'Update' : 'Create'}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {inviteResult && (
           <div className="modal-overlay" onClick={() => setInviteResult(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
@@ -2025,6 +2113,40 @@ export default function SuperadminPortal() {
             <DataTable columns={enrollColumns} data={allEnrollments} pageSize={15} selectable onBulkAction={bulkDeleteEnrollments} bulkActionLabel="Delete Selected" />
           </div>
         )}
+
+        {/* ===== TEAMS ===== */}
+        {activeTab === 'teams' && (
+          <div className="portal-page">
+            <div className="page-header">
+              <h2>Teams</h2>
+              <button className="btn btn-primary" onClick={openCreateTeam}>+ Add Team</button>
+            </div>
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
+              Each team is owned by a manager. Assign advisors, tutors and students to a team via their user profile.
+            </p>
+            <DataTable
+              columns={[
+                { key: 'name', label: 'Team', accessor: 'name', render: (r) => <strong>{r.name}</strong> },
+                { key: 'manager', label: 'Manager', accessor: 'manager_name', render: (r) => r.manager_name || <span style={{ color: 'var(--color-text-secondary)' }}>Unassigned</span> },
+                { key: 'advisors', label: 'Advisors', accessor: 'advisors' },
+                { key: 'tutors', label: 'Tutors', accessor: 'tutors' },
+                { key: 'students', label: 'Students', accessor: 'students' },
+                { key: 'status', label: 'Status', accessor: 'status' },
+                { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
+                  <div className="table-actions">
+                    <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); openEditTeam(r); }}>Edit</button>
+                    <button className="btn btn-sm btn-ghost text-danger" onClick={(e) => { e.stopPropagation(); deleteTeam(r.id); }}>Delete</button>
+                  </div>
+                )},
+              ]}
+              data={teams}
+              pageSize={15}
+            />
+          </div>
+        )}
+
+        {/* ===== RATINGS ===== */}
+        {activeTab === 'ratings' && <RatingsView />}
 
         {/* ===== MEETINGS ===== */}
         {activeTab === 'meetings' && (

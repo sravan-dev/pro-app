@@ -12,6 +12,10 @@ CREATE TABLE IF NOT EXISTS users (
   specialization VARCHAR(255) DEFAULT '',
   status VARCHAR(20) NOT NULL DEFAULT 'active',
   avatar_color VARCHAR(20) DEFAULT '#4F46E5',
+  gender VARCHAR(20) DEFAULT '',
+  team_id INT NULL,
+  advisor_id INT NULL,
+  assigned_tutor_id INT NULL,
   password_hash VARCHAR(255) NOT NULL,
   must_change_password TINYINT DEFAULT 0,
   payout_rate DOUBLE DEFAULT 0,
@@ -202,6 +206,32 @@ CREATE TABLE IF NOT EXISTS app_settings (
   zoom_client_id VARCHAR(255) DEFAULT '',
   zoom_client_secret VARCHAR(255) DEFAULT '',
   hubspot_token TEXT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Teams — a configurable unit owned by one manager. Advisors, tutors and
+-- students belong to a team via users.team_id. Superadmin manages these.
+CREATE TABLE IF NOT EXISTS teams (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  manager_id INT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_teams_manager (manager_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Ratings — a student rates their Manager, Advisor and Tutor (1-5 + comment).
+-- Re-ratable: one live row per (student, ratee), upserted on uq_rating.
+CREATE TABLE IF NOT EXISTS ratings (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  student_id INT NOT NULL,
+  ratee_id INT NOT NULL,
+  ratee_role VARCHAR(20) NOT NULL,
+  stars INT NOT NULL,
+  comment TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_rating (student_id, ratee_id),
+  INDEX idx_rating_ratee (ratee_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Contact enrollments — an intimation created when a superadmin enrolls a

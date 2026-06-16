@@ -143,6 +143,11 @@ async function initSchema() {
   await addColumnIfMissing('users', 'payout_rate', 'payout_rate DOUBLE DEFAULT 0');
   await addColumnIfMissing('users', 'payout_type', "payout_type VARCHAR(20) DEFAULT 'monthly'");
   await addColumnIfMissing('users', 'avatar_url', "avatar_url VARCHAR(512) DEFAULT ''");
+  // Teams / assignment hierarchy + gender (manual assignment, ratings).
+  await addColumnIfMissing('users', 'gender', "gender VARCHAR(20) DEFAULT ''");
+  await addColumnIfMissing('users', 'team_id', 'team_id INT NULL');
+  await addColumnIfMissing('users', 'advisor_id', 'advisor_id INT NULL');
+  await addColumnIfMissing('users', 'assigned_tutor_id', 'assigned_tutor_id INT NULL');
   await addColumnIfMissing('app_settings', 'video_provider', "video_provider VARCHAR(20) DEFAULT 'livekit'");
   await addColumnIfMissing('app_settings', 'zoom_account_id', "zoom_account_id VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('app_settings', 'zoom_client_id', "zoom_client_id VARCHAR(255) DEFAULT ''");

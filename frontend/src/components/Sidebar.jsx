@@ -9,6 +9,7 @@ const menuItems = {
     { key: 'courses', label: 'My Courses', icon: 'book' },
     { key: 'sessions', label: 'Sessions', icon: 'video' },
     { key: 'booktutor', label: 'Book a Tutor', icon: 'clock' },
+    { key: 'myteam', label: 'My Team', icon: 'star' },
     { key: 'grades', label: 'Grades', icon: 'award' },
   ],
   tutor: [
@@ -28,7 +29,9 @@ const menuItems = {
   ],
   manager: [
     { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
-    { key: 'teams', label: 'Teams', icon: 'users' },
+    { key: 'teams', label: 'Team Performance', icon: 'users' },
+    { key: 'myteam', label: 'My Team', icon: 'users' },
+    { key: 'ratings', label: 'Ratings', icon: 'star' },
     { key: 'enrolls', label: 'Enrolls', icon: 'layers' },
     { key: 'reports', label: 'Reports', icon: 'bar-chart' },
   ],
@@ -39,6 +42,8 @@ const menuItems = {
     { key: 'tutors', label: 'Tutors', icon: 'tutor' },
     { key: 'users', label: 'All Users', icon: 'users' },
     { key: 'courses', label: 'Courses', icon: 'book' },
+    { key: 'teams', label: 'Teams', icon: 'users' },
+    { key: 'ratings', label: 'Ratings', icon: 'star' },
     { key: 'enrollments', label: 'Enrollments', icon: 'layers' },
     { key: 'meetings', label: 'Meetings', icon: 'link' },
     { key: 'sessions', label: 'Sessions', icon: 'video' },
@@ -79,6 +84,7 @@ const iconMap = {
   plug: <Svg><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0z" /><path d="M12 17v5" /></Svg>,
   link: <Svg><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></Svg>,
   clock: <Svg><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></Svg>,
+  star: <Svg><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></Svg>,
 };
 
 export default function Sidebar({ activeTab, onTabChange }) {

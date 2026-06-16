@@ -8,6 +8,7 @@ import SessionCard from '../components/SessionCard';
 import Calendar from '../components/Calendar';
 import DataTable from '../components/DataTable';
 import SessionRoom from '../components/SessionRoom';
+import MyTeamRating from '../components/MyTeamRating';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
 
@@ -318,6 +319,8 @@ export default function StudentPortal() {
             </div>
           </div>
         )}
+
+        {activeTab === 'myteam' && <MyTeamRating />}
 
         {activeTab === 'grades' && (
           <div className="portal-page">

@@ -103,7 +103,8 @@ export default function AdvisorPortal() {
 
         {activeTab === 'students' && (
           <div className="portal-page">
-            <h2>All Students</h2>
+            <h2>My Students</h2>
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>Students assigned to you.</p>
             <DataTable columns={studentColumns} data={students} pageSize={15} />
           </div>
         )}
