@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import KPICard from '../components/KPICard';
 import DataTable from '../components/DataTable';
+import ContactEnrollments from '../components/ContactEnrollments';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
 
@@ -106,6 +107,8 @@ export default function AdvisorPortal() {
             <DataTable columns={studentColumns} data={students} pageSize={15} />
           </div>
         )}
+
+        {activeTab === 'enrolls' && <ContactEnrollments />}
 
         {activeTab === 'reports' && (
           <div className="portal-page">

@@ -23,11 +23,13 @@ const menuItems = {
   advisor: [
     { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
     { key: 'students', label: 'Students', icon: 'users' },
+    { key: 'enrolls', label: 'Enrolls', icon: 'layers' },
     { key: 'reports', label: 'Reports', icon: 'bar-chart' },
   ],
   manager: [
     { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
     { key: 'teams', label: 'Teams', icon: 'users' },
+    { key: 'enrolls', label: 'Enrolls', icon: 'layers' },
     { key: 'reports', label: 'Reports', icon: 'bar-chart' },
   ],
   superadmin: [

@@ -1671,6 +1671,59 @@ app.get('/api/hubspot/contacts', async (req, res) => {
 });
 
 // ============================================================
+// Contact enrollments — intimations to managers & advisors
+// ============================================================
+// Record an enrollment for a HubSpot contact and email every manager & advisor.
+app.post('/api/contact-enrollments', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const { hubspot_contact_id, name, email, phone, company, stage } = req.body || {};
+  if (!name && !email) return res.status(400).json({ error: 'Contact name or email is required' });
+
+  const r = await db.run(
+    `INSERT INTO contact_enrollments
+      (hubspot_contact_id, contact_name, contact_email, contact_phone, contact_company, contact_stage, enrolled_by, enrolled_by_name, status)
+     VALUES (?,?,?,?,?,?,?,?, 'pending')`,
+    [hubspot_contact_id || '', name || '', email || '', phone || '', company || '', stage || '', user.id, user.name]
+  );
+  const enrollId = r.lastInsertRowid;
+  auditLog(user.id, 'enroll_contact', 'contact_enrollment', enrollId, `Enrolled ${name || email}`);
+
+  // Intimation → every manager & advisor with an email address.
+  const recipients = await db.all(
+    "SELECT name, email FROM users WHERE role IN ('manager','advisor') AND status!='inactive' AND email IS NOT NULL AND email!=''"
+  );
+  const subject = `New Enrollment: ${name || email}`;
+  let emailed = 0;
+  for (const rec of recipients) {
+    const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+      <h2 style="color:#E97A2B;margin-bottom:4px">New Contact Enrolled</h2>
+      <p style="color:#555;margin-top:0">Hello <strong>${rec.name}</strong>, a contact was just enrolled from the HubSpot Contacts module.</p>
+      <table style="border-collapse:collapse;width:100%;margin:16px 0">
+        <tr><td style="padding:6px 10px;color:#888">Name</td><td style="padding:6px 10px;font-weight:600">${name || '—'}</td></tr>
+        <tr><td style="padding:6px 10px;color:#888">Email</td><td style="padding:6px 10px">${email || '—'}</td></tr>
+        <tr><td style="padding:6px 10px;color:#888">Phone</td><td style="padding:6px 10px">${phone || '—'}</td></tr>
+        <tr><td style="padding:6px 10px;color:#888">Company</td><td style="padding:6px 10px">${company || '—'}</td></tr>
+        <tr><td style="padding:6px 10px;color:#888">Stage</td><td style="padding:6px 10px">${stage || '—'}</td></tr>
+        <tr><td style="padding:6px 10px;color:#888">Enrolled by</td><td style="padding:6px 10px">${user.name}</td></tr>
+      </table>
+      <p style="color:#888;font-size:13px">Open the <strong>Enrolls</strong> tab in your portal to review this enrollment.</p>
+      <hr style="border:none;border-top:1px solid #eee;margin:20px 0"/>
+      <p style="color:#aaa;font-size:12px">Tiju's Academy LMS</p>
+    </div>`;
+    const result = await sendEmail(rec.email, subject, html);
+    if (result.sent) emailed++;
+  }
+  await db.run("UPDATE contact_enrollments SET notified=? WHERE id=?", [emailed, enrollId]);
+  res.status(201).json({ message: 'Contact enrolled', enrollment_id: enrollId, recipients: recipients.length, emailed });
+});
+
+// List intimations — feeds the "Enrolls" tab for managers, advisors & superadmin.
+app.get('/api/contact-enrollments', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager', 'advisor']); if (!user) return;
+  res.json(await db.all("SELECT * FROM contact_enrollments ORDER BY created_at DESC"));
+});
+
+// ============================================================
 // Database export / import (MySQL)
 // ============================================================
 // Render a value as a SQL literal for the dump.

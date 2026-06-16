@@ -181,6 +181,10 @@ export const api = {
     return request(`/hubspot/contacts${qs ? `?${qs}` : ''}`);
   },
 
+  // Contact enrollment intimations (notifies managers & advisors)
+  createContactEnrollment: (contact) => request('/contact-enrollments', { method: 'POST', body: contact }),
+  getContactEnrollments: () => request('/contact-enrollments'),
+
   // SMTP Settings
   getSmtpSettings: () => request('/smtp-settings'),
   saveSmtpSettings: (data) => request('/smtp-settings', { method: 'POST', body: data }),

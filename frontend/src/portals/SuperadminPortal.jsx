@@ -706,12 +706,33 @@ export default function SuperadminPortal() {
   // Enroll a HubSpot contact. If a student already matches the contact's email,
   // jump straight to the enrollment modal; otherwise open a confirm modal that
   // offers to create a student account first.
+  // Record the enrollment intimation and notify all managers & advisors.
+  // Fire-and-forget: a failure here shouldn't block the enrollment itself.
+  const notifyContactEnroll = async (contact) => {
+    try {
+      const r = await api.createContactEnrollment({
+        hubspot_contact_id: contact.id,
+        name: contact.name && contact.name !== '—' ? contact.name : '',
+        email: contact.email || '',
+        phone: contact.phone || '',
+        company: contact.company || '',
+        stage: contact.lifecycle_stage || '',
+      });
+      const who = r.emailed > 0
+        ? `${r.emailed} of ${r.recipients} emailed`
+        : `${r.recipients} notified in-app`;
+      showMsg(`Managers & advisors intimated (${who}).`, 'success');
+    } catch (err) {
+      showMsg(`Enrolled, but intimation failed: ${err.message}`, 'error');
+    }
+  };
+
   const enrollContact = (contact) => {
     const email = (contact.email || '').trim();
     const student = email
       ? students.find((s) => (s.email || '').toLowerCase() === email.toLowerCase())
       : null;
-    if (student) { openEnrollFor(student.id); return; }
+    if (student) { notifyContactEnroll(contact); openEnrollFor(student.id); return; }
     if (!email) { showMsg('This contact has no email — add one in HubSpot before enrolling.', 'error'); return; }
     setPendingEnrollContact(contact); // styled confirm modal handles the rest
   };
@@ -728,6 +749,7 @@ export default function SuperadminPortal() {
       await fetchData();                                  // refresh users so the dropdown has the new student
       await api.getStudents().then(setAllStudents).catch(() => {});
       showMsg('Student account created', 'success');
+      notifyContactEnroll(contact);                       // intimate managers & advisors
       setPendingEnrollContact(null);
       openEnrollFor(created.id);
     } catch (err) {

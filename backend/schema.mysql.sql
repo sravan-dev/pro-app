@@ -203,3 +203,22 @@ CREATE TABLE IF NOT EXISTS app_settings (
   zoom_client_secret VARCHAR(255) DEFAULT '',
   hubspot_token TEXT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Contact enrollments — an intimation created when a superadmin enrolls a
+-- HubSpot contact. Emailed to all managers & advisors and listed under their
+-- "Enrolls" tab.
+CREATE TABLE IF NOT EXISTS contact_enrollments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  hubspot_contact_id VARCHAR(64) DEFAULT '',
+  contact_name VARCHAR(255) DEFAULT '',
+  contact_email VARCHAR(255) DEFAULT '',
+  contact_phone VARCHAR(64) DEFAULT '',
+  contact_company VARCHAR(255) DEFAULT '',
+  contact_stage VARCHAR(64) DEFAULT '',
+  enrolled_by INT,
+  enrolled_by_name VARCHAR(255) DEFAULT '',
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  notified INT DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_contact_enroll_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
