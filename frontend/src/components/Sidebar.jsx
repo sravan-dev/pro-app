@@ -91,6 +91,7 @@ export default function Sidebar({ activeTab, onTabChange }) {
   const { user, logout, checkSession } = useAuth();
   const navigate = useNavigate();
   const items = menuItems[user?.role] || [];
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -141,7 +142,29 @@ export default function Sidebar({ activeTab, onTabChange }) {
   };
 
   return (
-    <aside className="sidebar">
+    <>
+      {/* Mobile-only top bar with the hamburger toggle. */}
+      <div className="mobile-topbar">
+        <button
+          type="button"
+          className="mobile-menu-btn"
+          onClick={() => setMobileOpen((v) => !v)}
+          aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={mobileOpen}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {mobileOpen
+              ? <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>
+              : <><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="18" x2="21" y2="18" /></>}
+          </svg>
+        </button>
+        <img src="/logo.png" alt="Tiju's Academy" className="mobile-topbar-logo" />
+      </div>
+
+      {/* Backdrop closes the drawer when tapped (mobile only). */}
+      {mobileOpen && <div className="sidebar-backdrop" onClick={() => setMobileOpen(false)} />}
+
+    <aside className={`sidebar ${mobileOpen ? 'open' : ''}`}>
       <div className="sidebar-header">
         <img src="/logo.png" alt="Tiju's Academy" className="sidebar-logo" />
       </div>
@@ -151,7 +174,7 @@ export default function Sidebar({ activeTab, onTabChange }) {
           <button
             key={item.key}
             className={`sidebar-item ${activeTab === item.key ? 'active' : ''}`}
-            onClick={() => onTabChange(item.key)}
+            onClick={() => { onTabChange(item.key); setMobileOpen(false); }}
           >
             <span className="sidebar-icon">{iconMap[item.icon] || <Svg><circle cx="12" cy="12" r="3" /></Svg>}</span>
             <span className="sidebar-label">{item.label}</span>
@@ -253,5 +276,6 @@ export default function Sidebar({ activeTab, onTabChange }) {
         </div>
       )}
     </aside>
+    </>
   );
 }

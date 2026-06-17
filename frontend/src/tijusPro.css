@@ -183,6 +183,16 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
 }
 .sidebar-gear:hover { background: rgba(239,68,68,0.18); color: #fff; }
 
+/* Mobile top bar + drawer toggle (hidden on desktop, shown via media query) */
+.mobile-topbar { display: none; }
+.mobile-menu-btn {
+  background: transparent; border: none; color: #fff; cursor: pointer;
+  padding: 6px; border-radius: 8px; display: inline-flex; line-height: 0;
+}
+.mobile-menu-btn:hover { background: rgba(255,255,255,0.12); }
+.mobile-topbar-logo { height: 28px; width: auto; }
+.sidebar-backdrop { display: none; }
+
 /* ========================================
    Avatar
    ======================================== */
@@ -977,15 +987,25 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
    Responsive
    ======================================== */
 @media (max-width: 768px) {
-  :root { --sidebar-width: 64px; }
-  .sidebar-user-info, .sidebar-label, .sidebar-logo, .sidebar-subtitle, .sidebar-user-email { display: none; }
-  .sidebar { padding: 10px 8px; }
-  .sidebar-header { padding: 0.5rem 0; text-align: center; }
-  .sidebar-userbar { justify-content: center; }
-  .sidebar-user-card { justify-content: center; padding: 6px; }
-  .sidebar-item { justify-content: center; padding: 0.7rem; }
-  .sidebar-icon { width: auto; }
-  .portal-content { padding: 1rem; }
+  /* Show the top bar with the hamburger; sidebar becomes a slide-in drawer. */
+  .mobile-topbar {
+    display: flex; align-items: center; gap: 12px;
+    position: fixed; top: 0; left: 0; right: 0; height: 56px;
+    background: var(--color-sidebar); padding: 0 12px; z-index: 90;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+  .portal-content { margin-left: 0; padding: 1rem; padding-top: 72px; }
+  .sidebar {
+    width: 260px;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: 2px 0 20px rgba(0,0,0,0.25);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-backdrop {
+    display: block; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45); z-index: 99;
+  }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .card-grid { grid-template-columns: 1fr; }
   .data-table-search { width: 100%; }
@@ -995,16 +1015,6 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
 
 @media (max-width: 480px) {
   .kpi-grid { grid-template-columns: 1fr; }
-  .portal-content { margin-left: 0; padding-bottom: 70px; }
-  .sidebar {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    top: auto; width: 100%; height: 60px;
-    flex-direction: row; overflow-x: auto; padding: 0;
-  }
-  .sidebar-header, .sidebar-footer { display: none; }
-  .sidebar-nav { display: flex; flex-direction: row; padding: 0; align-items: center; }
-  .sidebar-item { padding: 0.5rem 1rem; flex-direction: column; gap: 0.2rem; font-size: 0.7rem; }
-  .sidebar-item.active { border-right: none; border-top: 3px solid var(--color-sidebar-active); }
-  .sidebar-label { display: block; }
+  .sidebar { width: 82vw; max-width: 300px; }
   .calendar-cell { min-height: 50px; }
 }
