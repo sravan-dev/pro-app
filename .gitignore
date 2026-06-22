@@ -4,5 +4,6 @@ frontend/dist/
 backend/uploads/recordings/*
 !backend/uploads/recordings/.gitkeep
 .DS_Store
+desktop.ini
 *.log
 .env

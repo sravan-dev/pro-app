@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Student Onboarding &amp; Allocation Workflow</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    color: #1f2937;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  h1, h2, h3 { margin: 0; }
+  .cover {
+    border-left: 8px solid #E97A2B;
+    padding: 4px 0 4px 18px;
+    margin-bottom: 22px;
+  }
+  .cover .brand { color: #E97A2B; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; font-size: 12px; }
+  .cover h1 { font-size: 26px; margin: 6px 0 4px; color: #111827; }
+  .cover .sub { color: #6b7280; font-size: 13px; }
+  .meta { color: #9ca3af; font-size: 11px; margin-top: 6px; }
+
+  .lead { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 12px 14px; margin-bottom: 20px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 22px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 11px; font-size: 11px; font-weight: 600; }
+  .chip .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .c-sales { background: #eef2ff; color: #4338ca; }   .c-sales .dot { background: #6366f1; }
+  .c-mgr   { background: #ecfeff; color: #0e7490; }    .c-mgr .dot { background: #06b6d4; }
+  .c-adv   { background: #f5f3ff; color: #6d28d9; }    .c-adv .dot { background: #8b5cf6; }
+  .c-tutor { background: #ecfdf5; color: #047857; }    .c-tutor .dot { background: #10b981; }
+  .c-stu   { background: #eff6ff; color: #1d4ed8; }    .c-stu .dot { background: #3b82f6; }
+
+  .phase { margin-bottom: 20px; break-inside: avoid; }
+  .phase-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .phase-num { background: #E97A2B; color: #fff; width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; flex-shrink: 0; }
+  .phase-head h2 { font-size: 16px; color: #111827; }
+  .phase-head .tag { color: #9ca3af; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+
+  .steps { list-style: none; padding: 0; margin: 0; }
+  .step { position: relative; padding: 0 0 14px 30px; border-left: 2px solid #fde0c4; }
+  .step:last-child { border-left-color: transparent; padding-bottom: 2px; }
+  .step .node { position: absolute; left: -8px; top: 1px; width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 3px solid #E97A2B; }
+  .step .title { font-weight: 700; color: #111827; }
+  .step .who { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+  .who.sales { color: #6366f1; } .who.mgr { color: #06b6d4; } .who.adv { color: #8b5cf6; }
+  .who.tutor { color: #10b981; } .who.stu { color: #3b82f6; } .who.sys { color: #E97A2B; }
+  .step p { margin: 2px 0 0; color: #374151; }
+
+  .ratings { break-inside: avoid; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; margin-top: 6px; background: #fafafa; }
+  .ratings h2 { font-size: 16px; color: #111827; margin-bottom: 4px; }
+  .ratings .stars { color: #f59e0b; letter-spacing: 2px; font-size: 15px; }
+  .rate-targets { display: flex; gap: 10px; margin-top: 10px; }
+  .rate-card { flex: 1; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; text-align: center; }
+  .rate-card .role { font-weight: 700; }
+  .rate-card .stars { display: block; margin-top: 4px; }
+
+  .note { margin-top: 22px; font-size: 10.5px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 10px; }
+  .note b { color: #374151; }
+  .foot { margin-top: 8px; text-align: center; color: #9ca3af; font-size: 10px; }
+</style>
+</head>
+<body>
+
+  <div class="cover">
+    <div class="brand">Tiju's Academy &middot; LMS</div>
+    <h1>Student Onboarding &amp; Allocation Workflow</h1>
+    <div class="sub">From admission to dual-support learning &mdash; teams, advising, tutoring &amp; feedback</div>
+    <div class="meta">Process reference document</div>
+  </div>
+
+  <div class="lead">
+    This workflow describes how a new student moves from <b>admission</b> through <b>team allocation</b>,
+    <b>advising</b>, and into <b>individual classes</b> with a dual-support model, closing with a
+    <b>rating system</b> for the people who serve them. Roles are colour-coded below.
+  </div>
+
+  <div class="legend">
+    <span class="chip c-sales"><span class="dot"></span>Sales Team</span>
+    <span class="chip c-mgr"><span class="dot"></span>Team Manager</span>
+    <span class="chip c-adv"><span class="dot"></span>Team Advisor</span>
+    <span class="chip c-tutor"><span class="dot"></span>Tutor</span>
+    <span class="chip c-stu"><span class="dot"></span>Student</span>
+  </div>
+
+  <!-- PHASE 1 -->
+  <div class="phase">
+    <div class="phase-head">
+      <div class="phase-num">1</div>
+      <div>
+        <div class="tag">Phase One</div>
+        <h2>Admission &amp; Initial Team Allocation</h2>
+      </div>
+    </div>
+    <ol class="steps">
+      <li class="step"><span class="node"></span>
+        <span class="who sales">Sales Team</span>
+        <div class="title">Admission</div>
+        <p>The Sales Team processes a new student admission.</p>
+      </li>
+      <li class="step"><span class="node"></span>
+        <span class="who sys">HubSpot</span>
+        <div class="title">HubSpot Intimation</div>
+        <p>Admission data is pushed to HubSpot, which sends an intimation to the Team Managers and Team Advisors.</p>
+      </li>
+      <li class="step"><span class="node"></span>
+        <span class="who mgr">Allocation</span>
+        <div class="title">Round-Robin Team Assignment</div>
+        <p>Students are assigned to teams in round-robin order (Student&nbsp;1&nbsp;&rarr;&nbsp;Team&nbsp;1, Student&nbsp;2&nbsp;&rarr;&nbsp;Team&nbsp;2, &hellip; up to Team&nbsp;4, then the cycle repeats).</p>
+      </li>
+      <li class="step"><span class="node"></span>
+        <span class="who sys">HubSpot</span>
+        <div class="title">Ticket Creation</div>
+        <p>A ticket is automatically raised for the newly allocated student to initiate the enrollment process.</p>
+      </li>
+    </ol>
+  </div>
+
+  <!-- PHASE 2 -->
+  <div class="phase">
+    <div class="phase-head">
+      <div class="phase-num">2</div>
+      <div>
+        <div class="tag">Phase Two</div>
+        <h2>Onboarding &amp; Advising</h2>
+      </div>
+    </div>
+    <ol class="steps">
+      <li class="step"><span class="node"></span>
+        <span class="who mgr">Team</span>
+        <div class="title">Introductory Call</div>
+        <p>The assigned team contacts the student for an intro call to explain course details, policies and criteria.</p>
+      </li>
+      <li class="step"><span class="node"></span>
+        <span class="who adv">Team Advisor</span>
+        <div class="title">Advisor Allocation</div>
+        <p>A specific Team Advisor (from a pool of 3&ndash;4 advisors under the Team Manager) is allocated to the student.</p>
+      </li>
+      <li class="step"><span class="node"></span>
+        <span class="who adv">Team Advisor</span>
+        <div class="title">Primary Point of Contact</div>
+        <p>The advisor owns the student's general care: feedback collection, follow-ups, and resolving issues.</p>
+      </li>
+      <li class="step"><span class="node"></span>
+        <span class="who stu">Student</span>
+        <div class="title">Common Classes</div>
+        <p>The student begins by attending common, live online group classes.</p>
+      </li>
+    </ol>
+  </div>
+
+  <!-- PHASE 3 -->
+  <div class="phase">
+    <div class="phase-head">
+      <div class="phase-num">3</div>
+      <div>
+        <div class="tag">Phase Three</div>
+        <h2>Transition to Individual Classes</h2>
+      </div>
+    </div>
+    <ol class="steps">
+      <li class="step"><span class="node"></span>
+        <span class="who adv">Team Advisor</span>
+        <div class="title">Gathering Preferences</div>
+        <p>When the student is ready for individual classes, the advisor collects preferences: preferred class time, male/female tutor preference, and fixed vs. flexible working hours.</p>
+      </li>
+      <li class="step"><span class="node"></span>
+        <span class="who adv">Team Advisor</span>
+        <div class="title">Manager Intimation</div>
+        <p>The advisor sends the collected preferences to the Team Manager.</p>
+      </li>
+      <li class="step"><span class="node"></span>
+        <span class="who mgr">Team Manager</span>
+        <div class="title">Tutor Allocation</div>
+        <p>Based on the preferences, the Team Manager allocates an appropriate Tutor to the student.</p>
+      </li>
+      <li class="step"><span class="node"></span>
+        <span class="who tutor">Tutor + Advisor</span>
+        <div class="title">Dual Support System</div>
+        <p>The student now has two direct contacts: the Tutor (academic classes) and the Team Advisor (ongoing updates &amp; support).</p>
+      </li>
+    </ol>
+  </div>
+
+  <!-- RATINGS -->
+  <div class="ratings">
+    <h2>Feedback &amp; Rating System</h2>
+    <p>Students provide ratings for all three key people in their journey, keeping accountability and service quality visible to managers.</p>
+    <div class="rate-targets">
+      <div class="rate-card"><div class="role" style="color:#0e7490">Team Manager</div><span class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span></div>
+      <div class="rate-card"><div class="role" style="color:#6d28d9">Team Advisor</div><span class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span></div>
+      <div class="rate-card"><div class="role" style="color:#047857">Tutor</div><span class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>System support status.</b> In the current LMS build, the following are implemented: HubSpot contact display &amp; enrollment with
+    e-mail intimation to managers/advisors, configurable <b>Teams</b>, <b>manual</b> assignment of student&nbsp;&rarr;&nbsp;team/advisor/tutor,
+    role-scoped portals, and the student <b>rating system</b> (1&ndash;5 stars + comment for Manager, Advisor &amp; Tutor).
+    Planned / not yet automated: round-robin allocation, HubSpot ticket creation, and preference-based tutor matching.
+    Per policy, <b>HubSpot is read-only</b> &mdash; the app never writes back to it.
+  </div>
+
+  <div class="foot">Tiju's Academy LMS &mdash; Student Onboarding &amp; Allocation Workflow</div>
+
+</body>
+</html>
