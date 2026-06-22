@@ -234,6 +234,43 @@ CREATE TABLE IF NOT EXISTS ratings (
   INDEX idx_rating_ratee (ratee_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Support tickets — raised by an enrolled student to their assigned advisor.
+-- An advisor can escalate to their team's manager; superadmin sees everything.
+-- status: open → (escalated) → resolved → closed. assigned_advisor_id is the
+-- student's advisor at creation; assigned_manager_id is set on escalation.
+CREATE TABLE IF NOT EXISTS tickets (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  student_id INT NOT NULL,
+  subject VARCHAR(255) NOT NULL,
+  category VARCHAR(50) DEFAULT 'general',
+  priority VARCHAR(20) NOT NULL DEFAULT 'medium',
+  status VARCHAR(20) NOT NULL DEFAULT 'open',
+  assigned_advisor_id INT NULL,
+  assigned_manager_id INT NULL,
+  escalated TINYINT DEFAULT 0,
+  escalated_at DATETIME NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_tickets_student (student_id),
+  INDEX idx_tickets_advisor (assigned_advisor_id),
+  INDEX idx_tickets_manager (assigned_manager_id),
+  INDEX idx_tickets_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Ticket conversation — the initial message and every reply live here, one row
+-- each, ordered by created_at. author_role records who wrote it for display.
+CREATE TABLE IF NOT EXISTS ticket_messages (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  ticket_id INT NOT NULL,
+  author_id INT NOT NULL,
+  author_name VARCHAR(255) DEFAULT '',
+  author_role VARCHAR(20) DEFAULT '',
+  body TEXT,
+  is_system TINYINT DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_ticket_messages_ticket (ticket_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Contact enrollments — an intimation created when a superadmin enrolls a
 -- HubSpot contact. Emailed to all managers & advisors and listed under their
 -- "Enrolls" tab.

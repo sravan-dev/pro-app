@@ -1394,6 +1394,8 @@ app.post('/api/clear-data', async (req, res) => {
         await t.run("DELETE FROM enrollments");
         await t.run("DELETE FROM sessions");
         await t.run("DELETE FROM courses");
+        await t.run("DELETE FROM ticket_messages");
+        await t.run("DELETE FROM tickets");
         await t.run("DELETE FROM password_resets");
         await t.run("DELETE FROM audit_logs");
         await t.run("DELETE FROM users WHERE id != ?", [user.id]);
@@ -1406,6 +1408,8 @@ app.post('/api/clear-data', async (req, res) => {
         for (const id of ids) {
           await t.run("DELETE FROM attendance_logs WHERE student_id=?", [id]);
           await t.run("DELETE FROM enrollments WHERE student_id=?", [id]);
+          await t.run("DELETE FROM ticket_messages WHERE ticket_id IN (SELECT id FROM tickets WHERE student_id=?)", [id]);
+          await t.run("DELETE FROM tickets WHERE student_id=?", [id]);
           await t.run("DELETE FROM password_resets WHERE user_id=?", [id]);
           await t.run("DELETE FROM users WHERE id=?", [id]);
         }
@@ -1735,6 +1739,241 @@ app.post('/api/contact-enrollments', async (req, res) => {
 app.get('/api/contact-enrollments', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin', 'manager', 'advisor']); if (!user) return;
   res.json(await db.all("SELECT * FROM contact_enrollments ORDER BY created_at DESC"));
+});
+
+// ============================================================
+// Support tickets — student → advisor → manager → superadmin
+// ============================================================
+
+// Small HTML wrapper shared by every ticket notification email.
+function ticketEmailHtml(heading, intro, ticket) {
+  return `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+    <h2 style="color:#E97A2B;margin-bottom:4px">${heading}</h2>
+    <p style="color:#555;margin-top:0">${intro}</p>
+    <table style="border-collapse:collapse;width:100%;margin:16px 0">
+      <tr><td style="padding:6px 10px;color:#888">Ticket #</td><td style="padding:6px 10px;font-weight:600">${ticket.id}</td></tr>
+      <tr><td style="padding:6px 10px;color:#888">Subject</td><td style="padding:6px 10px;font-weight:600">${ticket.subject || '—'}</td></tr>
+      <tr><td style="padding:6px 10px;color:#888">Priority</td><td style="padding:6px 10px">${ticket.priority || 'medium'}</td></tr>
+      <tr><td style="padding:6px 10px;color:#888">Status</td><td style="padding:6px 10px">${ticket.status || 'open'}</td></tr>
+    </table>
+    <p style="color:#888;font-size:13px">Open the <strong>Tickets</strong> tab in your portal to respond.</p>
+    <hr style="border:none;border-top:1px solid #eee;margin:20px 0"/>
+    <p style="color:#aaa;font-size:12px">Tiju's Academy LMS</p>
+  </div>`;
+}
+
+// Load a ticket plus the people on it (used for access checks & display).
+async function getTicketWithContext(id) {
+  return db.get(
+    `SELECT t.*, s.name AS student_name, s.avatar_color AS student_color, s.team_id AS student_team_id,
+            a.name AS advisor_name, m.name AS manager_name
+     FROM tickets t
+     JOIN users s ON s.id = t.student_id
+     LEFT JOIN users a ON a.id = t.assigned_advisor_id
+     LEFT JOIN users m ON m.id = t.assigned_manager_id
+     WHERE t.id = ?`, [id]
+  );
+}
+
+// Can `user` see/act on `ticket`? Student owner, the assigned advisor, the
+// assigned manager (or the manager of the student's team), or any superadmin.
+async function canAccessTicket(user, ticket) {
+  if (!ticket) return false;
+  if (user.role === 'superadmin') return true;
+  if (user.role === 'student') return ticket.student_id === user.id;
+  if (user.role === 'advisor') return ticket.assigned_advisor_id === user.id;
+  if (user.role === 'manager') {
+    if (ticket.assigned_manager_id === user.id) return true;
+    if (ticket.student_team_id) {
+      const team = await db.get("SELECT manager_id FROM teams WHERE id=?", [ticket.student_team_id]);
+      return !!(team && team.manager_id === user.id);
+    }
+  }
+  return false;
+}
+
+// Student raises a ticket. It is routed to their currently-assigned advisor.
+app.post('/api/tickets', async (req, res) => {
+  const user = await requireRole(req, res, ['student']); if (!user) return;
+  const { subject, message, category, priority } = req.body || {};
+  if (!subject || !subject.trim()) return res.status(400).json({ error: 'Subject is required' });
+  if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
+
+  const student = await db.get("SELECT id, advisor_id FROM users WHERE id=?", [user.id]);
+  if (!student.advisor_id) {
+    return res.status(400).json({ error: 'You have no advisor assigned yet. Please contact your manager.' });
+  }
+  const prio = ['low', 'medium', 'high'].includes(priority) ? priority : 'medium';
+
+  const r = await db.run(
+    `INSERT INTO tickets (student_id, subject, category, priority, status, assigned_advisor_id)
+     VALUES (?,?,?,?, 'open', ?)`,
+    [user.id, subject.trim(), (category || 'general').trim(), prio, student.advisor_id]
+  );
+  const ticketId = r.lastInsertRowid;
+  await db.run(
+    "INSERT INTO ticket_messages (ticket_id, author_id, author_name, author_role, body) VALUES (?,?,?,?,?)",
+    [ticketId, user.id, user.name, 'student', message.trim()]
+  );
+  auditLog(user.id, 'create_ticket', 'ticket', ticketId, subject.trim());
+
+  const advisor = await db.get("SELECT name, email FROM users WHERE id=? AND status!='inactive'", [student.advisor_id]);
+  if (advisor && advisor.email) {
+    const ticket = { id: ticketId, subject: subject.trim(), priority: prio, status: 'open' };
+    await sendEmail(advisor.email, `New Support Ticket #${ticketId}: ${subject.trim()}`,
+      ticketEmailHtml('New Support Ticket', `Hello <strong>${advisor.name}</strong>, ${user.name} has raised a support ticket.`, ticket));
+  }
+  res.status(201).json({ message: 'Ticket created', ticket_id: ticketId });
+});
+
+// Role-scoped ticket list.
+app.get('/api/tickets', async (req, res) => {
+  const user = await requireRole(req, res, ['student', 'advisor', 'manager', 'superadmin']); if (!user) return;
+  let where = '1=1';
+  let params = [];
+  if (user.role === 'student') { where = 't.student_id = ?'; params = [user.id]; }
+  else if (user.role === 'advisor') { where = 't.assigned_advisor_id = ?'; params = [user.id]; }
+  else if (user.role === 'manager') {
+    const tids = await managerTeamIds(user.id);
+    const ids = tids.length ? tids : [0];
+    const inClause = ids.map(() => '?').join(',');
+    // Tickets escalated to this manager, or raised by a student in their team(s).
+    where = `(t.assigned_manager_id = ? OR s.team_id IN (${inClause}))`;
+    params = [user.id, ...ids];
+  }
+  const rows = await db.all(
+    `SELECT t.*, s.name AS student_name, s.avatar_color AS student_color,
+            a.name AS advisor_name, m.name AS manager_name,
+            (SELECT COUNT(*) FROM ticket_messages tm WHERE tm.ticket_id = t.id) AS message_count
+     FROM tickets t
+     JOIN users s ON s.id = t.student_id
+     LEFT JOIN users a ON a.id = t.assigned_advisor_id
+     LEFT JOIN users m ON m.id = t.assigned_manager_id
+     WHERE ${where}
+     ORDER BY t.updated_at DESC`, params);
+  res.json(rows);
+});
+
+// Actionable ticket count for the current user — feeds the sidebar badge.
+// Counts tickets in the user's scope that still need attention (open/escalated).
+app.get('/api/tickets/count', async (req, res) => {
+  const user = await requireRole(req, res, ['student', 'advisor', 'manager', 'superadmin']); if (!user) return;
+  let where = "t.status IN ('open','escalated')";
+  let params = [];
+  if (user.role === 'student') { where = "t.student_id = ? AND " + where; params = [user.id]; }
+  else if (user.role === 'advisor') { where = "t.assigned_advisor_id = ? AND " + where; params = [user.id]; }
+  else if (user.role === 'manager') {
+    const tids = await managerTeamIds(user.id);
+    const ids = tids.length ? tids : [0];
+    const inClause = ids.map(() => '?').join(',');
+    where = `(t.assigned_manager_id = ? OR s.team_id IN (${inClause})) AND ` + where;
+    params = [user.id, ...ids];
+  }
+  const row = await db.get(
+    `SELECT COUNT(*) AS n FROM tickets t JOIN users s ON s.id = t.student_id WHERE ${where}`, params);
+  res.json({ count: row ? row.n : 0 });
+});
+
+// Ticket detail + full conversation thread.
+app.get('/api/tickets/thread', async (req, res) => {
+  const user = await requireRole(req, res, ['student', 'advisor', 'manager', 'superadmin']); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const ticket = await getTicketWithContext(id);
+  if (!(await canAccessTicket(user, ticket))) return res.status(403).json({ error: 'Forbidden' });
+  const messages = await db.all(
+    `SELECT tm.*, u.avatar_color FROM ticket_messages tm
+     LEFT JOIN users u ON u.id = tm.author_id
+     WHERE tm.ticket_id = ? ORDER BY tm.created_at ASC, tm.id ASC`, [id]);
+  res.json({ ticket, messages });
+});
+
+// Post a reply on a ticket.
+app.post('/api/tickets/reply', async (req, res) => {
+  const user = await requireRole(req, res, ['student', 'advisor', 'manager', 'superadmin']); if (!user) return;
+  const { ticket_id, message } = req.body || {};
+  if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
+  const ticket = await getTicketWithContext(ticket_id);
+  if (!(await canAccessTicket(user, ticket))) return res.status(403).json({ error: 'Forbidden' });
+
+  await db.run(
+    "INSERT INTO ticket_messages (ticket_id, author_id, author_name, author_role, body) VALUES (?,?,?,?,?)",
+    [ticket_id, user.id, user.name, user.role, message.trim()]
+  );
+  // A staff reply on a resolved/closed ticket reopens it for the student.
+  if (user.role !== 'student' && (ticket.status === 'resolved' || ticket.status === 'closed')) {
+    await db.run("UPDATE tickets SET status='open' WHERE id=?", [ticket_id]);
+  } else {
+    await db.run("UPDATE tickets SET updated_at=NOW() WHERE id=?", [ticket_id]);
+  }
+  auditLog(user.id, 'reply_ticket', 'ticket', ticket_id);
+
+  // Notify the "other side": student replies → advisor/manager; staff reply → student.
+  const notifyEmails = [];
+  if (user.role === 'student') {
+    const target = ticket.assigned_manager_id || ticket.assigned_advisor_id;
+    if (target) notifyEmails.push(await db.get("SELECT name,email FROM users WHERE id=? AND status!='inactive'", [target]));
+  } else {
+    notifyEmails.push(await db.get("SELECT name,email FROM users WHERE id=? AND status!='inactive'", [ticket.student_id]));
+  }
+  for (const rec of notifyEmails.filter((x) => x && x.email)) {
+    await sendEmail(rec.email, `Re: Support Ticket #${ticket_id}: ${ticket.subject}`,
+      ticketEmailHtml('New Reply on Your Ticket', `Hello <strong>${rec.name}</strong>, ${user.name} replied to ticket #${ticket_id}.`, ticket));
+  }
+  res.json({ message: 'Reply posted' });
+});
+
+// Advisor (or superadmin) escalates a ticket to the student's team manager.
+app.post('/api/tickets/escalate', async (req, res) => {
+  const user = await requireRole(req, res, ['advisor', 'superadmin']); if (!user) return;
+  const { ticket_id, note } = req.body || {};
+  const ticket = await getTicketWithContext(ticket_id);
+  if (!(await canAccessTicket(user, ticket))) return res.status(403).json({ error: 'Forbidden' });
+  if (ticket.escalated) return res.status(400).json({ error: 'Ticket is already escalated' });
+
+  // Resolve the manager from the student's team.
+  let managerId = null;
+  if (ticket.student_team_id) {
+    const team = await db.get("SELECT manager_id FROM teams WHERE id=?", [ticket.student_team_id]);
+    managerId = team ? team.manager_id : null;
+  }
+  if (!managerId) return res.status(400).json({ error: 'No team manager is set for this student. Ask the superadmin to assign one.' });
+
+  await db.run(
+    "UPDATE tickets SET assigned_manager_id=?, escalated=1, escalated_at=NOW(), status='escalated' WHERE id=?",
+    [managerId, ticket_id]
+  );
+  await db.run(
+    "INSERT INTO ticket_messages (ticket_id, author_id, author_name, author_role, body, is_system) VALUES (?,?,?,?,?,1)",
+    [ticket_id, user.id, user.name, user.role, `Escalated to manager${note && note.trim() ? `: ${note.trim()}` : '.'}`]
+  );
+  auditLog(user.id, 'escalate_ticket', 'ticket', ticket_id);
+
+  const manager = await db.get("SELECT name,email FROM users WHERE id=? AND status!='inactive'", [managerId]);
+  if (manager && manager.email) {
+    const t = { ...ticket, status: 'escalated' };
+    await sendEmail(manager.email, `Escalated Ticket #${ticket_id}: ${ticket.subject}`,
+      ticketEmailHtml('Ticket Escalated to You', `Hello <strong>${manager.name}</strong>, ${user.name} escalated ticket #${ticket_id} (raised by ${ticket.student_name}).`, t));
+  }
+  res.json({ message: 'Ticket escalated', manager_id: managerId });
+});
+
+// Change ticket status (resolve / close / reopen) — staff only.
+app.post('/api/tickets/status', async (req, res) => {
+  const user = await requireRole(req, res, ['advisor', 'manager', 'superadmin']); if (!user) return;
+  const { ticket_id, status } = req.body || {};
+  if (!['open', 'resolved', 'closed'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  const ticket = await getTicketWithContext(ticket_id);
+  if (!(await canAccessTicket(user, ticket))) return res.status(403).json({ error: 'Forbidden' });
+
+  await db.run("UPDATE tickets SET status=? WHERE id=?", [status, ticket_id]);
+  const label = status === 'open' ? 'reopened' : status;
+  await db.run(
+    "INSERT INTO ticket_messages (ticket_id, author_id, author_name, author_role, body, is_system) VALUES (?,?,?,?,?,1)",
+    [ticket_id, user.id, user.name, user.role, `Marked ticket as ${label}.`]
+  );
+  auditLog(user.id, 'ticket_status', 'ticket', ticket_id, status);
+  res.json({ message: `Ticket ${label}` });
 });
 
 // ============================================================

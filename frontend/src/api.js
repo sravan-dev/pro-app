@@ -185,6 +185,15 @@ export const api = {
   createContactEnrollment: (contact) => request('/contact-enrollments', { method: 'POST', body: contact }),
   getContactEnrollments: () => request('/contact-enrollments'),
 
+  // Support tickets (student → advisor → manager → superadmin)
+  getTickets: () => request('/tickets'),
+  getTicketCount: () => request('/tickets/count'),
+  createTicket: (data) => request('/tickets', { method: 'POST', body: data }),
+  getTicketThread: (id) => request(`/tickets/thread?id=${id}`),
+  replyTicket: (ticketId, message) => request('/tickets/reply', { method: 'POST', body: { ticket_id: ticketId, message } }),
+  escalateTicket: (ticketId, note) => request('/tickets/escalate', { method: 'POST', body: { ticket_id: ticketId, note } }),
+  setTicketStatus: (ticketId, status) => request('/tickets/status', { method: 'POST', body: { ticket_id: ticketId, status } }),
+
   // Teams, assignment & ratings
   getTeams: () => request('/teams'),
   createTeam: (data) => request('/teams', { method: 'POST', body: data }),

@@ -9,6 +9,7 @@ import SessionCard from '../components/SessionCard';
 import SessionRoom from '../components/SessionRoom';
 import { MainSkeleton } from '../components/Skeleton';
 import RatingsView from '../components/RatingsView';
+import Tickets from '../components/Tickets';
 import usePersistedTab from '../hooks/usePersistedTab';
 
 // Simple horizontal bar chart built from the existing .stats-bars styles
@@ -2113,6 +2114,8 @@ export default function SuperadminPortal() {
             <DataTable columns={enrollColumns} data={allEnrollments} pageSize={15} selectable onBulkAction={bulkDeleteEnrollments} bulkActionLabel="Delete Selected" />
           </div>
         )}
+
+        {activeTab === 'tickets' && <Tickets />}
 
         {/* ===== TEAMS ===== */}
         {activeTab === 'teams' && (

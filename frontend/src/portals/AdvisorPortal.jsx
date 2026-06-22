@@ -5,6 +5,7 @@ import Sidebar from '../components/Sidebar';
 import KPICard from '../components/KPICard';
 import DataTable from '../components/DataTable';
 import ContactEnrollments from '../components/ContactEnrollments';
+import Tickets from '../components/Tickets';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
 
@@ -110,6 +111,8 @@ export default function AdvisorPortal() {
         )}
 
         {activeTab === 'enrolls' && <ContactEnrollments />}
+
+        {activeTab === 'tickets' && <Tickets />}
 
         {activeTab === 'reports' && (
           <div className="portal-page">

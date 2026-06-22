@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
@@ -10,6 +10,7 @@ const menuItems = {
     { key: 'sessions', label: 'Sessions', icon: 'video' },
     { key: 'booktutor', label: 'Book a Tutor', icon: 'clock' },
     { key: 'myteam', label: 'My Team', icon: 'star' },
+    { key: 'tickets', label: 'Support', icon: 'life-buoy' },
     { key: 'grades', label: 'Grades', icon: 'award' },
   ],
   tutor: [
@@ -25,6 +26,7 @@ const menuItems = {
     { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
     { key: 'students', label: 'Students', icon: 'users' },
     { key: 'enrolls', label: 'Enrolls', icon: 'layers' },
+    { key: 'tickets', label: 'Tickets', icon: 'life-buoy' },
     { key: 'reports', label: 'Reports', icon: 'bar-chart' },
   ],
   manager: [
@@ -33,6 +35,7 @@ const menuItems = {
     { key: 'myteam', label: 'My Team', icon: 'users' },
     { key: 'ratings', label: 'Ratings', icon: 'star' },
     { key: 'enrolls', label: 'Enrolls', icon: 'layers' },
+    { key: 'tickets', label: 'Tickets', icon: 'life-buoy' },
     { key: 'reports', label: 'Reports', icon: 'bar-chart' },
   ],
   superadmin: [
@@ -45,6 +48,7 @@ const menuItems = {
     { key: 'teams', label: 'Teams', icon: 'users' },
     { key: 'ratings', label: 'Ratings', icon: 'star' },
     { key: 'enrollments', label: 'Enrollments', icon: 'layers' },
+    { key: 'tickets', label: 'Tickets', icon: 'life-buoy' },
     { key: 'meetings', label: 'Meetings', icon: 'link' },
     { key: 'sessions', label: 'Sessions', icon: 'video' },
     { key: 'timeslots', label: 'Time Slots', icon: 'clock' },
@@ -85,6 +89,7 @@ const iconMap = {
   link: <Svg><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></Svg>,
   clock: <Svg><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></Svg>,
   star: <Svg><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></Svg>,
+  'life-buoy': <Svg><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="4" /><line x1="4.93" y1="4.93" x2="9.17" y2="9.17" /><line x1="14.83" y1="14.83" x2="19.07" y2="19.07" /><line x1="14.83" y1="9.17" x2="19.07" y2="4.93" /><line x1="4.93" y1="19.07" x2="9.17" y2="14.83" /></Svg>,
 };
 
 export default function Sidebar({ activeTab, onTabChange }) {
@@ -95,7 +100,20 @@ export default function Sidebar({ activeTab, onTabChange }) {
   const [showProfile, setShowProfile] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [ticketCount, setTicketCount] = useState(0);
   const fileRef = useRef(null);
+
+  // Actionable-ticket badge. Refreshed on mount, on a slow poll, and whenever a
+  // ticket action dispatches the 'tickets:changed' event (see Tickets.jsx).
+  const hasTickets = items.some((i) => i.key === 'tickets');
+  useEffect(() => {
+    if (!hasTickets) return;
+    const refresh = () => api.getTicketCount().then((r) => setTicketCount(r.count || 0)).catch(() => {});
+    refresh();
+    const interval = setInterval(refresh, 60000);
+    window.addEventListener('tickets:changed', refresh);
+    return () => { clearInterval(interval); window.removeEventListener('tickets:changed', refresh); };
+  }, [hasTickets]);
 
   const handleLogout = async () => {
     await logout();
@@ -178,6 +196,9 @@ export default function Sidebar({ activeTab, onTabChange }) {
           >
             <span className="sidebar-icon">{iconMap[item.icon] || <Svg><circle cx="12" cy="12" r="3" /></Svg>}</span>
             <span className="sidebar-label">{item.label}</span>
+            {item.key === 'tickets' && ticketCount > 0 && (
+              <span className="sidebar-badge">{ticketCount > 99 ? '99+' : ticketCount}</span>
+            )}
           </button>
         ))}
       </nav>

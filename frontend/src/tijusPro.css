@@ -161,6 +161,20 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
 .sidebar-item.active { background: rgba(255,255,255,0.10); color: #fff; }
 .sidebar-icon { font-size: 1.05rem; width: 22px; text-align: center; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
 .sidebar-icon svg { display: block; }
+.sidebar-label { flex: 1; min-width: 0; }
+.sidebar-badge {
+  flex-shrink: 0;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #EF4444;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
 
 .sidebar-footer { padding-top: 12px; margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.08); }
 .sidebar-userbar { display: flex; align-items: center; gap: 6px; }
