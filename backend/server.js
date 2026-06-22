@@ -1499,7 +1499,7 @@ app.post('/api/clear-data', async (req, res) => {
 // ============================================================
 app.get('/api/app-settings', async (req, res) => {
   const user = await requireAuth(req, res); if (!user) return;
-  const s = (await db.get("SELECT currency, video_provider, zoom_account_id, zoom_client_id, zoom_client_secret, hubspot_token FROM app_settings WHERE id=1")) || {};
+  const s = (await db.get("SELECT currency, video_provider, zoom_account_id, zoom_client_id, zoom_client_secret, hubspot_token, kajabi_client_id, kajabi_client_secret FROM app_settings WHERE id=1")) || {};
   const isAdmin = user.role === 'superadmin';
   res.json({
     currency: s.currency || 'INR',
@@ -1523,6 +1523,8 @@ app.get('/api/app-settings', async (req, res) => {
     // Never echo the HubSpot token back; report whether one is stored or
     // available via the .env default.
     hubspot_connected: !!(s.hubspot_token || process.env.HUBSPOT_TOKEN),
+    // Kajabi: report whether a Client ID + Secret are stored (or env defaults).
+    kajabi_connected: !!((s.kajabi_client_id && s.kajabi_client_secret) || (process.env.KAJABI_CLIENT_ID && process.env.KAJABI_CLIENT_SECRET)),
   });
 });
 
@@ -1739,6 +1741,134 @@ app.get('/api/hubspot/contacts', async (req, res) => {
     let total = typeof data.total === 'number' ? data.total : null;
     if (total === null && !after) total = await hubspotContactCount(token);
     res.json({ contacts, after: next, total });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// Kajabi — pull the contact/people list into the Kajabi Contacts page
+// ============================================================
+// Kajabi exposes an OAuth2 (client-credentials) API. Create an API client in
+// Kajabi (Settings → … → API) to get a Client ID + Client Secret, then this
+// app exchanges them for a bearer token and lists contacts. The base URL is
+// overridable via KAJABI_API_BASE so it can be retargeted without code changes.
+const KAJABI_API_BASE = (process.env.KAJABI_API_BASE || 'https://api.kajabi.com').replace(/\/+$/, '');
+
+// Stored credentials win; otherwise fall back to env (KAJABI_CLIENT_ID/SECRET).
+async function getKajabiCreds() {
+  const s = (await db.get("SELECT kajabi_client_id, kajabi_client_secret FROM app_settings WHERE id=1")) || {};
+  return {
+    clientId: s.kajabi_client_id || process.env.KAJABI_CLIENT_ID || '',
+    clientSecret: s.kajabi_client_secret || process.env.KAJABI_CLIENT_SECRET || '',
+  };
+}
+
+// Cached bearer token (refreshed shortly before expiry). Reset on cred changes.
+let _kajabiToken = { value: '', exp: 0 };
+function resetKajabiToken() { _kajabiToken = { value: '', exp: 0 }; }
+async function getKajabiToken() {
+  const now = Date.now();
+  if (_kajabiToken.value && now < _kajabiToken.exp) return _kajabiToken.value;
+  const { clientId, clientSecret } = await getKajabiCreds();
+  if (!clientId || !clientSecret) {
+    const e = new Error('Kajabi credentials not configured'); e.code = 'NOT_CONFIGURED'; throw e;
+  }
+  const resp = await fetch(`${KAJABI_API_BASE}/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.access_token) {
+    throw new Error(data.error_description || data.error || `Kajabi auth failed (HTTP ${resp.status})`);
+  }
+  _kajabiToken = { value: data.access_token, exp: now + Math.max(60, (data.expires_in || 3600) - 60) * 1000 };
+  return _kajabiToken.value;
+}
+
+// Map a Kajabi (JSON:API) contact record into the shared Contacts table shape.
+function mapKajabiContact(r) {
+  const a = r.attributes || r || {};
+  const name = (a.name || [a.first_name, a.last_name].filter(Boolean).join(' ')).trim();
+  return {
+    id: String(r.id || a.id || ''),
+    name: name || '—',
+    email: a.email || '',
+    phone: a.phone || a.phone_number || '',
+    company: a.company || a.company_name || '',
+    lifecycle_stage: a.subscribed === false ? 'unsubscribed' : (a.lifecycle_stage || ''),
+    created_at: a.created_at || a.createdAt || '',
+  };
+}
+
+// Save / update Kajabi API credentials. `disconnect: true` (or both blank)
+// clears them. The secret is only overwritten when a non-blank value is sent.
+app.put('/api/kajabi-settings', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  await db.run("INSERT IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')");
+  const clientId = (req.body.kajabi_client_id || '').trim();
+  const clientSecret = (req.body.kajabi_client_secret || '').trim();
+  if (req.body.disconnect) {
+    await db.run("UPDATE app_settings SET kajabi_client_id='', kajabi_client_secret='' WHERE id=1");
+    resetKajabiToken();
+    auditLog(user.id, 'update_kajabi_settings', 'app_settings', 1, 'Disconnected Kajabi');
+    return res.json({ message: 'Kajabi disconnected', kajabi_connected: false });
+  }
+  if (!clientId) return res.status(400).json({ error: 'Client ID is required' });
+  if (clientSecret) {
+    await db.run("UPDATE app_settings SET kajabi_client_id=?, kajabi_client_secret=? WHERE id=1", [clientId, clientSecret]);
+  } else {
+    await db.run("UPDATE app_settings SET kajabi_client_id=? WHERE id=1", [clientId]);
+  }
+  resetKajabiToken();
+  const { clientSecret: effSecret } = await getKajabiCreds();
+  auditLog(user.id, 'update_kajabi_settings', 'app_settings', 1, 'Connected Kajabi');
+  res.json({ message: 'Kajabi credentials saved', kajabi_connected: !!(clientId && effSecret) });
+});
+
+// Live Kajabi status — verifies the credentials by obtaining a token.
+app.get('/api/kajabi-status', async (req, res) => {
+  const user = await requireAuth(req, res); if (!user) return;
+  const { clientId, clientSecret } = await getKajabiCreds();
+  const configured = !!(clientId && clientSecret);
+  if (!configured) return res.json({ configured: false, connected: false });
+  try {
+    await getKajabiToken();
+    res.json({ configured: true, connected: true });
+  } catch (err) {
+    res.json({ configured: true, connected: false, error: err.message });
+  }
+});
+
+// One page of Kajabi contacts (100 at a time), paged server-side via JSON:API
+// page[number]/page[size]. `q` is passed as a best-effort filter.
+app.get('/api/kajabi/contacts', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const { clientId, clientSecret } = await getKajabiCreds();
+  if (!clientId || !clientSecret) return res.status(400).json({ error: 'Kajabi is not connected. Add API credentials in Settings.' });
+
+  const q = (req.query.q || '').trim();
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const SIZE = 100;
+  try {
+    const token = await getKajabiToken();
+    const params = new URLSearchParams({ 'page[size]': String(SIZE), 'page[number]': String(page) });
+    if (q) params.set('filter[query]', q);
+    const resp = await fetch(`${KAJABI_API_BASE}/v1/contacts?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      return res.status(resp.status === 401 ? 401 : 502).json({ error: (data.errors && data.errors[0] && (data.errors[0].detail || data.errors[0].title)) || data.error || `Kajabi request failed (HTTP ${resp.status})` });
+    }
+    const records = Array.isArray(data.data) ? data.data : [];
+    const contacts = records.map(mapKajabiContact);
+    const meta = data.meta || {};
+    const total = typeof meta.total === 'number' ? meta.total
+      : (meta.pagination && typeof meta.pagination.total === 'number' ? meta.pagination.total : null);
+    const hasNext = !!(data.links && data.links.next) || contacts.length === SIZE;
+    res.json({ contacts, page, total, has_next: hasNext });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }

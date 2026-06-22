@@ -41,6 +41,7 @@ const menuItems = {
   superadmin: [
     { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
     { key: 'contacts', label: 'Contacts', icon: 'contact' },
+    { key: 'kajabi', label: 'Kajabi Contacts', icon: 'contact' },
     { key: 'students', label: 'Students', icon: 'student' },
     { key: 'tutors', label: 'Tutors', icon: 'tutor' },
     { key: 'users', label: 'All Users', icon: 'users' },

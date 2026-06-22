@@ -183,6 +183,17 @@ export const api = {
     return request(`/hubspot/contacts${qs ? `?${qs}` : ''}`);
   },
 
+  // Kajabi (Contacts)
+  saveKajabiSettings: (data) => request('/kajabi-settings', { method: 'PUT', body: data }),
+  getKajabiStatus: () => request('/kajabi-status'),
+  getKajabiContacts: ({ page = 1, q = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (page) params.set('page', String(page));
+    if (q) params.set('q', q);
+    const qs = params.toString();
+    return request(`/kajabi/contacts${qs ? `?${qs}` : ''}`);
+  },
+
   // Contact enrollment intimations (notifies managers & advisors)
   createContactEnrollment: (contact) => request('/contact-enrollments', { method: 'POST', body: contact }),
   getContactEnrollments: () => request('/contact-enrollments'),

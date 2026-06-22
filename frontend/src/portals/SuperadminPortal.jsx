@@ -118,6 +118,20 @@ export default function SuperadminPortal() {
   const contactCursors = useRef(['']);  // `after` cursor for each visited page; [0] = first page
   const contactsInit = useRef(false);   // have we loaded the tab at least once?
 
+  // Kajabi integration + contacts list (mirrors the HubSpot setup; 1-based pages)
+  const [kajabiCount, setKajabiCount] = useState(null); // total Kajabi contacts
+  const [kajabi, setKajabi] = useState({ kajabi_client_id: '', kajabi_client_secret: '', kajabi_connected: false });
+  const [kajabiSaving, setKajabiSaving] = useState(false);
+  const [kajabiContacts, setKajabiContacts] = useState([]);
+  const [kajabiLoading, setKajabiLoading] = useState(false);
+  const [kajabiError, setKajabiError] = useState('');
+  const [kajabiTotal, setKajabiTotal] = useState(null);
+  const [kajabiSearch, setKajabiSearch] = useState('');
+  const [kajabiSearchInput, setKajabiSearchInput] = useState('');
+  const [kajabiPage, setKajabiPage] = useState(1);          // 1-based page
+  const [kajabiHasNext, setKajabiHasNext] = useState(false);
+  const kajabiInit = useRef(false);
+
   const [showCourseForm, setShowCourseForm] = useState(false);
   const [showCourseMgr, setShowCourseMgr] = useState(false);
   const [editingCourse, setEditingCourse] = useState(null);
@@ -243,6 +257,13 @@ export default function SuperadminPortal() {
       .catch(() => {});
   }, []);
 
+  // Kajabi connection status for the dashboard card.
+  useEffect(() => {
+    api.getKajabiStatus()
+      .then((s) => { if (s?.connected && typeof s.count === 'number') setKajabiCount(s.count); })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     api.getAppSettings().then((s) => {
       setAppSettings(s);
@@ -264,6 +285,7 @@ export default function SuperadminPortal() {
         api.getLiveKitStatus().then(setLivekitStatus).catch(() => {});
       }
       setHubspot({ hubspot_token: '', hubspot_connected: !!s.hubspot_connected });
+      setKajabi({ kajabi_client_id: '', kajabi_client_secret: '', kajabi_connected: !!s.kajabi_connected });
     }).catch(() => {});
   }, []);
 
@@ -303,6 +325,31 @@ export default function SuperadminPortal() {
     return () => clearTimeout(t);
   }, [contactSearchInput]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load one page of Kajabi contacts (1-based pages).
+  const loadKajabiContacts = useCallback((page = 1, q = kajabiSearch) => {
+    setKajabiLoading(true);
+    setKajabiError('');
+    api.getKajabiContacts({ page, q })
+      .then((r) => {
+        setKajabiContacts(r.contacts || []);
+        if (typeof r.total === 'number') setKajabiTotal(r.total);
+        setKajabiHasNext(!!r.has_next);
+        setKajabiPage(r.page || page);
+      })
+      .catch((err) => setKajabiError(err.message))
+      .finally(() => setKajabiLoading(false));
+  }, [kajabiSearch]);
+
+  // Debounce the Kajabi search box.
+  useEffect(() => {
+    if (!kajabiInit.current) return;
+    const t = setTimeout(() => {
+      const q = kajabiSearchInput.trim();
+      if (q !== kajabiSearch) { setKajabiSearch(q); loadKajabiContacts(1, q); }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [kajabiSearchInput]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const formatMoney = (amount) => {
     const n = Number(amount) || 0;
     return `${appSettings.currency} ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -338,6 +385,14 @@ export default function SuperadminPortal() {
       loadContacts(0, '');
     }
   }, [activeTab, hubspot.hubspot_connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Same lazy-load pattern for the Kajabi Contacts tab.
+  useEffect(() => {
+    if (activeTab === 'kajabi' && kajabi.kajabi_connected && !kajabiInit.current) {
+      kajabiInit.current = true;
+      loadKajabiContacts(1, '');
+    }
+  }, [activeTab, kajabi.kajabi_connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openStudentDetail = async (student) => {
     setStudentDetail(null);
@@ -1838,6 +1893,7 @@ export default function SuperadminPortal() {
 
             <div className="kpi-grid">
               <KPICard variant="small-box" title="Contacts" value={hubspotCount == null ? '—' : hubspotCount} icon="users" color="#FF7A59" onClick={() => setActiveTab('contacts')} />
+              <KPICard variant="small-box" title="Kajabi Contacts" value={kajabiCount == null ? '—' : kajabiCount} icon="contact" color="#1A6DFF" onClick={() => setActiveTab('kajabi')} />
               <KPICard variant="small-box" title="Total Students" value={stats.total_students} icon="users" color="#3B82F6" onClick={() => setActiveTab('students')} />
               <KPICard variant="small-box" title="Total Tutors" value={stats.total_tutors} icon="users" color="#10B981" onClick={() => setActiveTab('tutors')} />
               <KPICard variant="small-box" title="Active Courses" value={stats.total_courses} icon="book" color="#8B5CF6" onClick={() => setActiveTab('courses')} />
@@ -1846,15 +1902,6 @@ export default function SuperadminPortal() {
               <KPICard variant="small-box" title="Total Users" value={stats.total_users} icon="users" color="#06B6D4" onClick={() => setActiveTab('users')} />
               <KPICard variant="small-box" title="Advisors" value={stats.total_advisors} icon="users" color="#EC4899" onClick={() => setActiveTab('users')} />
               <KPICard variant="small-box" title="Managers" value={stats.total_managers} icon="users" color="#0891B2" onClick={() => setActiveTab('users')} />
-              <KPICard
-                variant="small-box"
-                title="Sessions by Status"
-                value={(charts.sessions_by_status || []).reduce((a, s) => a + s.count, 0)}
-                subtitle={(charts.sessions_by_status || []).map((s) => `${s.status}: ${s.count}`).join(' · ') || 'No sessions yet'}
-                icon="video"
-                color="#EF4444"
-                onClick={() => setActiveTab('sessions')}
-              />
             </div>
 
             <div className="section" style={{ marginTop: '1.5rem' }}>
@@ -1974,6 +2021,80 @@ export default function SuperadminPortal() {
                     {contactsTotal != null ? ` of ${Math.max(1, Math.ceil(contactsTotal / 100)).toLocaleString()}` : ''}
                   </span>
                   <button onClick={() => loadContacts(contactPage + 1)} disabled={!contactNextAfter || contactsLoading}>Next</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===== KAJABI CONTACTS ===== */}
+        {activeTab === 'kajabi' && (
+          <div className="portal-page">
+            <div className="page-header">
+              <h2>Kajabi Contacts</h2>
+              {kajabi.kajabi_connected && (
+                <button className="btn btn-ghost" onClick={() => loadKajabiContacts(kajabiPage)} disabled={kajabiLoading}>
+                  {kajabiLoading ? 'Refreshing…' : '↻ Refresh'}
+                </button>
+              )}
+            </div>
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+              Contact list synced from your Kajabi account. Use <strong>Enroll</strong> to bring a contact into the academy.
+            </p>
+
+            {!kajabi.kajabi_connected ? (
+              <div className="alert" style={{ background: 'rgba(245,158,11,0.12)', color: '#92400e' }}>
+                Kajabi isn’t connected yet. Go to <button className="btn btn-ghost btn-sm" onClick={() => setActiveTab('integrations')}>Settings → Integrations → Kajabi</button> and add your API credentials to load contacts.
+              </div>
+            ) : kajabiError ? (
+              <div className="alert" style={{ background: 'rgba(239,68,68,0.12)', color: '#991b1b' }}>
+                Failed to load Kajabi contacts: {kajabiError}
+              </div>
+            ) : kajabiLoading && kajabiContacts.length === 0 ? (
+              <div><div className="spinner" /><p>Loading contacts…</p></div>
+            ) : (
+              <div className="data-table-container">
+                <div className="data-table-toolbar">
+                  <input
+                    type="text"
+                    placeholder="Search name, email, phone…"
+                    value={kajabiSearchInput}
+                    onChange={(e) => setKajabiSearchInput(e.target.value)}
+                    className="data-table-search"
+                  />
+                  <span className="data-table-count">
+                    {kajabiTotal != null ? `${kajabiTotal.toLocaleString()} records` : `${kajabiContacts.length} records`}
+                  </span>
+                </div>
+
+                <div className="data-table-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>{contactColumns.map((col) => <th key={col.key}>{col.label}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {kajabiContacts.length === 0 ? (
+                        <tr><td colSpan={contactColumns.length} className="no-data">No contacts found</td></tr>
+                      ) : (
+                        kajabiContacts.map((row) => (
+                          <tr key={row.id}>
+                            {contactColumns.map((col) => (
+                              <td key={col.key}>{col.render ? col.render(row) : (row[col.accessor] || '—')}</td>
+                            ))}
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="data-table-pagination">
+                  <button onClick={() => loadKajabiContacts(kajabiPage - 1)} disabled={kajabiPage <= 1 || kajabiLoading}>Prev</button>
+                  <span>
+                    Page {kajabiPage}
+                    {kajabiTotal != null ? ` of ${Math.max(1, Math.ceil(kajabiTotal / 100)).toLocaleString()}` : ''}
+                  </span>
+                  <button onClick={() => loadKajabiContacts(kajabiPage + 1)} disabled={!kajabiHasNext || kajabiLoading}>Next</button>
                 </div>
               </div>
             )}
@@ -2694,6 +2815,81 @@ export default function SuperadminPortal() {
                           showMsg(result.message, 'success');
                         } catch (err) { showMsg(err.message, 'error'); }
                         finally { setHubspotSaving(false); }
+                      }}
+                    >Disconnect</button>
+                  )}
+                </div>
+              </form>
+            </div>
+
+            {/* Kajabi */}
+            <div className="settings-section" style={{ marginBottom: '2rem' }}>
+              <h3>Kajabi (Contacts)</h3>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
+                Connect Kajabi to pull your contact list into the <strong>Kajabi Contacts</strong> page.
+                Create an <strong>API client</strong> in Kajabi (Settings → API / Integrations) and paste its
+                <code> Client ID</code> and <code> Client Secret</code> below.
+              </p>
+
+              <div className="alert" style={{ marginBottom: '1rem', background: kajabi.kajabi_connected ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)', color: kajabi.kajabi_connected ? '#065f46' : '#92400e' }}>
+                {kajabi.kajabi_connected
+                  ? '✓ Kajabi is connected. Your contacts appear under the Kajabi Contacts menu.'
+                  : '⚠ Kajabi is not connected yet. Add your API credentials to load contacts.'}
+              </div>
+
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setKajabiSaving(true);
+                try {
+                  const result = await api.saveKajabiSettings({ kajabi_client_id: kajabi.kajabi_client_id, kajabi_client_secret: kajabi.kajabi_client_secret });
+                  setKajabi({ kajabi_client_id: '', kajabi_client_secret: '', kajabi_connected: !!result.kajabi_connected });
+                  setKajabiContacts([]);
+                  setKajabiError('');
+                  kajabiInit.current = false;
+                  showMsg(result.message, 'success');
+                  api.getKajabiStatus().then((st) => { if (st?.connected && typeof st.count === 'number') setKajabiCount(st.count); }).catch(() => {});
+                } catch (err) { showMsg(err.message, 'error'); }
+                finally { setKajabiSaving(false); }
+              }}>
+                <div className="form-group" style={{ maxWidth: '520px' }}>
+                  <label>Kajabi Client ID</label>
+                  <input
+                    value={kajabi.kajabi_client_id}
+                    onChange={(e) => setKajabi({ ...kajabi, kajabi_client_id: e.target.value })}
+                    placeholder={kajabi.kajabi_connected ? '•••••••• (saved — enter a new ID to replace)' : 'Client ID'}
+                  />
+                </div>
+                <div className="form-group" style={{ maxWidth: '520px' }}>
+                  <label>Kajabi Client Secret</label>
+                  <input
+                    type="password"
+                    value={kajabi.kajabi_client_secret}
+                    onChange={(e) => setKajabi({ ...kajabi, kajabi_client_secret: e.target.value })}
+                    placeholder={kajabi.kajabi_connected ? '•••••••• (saved — leave blank to keep)' : 'Client Secret'}
+                  />
+                </div>
+                <div className="form-actions" style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+                  <button type="submit" className="btn btn-primary" disabled={kajabiSaving || !kajabi.kajabi_client_id.trim()}>
+                    {kajabiSaving ? 'Saving…' : (kajabi.kajabi_connected ? 'Update Credentials' : 'Connect Kajabi')}
+                  </button>
+                  {kajabi.kajabi_connected && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost text-danger"
+                      disabled={kajabiSaving}
+                      onClick={async () => {
+                        if (!confirm('Disconnect Kajabi? The stored credentials will be removed.')) return;
+                        setKajabiSaving(true);
+                        try {
+                          const result = await api.saveKajabiSettings({ disconnect: true });
+                          setKajabi({ kajabi_client_id: '', kajabi_client_secret: '', kajabi_connected: !!result.kajabi_connected });
+                          setKajabiContacts([]);
+                          setKajabiError('');
+                          setKajabiCount(null);
+                          kajabiInit.current = false;
+                          showMsg(result.message, 'success');
+                        } catch (err) { showMsg(err.message, 'error'); }
+                        finally { setKajabiSaving(false); }
                       }}
                     >Disconnect</button>
                   )}

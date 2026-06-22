@@ -5,6 +5,7 @@ const iconMap = {
   'trending-up': '📈', clock: '🕐', dollar: '💰',
   'check-circle': '✅', alert: '⚠️', activity: '📊',
   layers: '📋', star: '⭐', percent: '📐', calendar: '📅',
+  contact: '📇',
 };
 
 export default function KPICard({ title, value, subtitle, icon, color, trend, onClick, variant }) {
