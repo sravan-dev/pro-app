@@ -1774,10 +1774,11 @@ async function getKajabiToken() {
   if (!clientId || !clientSecret) {
     const e = new Error('Kajabi credentials not configured'); e.code = 'NOT_CONFIGURED'; throw e;
   }
-  const resp = await fetch(`${KAJABI_API_BASE}/oauth/token`, {
+  // Kajabi's token endpoint is /v1/oauth/token and expects a form-encoded body.
+  const resp = await fetch(`${KAJABI_API_BASE}/v1/oauth/token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: new URLSearchParams({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }),
   });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok || !data.access_token) {
@@ -1788,6 +1789,8 @@ async function getKajabiToken() {
 }
 
 // Map a Kajabi (JSON:API) contact record into the shared Contacts table shape.
+// Kajabi contacts carry name/email/phone_number/subscribed/created_at; there's
+// no company, so the "Stage" column shows the subscription state instead.
 function mapKajabiContact(r) {
   const a = r.attributes || r || {};
   const name = (a.name || [a.first_name, a.last_name].filter(Boolean).join(' ')).trim();
@@ -1795,9 +1798,9 @@ function mapKajabiContact(r) {
     id: String(r.id || a.id || ''),
     name: name || '—',
     email: a.email || '',
-    phone: a.phone || a.phone_number || '',
+    phone: a.phone_number || a.phone || '',
     company: a.company || a.company_name || '',
-    lifecycle_stage: a.subscribed === false ? 'unsubscribed' : (a.lifecycle_stage || ''),
+    lifecycle_stage: a.subscribed === true ? 'subscribed' : (a.subscribed === false ? 'unsubscribed' : ''),
     created_at: a.created_at || a.createdAt || '',
   };
 }
@@ -1854,7 +1857,7 @@ app.get('/api/kajabi/contacts', async (req, res) => {
   try {
     const token = await getKajabiToken();
     const params = new URLSearchParams({ 'page[size]': String(SIZE), 'page[number]': String(page) });
-    if (q) params.set('filter[query]', q);
+    if (q) params.set('filter[search]', q); // fuzzy search over name/email
     const resp = await fetch(`${KAJABI_API_BASE}/v1/contacts?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     });
