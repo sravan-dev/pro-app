@@ -153,6 +153,9 @@ async function initSchema() {
   await addColumnIfMissing('app_settings', 'zoom_client_id', "zoom_client_id VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('app_settings', 'zoom_client_secret', "zoom_client_secret VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('app_settings', 'hubspot_token', "hubspot_token TEXT");
+  await addColumnIfMissing('app_settings', 'livekit_url', "livekit_url VARCHAR(255) DEFAULT ''");
+  await addColumnIfMissing('app_settings', 'livekit_api_key', "livekit_api_key VARCHAR(255) DEFAULT ''");
+  await addColumnIfMissing('app_settings', 'livekit_api_secret', "livekit_api_secret VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('meetings', 'host_name', "host_name VARCHAR(120) DEFAULT ''");
   await addColumnIfMissing('meetings', 'host_email', "host_email VARCHAR(160) DEFAULT ''");
   await addColumnIfMissing('smtp_settings', 'provider', "provider VARCHAR(20) DEFAULT 'smtp'");

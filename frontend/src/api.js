@@ -169,6 +169,8 @@ export const api = {
   saveAppSettings: (data) => request('/app-settings', { method: 'PUT', body: data }),
   saveVideoSettings: (data) => request('/video-settings', { method: 'PUT', body: data }),
   getZoomStatus: () => request('/zoom-status'),
+  getLiveKitStatus: () => request('/livekit/status'),
+  removeLiveKitServer: () => request('/livekit/server', { method: 'DELETE' }),
 
   // HubSpot CRM
   saveHubspotSettings: (data) => request('/hubspot-settings', { method: 'PUT', body: data }),

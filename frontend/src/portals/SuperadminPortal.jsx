@@ -92,9 +92,17 @@ export default function SuperadminPortal() {
     zoom_client_id: '',
     zoom_client_secret: '',
     zoom_has_secret: false,
+    livekit_url: '',
+    livekit_api_key: '',
+    livekit_api_secret: '',
+    livekit_has_secret: false,
+    livekit_source: 'none',
+    livekit_configured: false,
   });
   const [videoSaving, setVideoSaving] = useState(false);
   const [livekitUsage, setLivekitUsage] = useState(null);
+  const [livekitStatus, setLivekitStatus] = useState(null);
+  const [livekitTesting, setLivekitTesting] = useState(false);
 
   // HubSpot CRM integration + contacts list
   const [hubspot, setHubspot] = useState({ hubspot_token: '', hubspot_connected: false });
@@ -244,9 +252,17 @@ export default function SuperadminPortal() {
         zoom_client_id: s.zoom_client_id || '',
         zoom_client_secret: '',
         zoom_has_secret: !!s.zoom_has_secret,
+        livekit_url: s.livekit_url || '',
+        livekit_api_key: s.livekit_api_key || '',
+        livekit_api_secret: '',
+        livekit_has_secret: !!s.livekit_has_secret,
+        livekit_source: s.livekit_source || 'none',
         livekit_configured: !!s.livekit_configured,
       });
-      if (s.livekit_configured) api.getLiveKitUsage().then(setLivekitUsage).catch(() => {});
+      if (s.livekit_configured) {
+        api.getLiveKitUsage().then(setLivekitUsage).catch(() => {});
+        api.getLiveKitStatus().then(setLivekitStatus).catch(() => {});
+      }
       setHubspot({ hubspot_token: '', hubspot_connected: !!s.hubspot_connected });
     }).catch(() => {});
   }, []);
@@ -2446,14 +2462,21 @@ export default function SuperadminPortal() {
                 e.preventDefault();
                 setVideoSaving(true);
                 try {
-                  await api.saveVideoSettings(videoSettings);
+                  const r = await api.saveVideoSettings(videoSettings);
                   showMsg('Video settings saved', 'success');
-                  // Secret is write-only; clear the field and mark it as stored.
+                  // Secrets are write-only; clear the fields and mark them stored.
                   setVideoSettings((v) => ({
                     ...v,
                     zoom_has_secret: v.zoom_client_secret ? true : v.zoom_has_secret,
                     zoom_client_secret: '',
+                    livekit_has_secret: v.livekit_api_secret ? true : v.livekit_has_secret,
+                    livekit_api_secret: '',
+                    livekit_source: r.livekit_source || v.livekit_source,
+                    livekit_configured: r.livekit_source && r.livekit_source !== 'none' ? true : v.livekit_configured,
                   }));
+                  // Re-verify the live connection + usage after a save.
+                  api.getLiveKitStatus().then(setLivekitStatus).catch(() => {});
+                  api.getLiveKitUsage().then(setLivekitUsage).catch(() => {});
                 } catch (err) { showMsg(err.message || 'Failed to save', 'error'); }
                 finally { setVideoSaving(false); }
               }}>
@@ -2472,10 +2495,88 @@ export default function SuperadminPortal() {
                 </div>
 
                 {videoSettings.video_provider === 'livekit' && (
-                  <div className="alert" style={{ marginTop: '1rem', background: videoSettings.livekit_configured ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', color: videoSettings.livekit_configured ? '#065f46' : '#991b1b' }}>
-                    {videoSettings.livekit_configured
-                      ? '✓ LiveKit server credentials detected. Tutors publish; students join view-only and can raise a hand to be promoted onstage.'
-                      : '⚠ LiveKit env vars are not set on the server. Add LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET (see .env.example) and restart the backend.'}
+                  <div style={{ marginTop: '1rem' }}>
+                    {/* Existing connection data */}
+                    <div className="settings-section" style={{ background: 'var(--color-bg-secondary, #f8f9fa)', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                        <h4 style={{ margin: 0 }}>Current LiveKit Server</h4>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          {videoSettings.livekit_source && videoSettings.livekit_source !== 'none' && (
+                            <span style={{ padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, background: 'rgba(99,102,241,0.12)', color: '#6366F1' }}>
+                              {videoSettings.livekit_source === 'database' ? 'Added in app' : 'From .env'}
+                            </span>
+                          )}
+                          <button type="button" className="btn btn-ghost btn-sm" disabled={livekitTesting || !videoSettings.livekit_configured} onClick={async () => {
+                            setLivekitTesting(true);
+                            try { setLivekitStatus(await api.getLiveKitStatus()); }
+                            catch (err) { showMsg(err.message || 'Test failed', 'error'); }
+                            finally { setLivekitTesting(false); }
+                          }}>{livekitTesting ? 'Testing…' : '⟳ Test connection'}</button>
+                        </div>
+                      </div>
+
+                      {videoSettings.livekit_configured ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 16px', fontSize: 14, alignItems: 'center' }}>
+                          <span style={{ color: 'var(--color-text-secondary)' }}>Server URL</span>
+                          <code style={{ wordBreak: 'break-all' }}>{videoSettings.livekit_url || '—'}</code>
+                          <span style={{ color: 'var(--color-text-secondary)' }}>API Key</span>
+                          <code>{videoSettings.livekit_api_key
+                            ? (videoSettings.livekit_api_key.length > 12 ? `${videoSettings.livekit_api_key.slice(0, 6)}…${videoSettings.livekit_api_key.slice(-4)}` : videoSettings.livekit_api_key)
+                            : '—'}</code>
+                          <span style={{ color: 'var(--color-text-secondary)' }}>API Secret</span>
+                          <span>{videoSettings.livekit_has_secret ? '•••••••• (stored)' : '— not set —'}</span>
+                          <span style={{ color: 'var(--color-text-secondary)' }}>Status</span>
+                          <span>
+                            {livekitStatus
+                              ? (livekitStatus.connected
+                                  ? <span style={{ color: '#059669', fontWeight: 600 }}>✓ Connected{typeof livekitStatus.active_rooms === 'number' ? ` · ${livekitStatus.active_rooms} active room(s)` : ''}</span>
+                                  : <span style={{ color: '#DC2626', fontWeight: 600 }}>✕ Unreachable{livekitStatus.error ? ` · ${livekitStatus.error}` : ''}</span>)
+                              : <span style={{ color: 'var(--color-text-secondary)' }}>Click “Test connection” to verify</span>}
+                          </span>
+                        </div>
+                      ) : (
+                        <p style={{ margin: 0, color: '#991b1b' }}>
+                          ⚠ No LiveKit server configured yet. Add one below, or set the <code>LIVEKIT_*</code> env vars (see <code>.env.example</code>).
+                        </p>
+                      )}
+
+                      {videoSettings.livekit_source === 'database' && (
+                        <button type="button" className="btn btn-ghost btn-sm text-danger" style={{ marginTop: '0.75rem' }} onClick={async () => {
+                          if (!confirm('Remove the LiveKit server stored in the app? It will revert to the .env credentials (or none).')) return;
+                          try {
+                            const r = await api.removeLiveKitServer();
+                            showMsg(r.message || 'Removed', 'success');
+                            const s = await api.getAppSettings();
+                            setVideoSettings((v) => ({ ...v, video_provider: s.video_provider || v.video_provider, livekit_url: s.livekit_url || '', livekit_api_key: s.livekit_api_key || '', livekit_api_secret: '', livekit_has_secret: !!s.livekit_has_secret, livekit_source: s.livekit_source || 'none', livekit_configured: !!s.livekit_configured }));
+                            api.getLiveKitStatus().then(setLivekitStatus).catch(() => setLivekitStatus(null));
+                          } catch (err) { showMsg(err.message || 'Failed to remove', 'error'); }
+                        }}>Remove stored server</button>
+                      )}
+                    </div>
+
+                    {/* Add / update a server */}
+                    <div className="settings-section" style={{ marginBottom: '1rem' }}>
+                      <h4 style={{ marginTop: 0, marginBottom: '0.25rem' }}>{videoSettings.livekit_source === 'database' ? 'Update Server' : 'Add a Server'}</h4>
+                      <p style={{ color: 'var(--color-text-secondary)', fontSize: 13, marginTop: 0 }}>
+                        Point the app at a LiveKit Cloud project or self-hosted server. Saved here, it overrides the <code>.env</code> values and takes effect immediately — no restart needed.
+                      </p>
+                      <div className="form-group" style={{ maxWidth: 480 }}>
+                        <label>Server URL</label>
+                        <input value={videoSettings.livekit_url} onChange={(e) => setVideoSettings({ ...videoSettings, livekit_url: e.target.value })} placeholder="wss://your-project.livekit.cloud" />
+                      </div>
+                      <div className="form-group" style={{ maxWidth: 480 }}>
+                        <label>API Key</label>
+                        <input value={videoSettings.livekit_api_key} onChange={(e) => setVideoSettings({ ...videoSettings, livekit_api_key: e.target.value })} placeholder="APIxxxxxxxxxxxx" />
+                      </div>
+                      <div className="form-group" style={{ maxWidth: 480 }}>
+                        <label>API Secret</label>
+                        <input type="password" value={videoSettings.livekit_api_secret} onChange={(e) => setVideoSettings({ ...videoSettings, livekit_api_secret: e.target.value })}
+                          placeholder={videoSettings.livekit_has_secret ? '•••••••• (saved — leave blank to keep)' : 'API Secret'} />
+                      </div>
+                      <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', maxWidth: 480 }}>
+                        Get these from your <a href="https://cloud.livekit.io" target="_blank" rel="noopener noreferrer">LiveKit Cloud</a> project (Settings → Keys) or your self-hosted config. Click <strong>Save Video Settings</strong> below to apply.
+                      </p>
+                    </div>
                   </div>
                 )}
 

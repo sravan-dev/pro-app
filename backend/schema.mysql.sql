@@ -205,7 +205,10 @@ CREATE TABLE IF NOT EXISTS app_settings (
   zoom_account_id VARCHAR(255) DEFAULT '',
   zoom_client_id VARCHAR(255) DEFAULT '',
   zoom_client_secret VARCHAR(255) DEFAULT '',
-  hubspot_token TEXT
+  hubspot_token TEXT,
+  livekit_url VARCHAR(255) DEFAULT '',
+  livekit_api_key VARCHAR(255) DEFAULT '',
+  livekit_api_secret VARCHAR(255) DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Teams — a configurable unit owned by one manager. Advisors, tutors and

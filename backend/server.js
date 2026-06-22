@@ -18,12 +18,40 @@ const AVATARS_DIR = path.join(__dirname, 'uploads', 'avatars');
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist');
 
 // LiveKit (SFU) — used for large webinar-style sessions (50-100+ participants).
-// Credentials live in env, NOT the database. Get them from a LiveKit Cloud
-// project (https://cloud.livekit.io) or a self-hosted server.
-const LIVEKIT_URL = process.env.LIVEKIT_URL || '';            // wss://your-project.livekit.cloud
-const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || '';
-const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || '';
-const livekitConfigured = () => !!(LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET);
+// Credentials seed from env (LIVEKIT_URL/API_KEY/API_SECRET) at boot, but a
+// server saved in Settings → Integrations overrides them so the superadmin can
+// point the app at a new LiveKit server without redeploying. `livekit` is the
+// live cache; loadLivekitCreds() refreshes it from the DB. Get credentials from
+// a LiveKit Cloud project (https://cloud.livekit.io) or a self-hosted server.
+const livekit = {
+  url: process.env.LIVEKIT_URL || '',            // wss://your-project.livekit.cloud
+  apiKey: process.env.LIVEKIT_API_KEY || '',
+  apiSecret: process.env.LIVEKIT_API_SECRET || '',
+  source: (process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET) ? 'env' : 'none',
+};
+const livekitConfigured = () => !!(livekit.url && livekit.apiKey && livekit.apiSecret);
+// Pull any stored LiveKit server from the DB and overlay it onto the env-seeded
+// cache. A complete DB record (url + key + secret) wins; otherwise env stands.
+async function loadLivekitCreds() {
+  try {
+    const s = (await db.get("SELECT livekit_url, livekit_api_key, livekit_api_secret FROM app_settings WHERE id=1")) || {};
+    if (s.livekit_url && s.livekit_api_key && s.livekit_api_secret) {
+      livekit.url = s.livekit_url;
+      livekit.apiKey = s.livekit_api_key;
+      livekit.apiSecret = s.livekit_api_secret;
+      livekit.source = 'database';
+    } else if (process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET) {
+      livekit.url = process.env.LIVEKIT_URL;
+      livekit.apiKey = process.env.LIVEKIT_API_KEY;
+      livekit.apiSecret = process.env.LIVEKIT_API_SECRET;
+      livekit.source = 'env';
+    } else {
+      livekit.url = ''; livekit.apiKey = ''; livekit.apiSecret = ''; livekit.source = 'none';
+    }
+  } catch (err) {
+    console.warn('[livekit] could not load stored credentials:', err.message);
+  }
+}
 // livekit-server-sdk v2 is ESM-only; load it lazily via dynamic import so this
 // CommonJS file keeps working even when the package isn't installed.
 let _livekitSdk = null;
@@ -32,7 +60,7 @@ async function getLiveKit() {
   return _livekitSdk;
 }
 const livekitRoomName = (sessionId) => `session-${sessionId}`;
-const livekitHttpUrl = () => LIVEKIT_URL.replace(/^ws/, 'http');
+const livekitHttpUrl = () => livekit.url.replace(/^ws/, 'http');
 
 // UTC 'YYYY-MM-DD HH:MM:SS' — mirrors SQLite's datetime('now') string format so
 // stored timestamps and string comparisons behave as they did before.
@@ -881,7 +909,7 @@ app.delete('/api/meetings', async (req, res) => {
   if (livekitConfigured()) {
     try {
       const { RoomServiceClient } = await getLiveKit();
-      const svc = new RoomServiceClient(livekitHttpUrl(), LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+      const svc = new RoomServiceClient(livekitHttpUrl(), livekit.apiKey, livekit.apiSecret);
       await svc.deleteRoom(meetingRoomName(m.code));
     } catch { /* room may not exist */ }
   }
@@ -917,17 +945,17 @@ app.post('/api/meetings/token', async (req, res) => {
   try {
     const { AccessToken, RoomServiceClient } = await getLiveKit();
     try {
-      const svc = new RoomServiceClient(livekitHttpUrl(), LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+      const svc = new RoomServiceClient(livekitHttpUrl(), livekit.apiKey, livekit.apiSecret);
       await svc.createRoom({ name: room, emptyTimeout: 8 * 60 });
     } catch { /* room already exists */ }
-    const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+    const at = new AccessToken(livekit.apiKey, livekit.apiSecret, {
       identity,
       name: displayName,
       metadata: JSON.stringify({ name: displayName, guest: true }),
     });
     at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true, canPublishData: true });
     const token = await at.toJwt();
-    res.json({ url: LIVEKIT_URL, token, room, identity, title: m.title, name: displayName });
+    res.json({ url: livekit.url, token, room, identity, title: m.title, name: displayName });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to join meeting' });
   }
@@ -991,7 +1019,7 @@ app.post('/api/end-session', async (req, res) => {
   if (livekitConfigured()) {
     try {
       const { RoomServiceClient } = await getLiveKit();
-      const svc = new RoomServiceClient(livekitHttpUrl(), LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+      const svc = new RoomServiceClient(livekitHttpUrl(), livekit.apiKey, livekit.apiSecret);
       await svc.deleteRoom(livekitRoomName(session_id));
     } catch { /* room may not exist */ }
   }
@@ -1472,6 +1500,7 @@ app.post('/api/clear-data', async (req, res) => {
 app.get('/api/app-settings', async (req, res) => {
   const user = await requireAuth(req, res); if (!user) return;
   const s = (await db.get("SELECT currency, video_provider, zoom_account_id, zoom_client_id, zoom_client_secret, hubspot_token FROM app_settings WHERE id=1")) || {};
+  const isAdmin = user.role === 'superadmin';
   res.json({
     currency: s.currency || 'INR',
     // Default to LiveKit when it's configured; otherwise fall back to WebRTC.
@@ -1480,8 +1509,17 @@ app.get('/api/app-settings', async (req, res) => {
     zoom_client_id: s.zoom_client_id || '',
     // Never echo the secret back; just report whether one is stored.
     zoom_has_secret: !!s.zoom_client_secret,
-    // LiveKit is configured via env vars, not the DB — report availability only.
+    // Availability is safe for everyone; the actual server url/key identify the
+    // LiveKit server and are only exposed to the superadmin (Integrations panel).
     livekit_configured: livekitConfigured(),
+    ...(isAdmin ? {
+      // `source` is 'database' (added in the UI), 'env' (from .env) or 'none';
+      // the secret is write-only (presence only).
+      livekit_url: livekit.url || '',
+      livekit_api_key: livekit.apiKey || '',
+      livekit_has_secret: !!livekit.apiSecret,
+      livekit_source: livekit.source,
+    } : {}),
     // Never echo the HubSpot token back; report whether one is stored or
     // available via the .env default.
     hubspot_connected: !!(s.hubspot_token || process.env.HUBSPOT_TOKEN),
@@ -1506,31 +1544,49 @@ app.put('/api/video-settings', async (req, res) => {
   if (!['webrtc', 'zoom', 'livekit'].includes(provider)) {
     return res.status(400).json({ error: 'Unsupported video provider' });
   }
-  if (provider === 'livekit' && !livekitConfigured()) {
-    return res.status(400).json({ error: 'LiveKit env vars (LIVEKIT_URL/API_KEY/API_SECRET) are not set on the server' });
-  }
   const accountId = (req.body.zoom_account_id || '').trim();
   const clientId = (req.body.zoom_client_id || '').trim();
   const clientSecret = (req.body.zoom_client_secret || '').trim(); // optional — blank keeps existing
+  const lkUrl = (req.body.livekit_url || '').trim();
+  const lkKey = (req.body.livekit_api_key || '').trim();
+  const lkSecret = (req.body.livekit_api_secret || '').trim();    // optional — blank keeps existing
   await db.run("INSERT IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')");
+  const existing = (await db.get("SELECT zoom_client_secret, livekit_url, livekit_api_key, livekit_api_secret FROM app_settings WHERE id=1")) || {};
 
   if (provider === 'zoom') {
-    const existing = await db.get("SELECT zoom_client_secret FROM app_settings WHERE id=1");
-    const hasSecret = clientSecret || (existing && existing.zoom_client_secret);
+    const hasSecret = clientSecret || existing.zoom_client_secret;
     if (!accountId || !clientId || !hasSecret) {
       return res.status(400).json({ error: 'Zoom requires Account ID, Client ID and Client Secret' });
     }
   }
 
-  if (clientSecret) {
-    await db.run("UPDATE app_settings SET video_provider=?, zoom_account_id=?, zoom_client_id=?, zoom_client_secret=? WHERE id=1",
-      [provider, accountId, clientId, clientSecret]);
-  } else {
-    await db.run("UPDATE app_settings SET video_provider=?, zoom_account_id=?, zoom_client_id=? WHERE id=1",
-      [provider, accountId, clientId]);
+  // LiveKit server fields are saved whenever provided, regardless of the active
+  // provider, so an admin can add a server then switch to it. When switching TO
+  // LiveKit, ensure a complete set of credentials is available (DB, this save,
+  // or env), otherwise live sessions would fail.
+  const effUrl = lkUrl || existing.livekit_url || '';
+  const effKey = lkKey || existing.livekit_api_key || '';
+  const effSecret = lkSecret || existing.livekit_api_secret || '';
+  const envComplete = !!(process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET);
+  if (provider === 'livekit' && !((effUrl && effKey && effSecret) || envComplete)) {
+    return res.status(400).json({ error: 'LiveKit requires a Server URL, API Key and API Secret. Add a server below, or set the LIVEKIT_* env vars.' });
   }
+
+  // Persist zoom fields (secret only when provided) and livekit fields (secret
+  // only when provided), in one update.
+  const sets = ['video_provider=?', 'zoom_account_id=?', 'zoom_client_id=?'];
+  const params = [provider, accountId, clientId];
+  if (clientSecret) { sets.push('zoom_client_secret=?'); params.push(clientSecret); }
+  if (lkUrl) { sets.push('livekit_url=?'); params.push(lkUrl); }
+  if (lkKey) { sets.push('livekit_api_key=?'); params.push(lkKey); }
+  if (lkSecret) { sets.push('livekit_api_secret=?'); params.push(lkSecret); }
+  await db.run(`UPDATE app_settings SET ${sets.join(', ')} WHERE id=1`, params);
+
+  // Refresh the in-memory LiveKit cache so a newly added server takes effect
+  // immediately, without a backend restart.
+  await loadLivekitCreds();
   auditLog(user.id, 'update_video_settings', 'app_settings', 1, `Set video provider to ${provider}`);
-  res.json({ message: 'Video settings saved', video_provider: provider });
+  res.json({ message: 'Video settings saved', video_provider: provider, livekit_source: livekit.source });
 });
 
 // Request a Server-to-Server OAuth token from Zoom using stored credentials.
@@ -2245,10 +2301,10 @@ app.get('/api/livekit/token', async (req, res) => {
   try {
     const { AccessToken, RoomServiceClient } = await getLiveKit();
     try {
-      const svc = new RoomServiceClient(livekitHttpUrl(), LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+      const svc = new RoomServiceClient(livekitHttpUrl(), livekit.apiKey, livekit.apiSecret);
       await svc.createRoom({ name: livekitRoomName(sessionId), emptyTimeout: 8 * 60 });
     } catch { /* room already exists */ }
-    const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+    const at = new AccessToken(livekit.apiKey, livekit.apiSecret, {
       identity: String(user.id),
       name: user.name,
       metadata: JSON.stringify({ role: user.role, name: user.name }),
@@ -2262,7 +2318,7 @@ app.get('/api/livekit/token', async (req, res) => {
       roomAdmin: isHost,
     });
     const token = await at.toJwt();
-    res.json({ url: LIVEKIT_URL, token, can_publish: canPublish, identity: String(user.id), room: livekitRoomName(sessionId) });
+    res.json({ url: livekit.url, token, can_publish: canPublish, identity: String(user.id), room: livekitRoomName(sessionId) });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to mint LiveKit token' });
   }
@@ -2281,7 +2337,7 @@ app.post('/api/livekit/update-permission', async (req, res) => {
   }
   try {
     const { RoomServiceClient } = await getLiveKit();
-    const svc = new RoomServiceClient(livekitHttpUrl(), LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+    const svc = new RoomServiceClient(livekitHttpUrl(), livekit.apiKey, livekit.apiSecret);
     await svc.updateParticipant(livekitRoomName(session_id), String(identity), undefined, {
       canPublish: !!can_publish,
       canSubscribe: true,
@@ -2291,6 +2347,46 @@ app.post('/api/livekit/update-permission', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to update participant' });
   }
+});
+
+// Live LiveKit connection status — verifies the active credentials by hitting
+// the server (listRooms). Feeds the "existing connection" panel in Settings.
+app.get('/api/livekit/status', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const base = {
+    configured: livekitConfigured(),
+    source: livekit.source,
+    url: livekit.url || '',
+    api_key: livekit.apiKey || '',
+    has_secret: !!livekit.apiSecret,
+  };
+  if (!livekitConfigured()) return res.json({ ...base, connected: false });
+  try {
+    const { RoomServiceClient } = await getLiveKit();
+    const svc = new RoomServiceClient(livekitHttpUrl(), livekit.apiKey, livekit.apiSecret);
+    const rooms = await svc.listRooms();
+    res.json({ ...base, connected: true, active_rooms: Array.isArray(rooms) ? rooms.length : 0 });
+  } catch (err) {
+    res.json({ ...base, connected: false, error: err.message || 'Could not reach LiveKit server' });
+  }
+});
+
+// Remove the LiveKit server stored in the DB, reverting to the .env credentials
+// (or none). Does not touch env vars.
+app.delete('/api/livekit/server', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  await db.run("UPDATE app_settings SET livekit_url='', livekit_api_key='', livekit_api_secret='' WHERE id=1");
+  await loadLivekitCreds();
+  // If LiveKit was the active provider but is no longer configured, fall back to
+  // WebRTC so live sessions keep working.
+  if (!livekitConfigured()) {
+    const cur = await db.get("SELECT video_provider FROM app_settings WHERE id=1");
+    if (cur && cur.video_provider === 'livekit') {
+      await db.run("UPDATE app_settings SET video_provider='webrtc' WHERE id=1");
+    }
+  }
+  auditLog(user.id, 'remove_livekit_server', 'app_settings', 1);
+  res.json({ message: 'Stored LiveKit server removed', livekit_source: livekit.source, livekit_configured: livekitConfigured() });
 });
 
 // Estimated video data transfer, derived from our own attendance logs.
@@ -2447,6 +2543,7 @@ if (fs.existsSync(FRONTEND_DIST)) {
 // Start — initialise the database (schema + seeds) before listening.
 // ============================================================
 db.initSchema()
+  .then(() => loadLivekitCreds())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`TijusPro LMS running at http://localhost:${PORT}`);
