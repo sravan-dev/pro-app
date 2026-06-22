@@ -460,6 +460,19 @@ export default function SuperadminPortal() {
     e.preventDefault();
     try {
       const { course_id, new_course_name, ...userPayload } = userForm;
+      // If the tutor typed a name into the inline "Add New" course box but didn't
+      // click the small "Add" button to confirm it, fold that draft in here so it
+      // still gets created/assigned instead of being silently dropped.
+      let stagedCourseId = course_id;
+      let stagedNewCourse = new_course_name;
+      if (userForm.role === 'tutor' && !stagedNewCourse && !stagedCourseId) {
+        const draft = courseDraft.trim();
+        if (draft) {
+          const existing = courseListForUser().find((c) => c.name.toLowerCase() === draft.toLowerCase());
+          if (existing) stagedCourseId = String(existing.id);
+          else stagedNewCourse = draft;
+        }
+      }
       let tutorId;
       if (editingUser) {
         await api.updateUser({ id: editingUser.id, ...userPayload });
@@ -473,15 +486,17 @@ export default function SuperadminPortal() {
       // Course assignment (tutors only): create the staged new course or
       // re-point the selected existing course at this tutor.
       if (userForm.role === 'tutor' && tutorId) {
-        if (new_course_name) {
-          await api.createCourse({ name: new_course_name, category: categories[0]?.name || 'Technology', tutor_id: tutorId, color: '#3B82F6', icon: 'book' });
-          showMsg(`Course "${new_course_name}" created and assigned`, 'success');
-        } else if (course_id) {
-          await api.updateCourse({ id: course_id, tutor_id: tutorId });
+        if (stagedNewCourse) {
+          await api.createCourse({ name: stagedNewCourse, category: categories[0]?.name || 'Technology', tutor_id: tutorId, color: '#3B82F6', icon: 'book' });
+          showMsg(`Course "${stagedNewCourse}" created and assigned`, 'success');
+        } else if (stagedCourseId) {
+          await api.updateCourse({ id: stagedCourseId, tutor_id: tutorId });
           showMsg('Course assigned to tutor', 'success');
         }
       }
       setShowUserForm(false);
+      setCourseDraft('');
+      setAddingCourse(false);
       fetchData();
       api.getStudents().then(setAllStudents);
       api.getTutors().then(setAllTutors);
