@@ -1830,15 +1830,32 @@ app.put('/api/kajabi-settings', async (req, res) => {
   res.json({ message: 'Kajabi credentials saved', kajabi_connected: !!(clientId && effSecret) });
 });
 
-// Live Kajabi status — verifies the credentials by obtaining a token.
+// Total number of Kajabi contacts (from the list endpoint's meta.total).
+async function kajabiContactCount(token) {
+  try {
+    const resp = await fetch(`${KAJABI_API_BASE}/v1/contacts?${new URLSearchParams({ 'page[size]': '1' }).toString()}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json().catch(() => ({}));
+    const meta = data.meta || {};
+    if (typeof meta.total === 'number') return meta.total;
+    if (typeof meta.total_count === 'number') return meta.total_count;
+    return null;
+  } catch { return null; }
+}
+
+// Live Kajabi status — verifies the credentials by obtaining a token, and
+// reports the total contact count for the dashboard card.
 app.get('/api/kajabi-status', async (req, res) => {
   const user = await requireAuth(req, res); if (!user) return;
   const { clientId, clientSecret } = await getKajabiCreds();
   const configured = !!(clientId && clientSecret);
   if (!configured) return res.json({ configured: false, connected: false });
   try {
-    await getKajabiToken();
-    res.json({ configured: true, connected: true });
+    const token = await getKajabiToken();
+    const count = await kajabiContactCount(token);
+    res.json({ configured: true, connected: true, count });
   } catch (err) {
     res.json({ configured: true, connected: false, error: err.message });
   }
