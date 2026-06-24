@@ -52,6 +52,7 @@ const menuItems = {
     { key: 'tickets', label: 'Tickets', icon: 'life-buoy' },
     { key: 'meetings', label: 'Meetings', icon: 'link' },
     { key: 'sessions', label: 'Sessions', icon: 'video' },
+    { key: 'recordings', label: 'Recordings', icon: 'film' },
     { key: 'timeslots', label: 'Time Slots', icon: 'clock' },
     { key: 'attendance', label: 'Attendance', icon: 'check-square' },
     { key: 'reports', label: 'Reports', icon: 'bar-chart' },

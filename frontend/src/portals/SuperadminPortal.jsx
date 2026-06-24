@@ -59,6 +59,8 @@ export default function SuperadminPortal() {
   const [teamForm, setTeamForm] = useState({ name: '', manager_id: '' });
   const [allSessions, setAllSessions] = useState([]);
   const [allAttendance, setAllAttendance] = useState([]);
+  const [recordings, setRecordings] = useState([]);
+  const [recPlayUrl, setRecPlayUrl] = useState(null);
   const [allTimeSlots, setAllTimeSlots] = useState([]);
   const [editingSlot, setEditingSlot] = useState(null);
   const [slotForm, setSlotForm] = useState({ start_time: '', end_time: '', note: '' });
@@ -366,6 +368,7 @@ export default function SuperadminPortal() {
     if (['teams', 'students', 'tutors', 'users'].includes(activeTab) && teams.length === 0) api.getTeams().then(setTeams).catch(() => {});
     if (activeTab === 'sessions' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'attendance' && allAttendance.length === 0) api.getAttendanceLogs().then(setAllAttendance).catch(() => {});
+    if (activeTab === 'recordings') api.getMeetingRecords().then(setRecordings).catch(() => {});
     if (activeTab === 'timeslots') api.getAvailability().then(setAllTimeSlots).catch(() => {});
     if (activeTab === 'meetings') api.getMeetings().then(setMeetings).catch(() => {});
     if (activeTab === 'dashboard' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
@@ -2407,6 +2410,59 @@ export default function SuperadminPortal() {
           <div className="portal-page">
             <h2>Attendance Records</h2>
             <DataTable columns={attendanceColumns} data={allAttendance} pageSize={20} />
+          </div>
+        )}
+
+        {/* ===== RECORDINGS ===== */}
+        {activeTab === 'recordings' && (
+          <div className="portal-page">
+            <div className="page-header">
+              <h2>Recordings</h2>
+              <button className="btn btn-ghost" onClick={() => api.getMeetingRecords().then(setRecordings).catch(() => {})}>↻ Refresh</button>
+            </div>
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
+              All session recordings captured across every tutor and course.
+            </p>
+            {recordings.length === 0 ? (
+              <p style={{ color: 'var(--color-text-secondary)' }}>No recordings have been captured yet.</p>
+            ) : (
+              <DataTable
+                columns={[
+                  { key: 'course', label: 'Course', accessor: 'course_name', render: (r) => r.course_name || '—' },
+                  { key: 'tutor', label: 'Tutor', accessor: 'tutor_name', render: (r) => r.tutor_name || '—' },
+                  { key: 'session', label: 'Session Date', accessor: 'start_time', render: (r) => r.start_time ? new Date(r.start_time).toLocaleString() : '—' },
+                  { key: 'date', label: 'Recorded', accessor: 'creation_date', render: (r) => r.creation_date ? new Date(r.creation_date).toLocaleString() : '—' },
+                  { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
+                    <div className="table-actions">
+                      <button className="btn btn-sm btn-primary" onClick={() => setRecPlayUrl(r.playback_url)}>▶ Play</button>
+                      <a className="btn btn-sm btn-ghost" href={r.playback_url} download>⬇ Download</a>
+                      <button className="btn btn-sm btn-ghost text-danger" onClick={async () => {
+                        if (!window.confirm('Delete this recording? This permanently removes the file.')) return;
+                        try { await api.deleteMeetingRecord(r.record_id); setRecordings((list) => list.filter((x) => x.record_id !== r.record_id)); }
+                        catch (err) { setMessage(err.message || 'Failed to delete recording'); setMsgType('error'); }
+                      }}>🗑 Delete</button>
+                    </div>
+                  )},
+                ]}
+                data={recordings}
+                pageSize={20}
+              />
+            )}
+
+            {recPlayUrl && (
+              <div className="modal-overlay" onClick={() => setRecPlayUrl(null)}>
+                <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '860px', width: '100%' }}>
+                  <div className="page-header" style={{ alignItems: 'center' }}>
+                    <h3 style={{ margin: 0 }}>Recording</h3>
+                    <button className="btn btn-ghost" onClick={() => setRecPlayUrl(null)}>✕ Close</button>
+                  </div>
+                  <video src={recPlayUrl} controls autoPlay style={{ width: '100%', borderRadius: '8px', background: '#000' }} />
+                  <div style={{ marginTop: '0.75rem', textAlign: 'right' }}>
+                    <a className="btn btn-ghost" href={recPlayUrl} download>⬇ Download</a>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
