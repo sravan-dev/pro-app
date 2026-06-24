@@ -1243,6 +1243,14 @@ app.get('/api/meeting-records', async (req, res) => {
   } else {
     rows = await db.all("SELECT mr.*,c.name as course_name,s.start_time,u.name as tutor_name FROM meeting_records mr JOIN sessions s ON s.session_id=mr.session_id JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id ORDER BY mr.creation_date DESC");
   }
+  // Flag orphaned rows whose underlying file is gone (e.g. uploads wiped on a
+  // redeploy) so the UI can disable Play/Download instead of 404-ing. Resolve
+  // from playback_url, which is always relative to the served uploads root -
+  // file_path holds an absolute path that may be stale across machines.
+  for (const r of rows) {
+    const rel = (r.playback_url || '').replace(/^\/+/, '');
+    r.file_exists = !!rel && fs.existsSync(path.join(__dirname, rel));
+  }
   res.json(rows);
 });
 

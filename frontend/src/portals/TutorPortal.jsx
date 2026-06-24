@@ -553,10 +553,21 @@ export default function TutorPortal() {
                 columns={[
                   { key: 'course', label: 'Course', accessor: 'course_name' },
                   { key: 'date', label: 'Recorded', accessor: 'creation_date', render: (r) => r.creation_date ? new Date(r.creation_date).toLocaleString() : '-' },
+                  { key: 'file', label: 'File', sortable: false, render: (r) => (
+                    r.file_exists === false
+                      ? <span className="status-badge status-inactive" title="The recording file is missing on the server">Missing</span>
+                      : <span className="status-badge status-active">Available</span>
+                  )},
                   { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <button className="btn btn-sm btn-primary" onClick={() => setPlayUrl(r)}>▶ Play</button>
-                      <a className="btn btn-sm btn-ghost" href={r.playback_url} download={recordingFileName(r)}>⬇ Download</a>
+                      {r.file_exists === false ? (
+                        <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85em', alignSelf: 'center' }}>File unavailable</span>
+                      ) : (
+                        <>
+                          <button className="btn btn-sm btn-primary" onClick={() => setPlayUrl(r)}>▶ Play</button>
+                          <a className="btn btn-sm btn-ghost" href={r.playback_url} download={recordingFileName(r)}>⬇ Download</a>
+                        </>
+                      )}
                       <button className="btn btn-sm btn-danger" onClick={() => deleteRecording(r.record_id)}>🗑 Delete</button>
                     </div>
                   )},

@@ -2441,10 +2441,21 @@ export default function SuperadminPortal() {
                   { key: 'tutor', label: 'Tutor', accessor: 'tutor_name', render: (r) => r.tutor_name || '—' },
                   { key: 'session', label: 'Session Date', accessor: 'start_time', render: (r) => r.start_time ? new Date(r.start_time).toLocaleString() : '—' },
                   { key: 'date', label: 'Recorded', accessor: 'creation_date', render: (r) => r.creation_date ? new Date(r.creation_date).toLocaleString() : '—' },
+                  { key: 'file', label: 'File', sortable: false, render: (r) => (
+                    r.file_exists === false
+                      ? <span className="status-badge status-inactive" title="The recording file is missing on the server">Missing</span>
+                      : <span className="status-badge status-active">Available</span>
+                  )},
                   { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
                     <div className="table-actions">
-                      <button className="btn btn-sm btn-primary" onClick={() => setRecPlayUrl(r)}>▶ Play</button>
-                      <a className="btn btn-sm btn-ghost" href={r.playback_url} download={recordingFileName(r)}>⬇ Download</a>
+                      {r.file_exists === false ? (
+                        <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85em' }}>File unavailable</span>
+                      ) : (
+                        <>
+                          <button className="btn btn-sm btn-primary" onClick={() => setRecPlayUrl(r)}>▶ Play</button>
+                          <a className="btn btn-sm btn-ghost" href={r.playback_url} download={recordingFileName(r)}>⬇ Download</a>
+                        </>
+                      )}
                       <button className="btn btn-sm btn-ghost text-danger" onClick={async () => {
                         if (!window.confirm('Delete this recording? This permanently removes the file.')) return;
                         try { await api.deleteMeetingRecord(r.record_id); setRecordings((list) => list.filter((x) => x.record_id !== r.record_id)); }
