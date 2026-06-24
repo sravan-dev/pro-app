@@ -147,6 +147,7 @@ function Stage({ session, initialCanPublish, onLeave }) {
   // remote participant) is mixed in, then recorded to .webm and uploaded to
   // the server's recordings folder via /api/upload-recording on stop.
   const [recState, setRecState] = useState('idle'); // idle | recording | uploading
+  const [recNotice, setRecNotice] = useState(''); // surfaced recording success/failure
   const recRef = useRef(null);
   const recCleanupRef = useRef(null);
 
@@ -215,9 +216,20 @@ function Stage({ session, initialCanPublish, onLeave }) {
       rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       rec.onstop = async () => {
         recCleanupRef.current?.();
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        if (!blob.size) {
+          // Nothing was captured — don't create an empty, unplayable record.
+          setRecState('idle');
+          setRecNotice('Recording was empty and was not saved. Make sure at least one camera is on before recording.');
+          return;
+        }
         setRecState('uploading');
-        try { await api.uploadRecording(session.session_id, new Blob(chunks, { type: 'video/webm' })); }
-        catch { /* upload failed */ }
+        try {
+          await api.uploadRecording(session.session_id, blob);
+          setRecNotice('Recording saved.');
+        } catch (e) {
+          setRecNotice(`Recording failed to upload${e?.message ? `: ${e.message}` : ''}. It was not saved.`);
+        }
         setRecState('idle');
       };
 
@@ -307,6 +319,17 @@ function Stage({ session, initialCanPublish, onLeave }) {
           >
             ✋
           </button>
+        )}
+        {recNotice && (
+          <span
+            onClick={() => setRecNotice('')}
+            title="Dismiss"
+            style={{ cursor: 'pointer', fontSize: '12px', fontWeight: 600, padding: '4px 10px', borderRadius: '999px',
+              background: recNotice === 'Recording saved.' ? '#16a34a' : '#dc2626', color: '#fff', maxWidth: '340px',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {recNotice}
+          </span>
         )}
         {isHost && (
           recState === 'uploading' ? (

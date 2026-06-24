@@ -12,9 +12,17 @@ const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
-const UPLOAD_DIR = path.join(__dirname, 'uploads', 'recordings');
-const MATERIALS_DIR = path.join(__dirname, 'uploads', 'materials');
-const AVATARS_DIR = path.join(__dirname, 'uploads', 'avatars');
+// Uploads (recordings, course materials, avatars) must live OUTSIDE the
+// deployed app folder, otherwise every deploy that replaces the project tree
+// wipes them. Set UPLOADS_ROOT to a persistent path on the host (e.g. a
+// directory in the home folder that deploys never touch). Falls back to the
+// in-repo ./uploads for local development.
+const UPLOADS_ROOT = process.env.UPLOADS_ROOT
+  ? path.resolve(process.env.UPLOADS_ROOT)
+  : path.join(__dirname, 'uploads');
+const UPLOAD_DIR = path.join(UPLOADS_ROOT, 'recordings');
+const MATERIALS_DIR = path.join(UPLOADS_ROOT, 'materials');
+const AVATARS_DIR = path.join(UPLOADS_ROOT, 'avatars');
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist');
 
 // LiveKit (SFU) — used for large webinar-style sessions (50-100+ participants).
@@ -115,7 +123,7 @@ app.use(session({
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(MATERIALS_DIR)) fs.mkdirSync(MATERIALS_DIR, { recursive: true });
 if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(UPLOADS_ROOT));
 
 // Multer for file uploads
 const upload = multer({ dest: UPLOAD_DIR });
@@ -1245,11 +1253,12 @@ app.get('/api/meeting-records', async (req, res) => {
   }
   // Flag orphaned rows whose underlying file is gone (e.g. uploads wiped on a
   // redeploy) so the UI can disable Play/Download instead of 404-ing. Resolve
-  // from playback_url, which is always relative to the served uploads root -
-  // file_path holds an absolute path that may be stale across machines.
+  // against UPLOADS_ROOT via playback_url (served at /uploads) — file_path
+  // holds an absolute path that may be stale across machines/deploys.
   for (const r of rows) {
-    const rel = (r.playback_url || '').replace(/^\/+/, '');
-    r.file_exists = !!rel && fs.existsSync(path.join(__dirname, rel));
+    const pb = r.playback_url || '';
+    const rel = pb.startsWith('/uploads/') ? pb.slice('/uploads/'.length) : pb.replace(/^\/+/, '');
+    r.file_exists = !!rel && fs.existsSync(path.join(UPLOADS_ROOT, rel));
   }
   res.json(rows);
 });
@@ -2670,12 +2679,19 @@ app.post('/api/upload-recording', upload.single('recording'), async (req, res) =
   const user = await requireRole(req, res, ['tutor','superadmin']); if (!user) return;
   const sessionId = parseInt(req.body.session_id);
   if (!sessionId || !req.file) return res.status(400).json({ error: 'Session ID and file required' });
+  // Reject empty captures — they'd create an unplayable record that just shows
+  // up as "Missing"/0 bytes in the recordings list.
+  if (!req.file.size) {
+    try { fs.unlinkSync(req.file.path); } catch { /* temp already gone */ }
+    return res.status(400).json({ error: 'Recording was empty (0 bytes) and was not saved.' });
+  }
   const ext = path.extname(req.file.originalname) || '.webm';
   const filename = `recording-${sessionId}-${Date.now()}${ext}`;
   const dest = path.join(UPLOAD_DIR, filename);
   fs.renameSync(req.file.path, dest);
   const r = await db.run("INSERT INTO meeting_records (session_id,file_path,playback_url) VALUES (?,?,?)", [sessionId, dest, `/uploads/recordings/${filename}`]);
   auditLog(user.id, 'upload_recording', 'meeting_record', r.lastInsertRowid);
+  console.log(`[recording] saved ${filename} (${(req.file.size / 1048576).toFixed(1)} MB) for session ${sessionId}`);
   res.status(201).json({ message: 'Uploaded', playback_url: `/uploads/recordings/${filename}` });
 });
 
