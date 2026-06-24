@@ -1017,6 +1017,15 @@ export default function SuperadminPortal() {
     } catch (err) { alert(err.message); }
   };
 
+  // Friendly download filename for a recording. Older rows stored a
+  // playback_url without an extension, so the browser's `download` fallback
+  // saved an extension-less file Windows couldn't recognise. Forcing a
+  // `.webm` name here keeps the saved file playable for every record.
+  const recordingFileName = (r) => {
+    const slug = (r.course_name || 'recording').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'recording';
+    return `${slug}-${r.record_id}.webm`;
+  };
+
   if (loading) return (
     <div className="portal-layout portal-superadmin">
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
@@ -2434,8 +2443,8 @@ export default function SuperadminPortal() {
                   { key: 'date', label: 'Recorded', accessor: 'creation_date', render: (r) => r.creation_date ? new Date(r.creation_date).toLocaleString() : '—' },
                   { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
                     <div className="table-actions">
-                      <button className="btn btn-sm btn-primary" onClick={() => setRecPlayUrl(r.playback_url)}>▶ Play</button>
-                      <a className="btn btn-sm btn-ghost" href={r.playback_url} download>⬇ Download</a>
+                      <button className="btn btn-sm btn-primary" onClick={() => setRecPlayUrl(r)}>▶ Play</button>
+                      <a className="btn btn-sm btn-ghost" href={r.playback_url} download={recordingFileName(r)}>⬇ Download</a>
                       <button className="btn btn-sm btn-ghost text-danger" onClick={async () => {
                         if (!window.confirm('Delete this recording? This permanently removes the file.')) return;
                         try { await api.deleteMeetingRecord(r.record_id); setRecordings((list) => list.filter((x) => x.record_id !== r.record_id)); }
@@ -2456,9 +2465,9 @@ export default function SuperadminPortal() {
                     <h3 style={{ margin: 0 }}>Recording</h3>
                     <button className="btn btn-ghost" onClick={() => setRecPlayUrl(null)}>✕ Close</button>
                   </div>
-                  <video src={recPlayUrl} controls autoPlay style={{ width: '100%', borderRadius: '8px', background: '#000' }} />
+                  <video src={recPlayUrl.playback_url} controls autoPlay style={{ width: '100%', borderRadius: '8px', background: '#000' }} />
                   <div style={{ marginTop: '0.75rem', textAlign: 'right' }}>
-                    <a className="btn btn-ghost" href={recPlayUrl} download>⬇ Download</a>
+                    <a className="btn btn-ghost" href={recPlayUrl.playback_url} download={recordingFileName(recPlayUrl)}>⬇ Download</a>
                   </div>
                 </div>
               </div>

@@ -39,6 +39,13 @@ export default function TutorPortal() {
     catch (err) { setMessage(err.message || 'Failed to delete recording'); }
   };
 
+  // Force a `.webm` download name — older rows stored a playback_url without an
+  // extension, which made the browser save an unrecognised, unplayable file.
+  const recordingFileName = (r) => {
+    const slug = (r.course_name || 'recording').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'recording';
+    return `${slug}-${r.record_id}.webm`;
+  };
+
   const openStudentDetail = async (student) => {
     setStudentDetail(null);
     setStudentDetailLoading(true);
@@ -548,8 +555,8 @@ export default function TutorPortal() {
                   { key: 'date', label: 'Recorded', accessor: 'creation_date', render: (r) => r.creation_date ? new Date(r.creation_date).toLocaleString() : '-' },
                   { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <button className="btn btn-sm btn-primary" onClick={() => setPlayUrl(r.playback_url)}>▶ Play</button>
-                      <a className="btn btn-sm btn-ghost" href={r.playback_url} download>⬇ Download</a>
+                      <button className="btn btn-sm btn-primary" onClick={() => setPlayUrl(r)}>▶ Play</button>
+                      <a className="btn btn-sm btn-ghost" href={r.playback_url} download={recordingFileName(r)}>⬇ Download</a>
                       <button className="btn btn-sm btn-danger" onClick={() => deleteRecording(r.record_id)}>🗑 Delete</button>
                     </div>
                   )},
@@ -566,9 +573,9 @@ export default function TutorPortal() {
                     <h3 style={{ margin: 0 }}>Recording</h3>
                     <button className="btn btn-ghost" onClick={() => setPlayUrl(null)}>✕ Close</button>
                   </div>
-                  <video src={playUrl} controls autoPlay style={{ width: '100%', borderRadius: '8px', background: '#000' }} />
+                  <video src={playUrl.playback_url} controls autoPlay style={{ width: '100%', borderRadius: '8px', background: '#000' }} />
                   <div style={{ marginTop: '0.75rem', textAlign: 'right' }}>
-                    <a className="btn btn-ghost" href={playUrl} download>⬇ Download</a>
+                    <a className="btn btn-ghost" href={playUrl.playback_url} download={recordingFileName(playUrl)}>⬇ Download</a>
                   </div>
                 </div>
               </div>
