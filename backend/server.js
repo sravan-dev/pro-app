@@ -17,12 +17,12 @@ const PORT = process.env.PORT || 8000;
 // wipes them. Set UPLOADS_ROOT to a persistent path on the host (e.g. a
 // directory in the home folder that deploys never touch). Falls back to the
 // in-repo ./uploads for local development.
-const UPLOADS_ROOT = process.env.UPLOADS_ROOT
+let UPLOADS_ROOT = process.env.UPLOADS_ROOT
   ? path.resolve(process.env.UPLOADS_ROOT)
   : path.join(__dirname, 'uploads');
-const UPLOAD_DIR = path.join(UPLOADS_ROOT, 'recordings');
-const MATERIALS_DIR = path.join(UPLOADS_ROOT, 'materials');
-const AVATARS_DIR = path.join(UPLOADS_ROOT, 'avatars');
+let UPLOAD_DIR = path.join(UPLOADS_ROOT, 'recordings');
+let MATERIALS_DIR = path.join(UPLOADS_ROOT, 'materials');
+let AVATARS_DIR = path.join(UPLOADS_ROOT, 'avatars');
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist');
 
 // LiveKit (SFU) — used for large webinar-style sessions (50-100+ participants).
@@ -119,10 +119,30 @@ app.use(session({
   },
 }));
 
-// Serve uploaded files
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-if (!fs.existsSync(MATERIALS_DIR)) fs.mkdirSync(MATERIALS_DIR, { recursive: true });
-if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
+// Serve uploaded files. Create the upload dirs, but never let a bad/unwritable
+// UPLOADS_ROOT (e.g. a path the account can't write — EACCES) crash the whole
+// app on boot. If the configured root can't be prepared, log loudly and fall
+// back to the in-app ./uploads so the site stays up (those files won't survive
+// deploys — fix UPLOADS_ROOT to a writable, persistent path you own).
+function ensureUploadDirs(root) {
+  for (const d of [path.join(root, 'recordings'), path.join(root, 'materials'), path.join(root, 'avatars')]) {
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  }
+}
+try {
+  ensureUploadDirs(UPLOADS_ROOT);
+} catch (err) {
+  const fallback = path.join(__dirname, 'uploads');
+  console.error(`[uploads] Cannot use UPLOADS_ROOT="${UPLOADS_ROOT}" (${err.code || err.message}). ` +
+    `Falling back to "${fallback}". Set UPLOADS_ROOT to a writable, persistent directory you own ` +
+    `(e.g. ~/domains/<site>/lms-uploads) so recordings survive deploys.`);
+  UPLOADS_ROOT = fallback;
+  UPLOAD_DIR = path.join(UPLOADS_ROOT, 'recordings');
+  MATERIALS_DIR = path.join(UPLOADS_ROOT, 'materials');
+  AVATARS_DIR = path.join(UPLOADS_ROOT, 'avatars');
+  ensureUploadDirs(UPLOADS_ROOT);
+}
+console.log(`[uploads] serving /uploads from ${UPLOADS_ROOT}`);
 app.use('/uploads', express.static(UPLOADS_ROOT));
 
 // Multer for file uploads
