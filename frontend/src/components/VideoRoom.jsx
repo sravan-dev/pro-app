@@ -234,6 +234,13 @@ export default function VideoRoom({ session, onLeave }) {
     }).catch(() => {});
   }, []);
 
+  // Warn before the browser tab/window is closed or reloaded while in a class.
+  useEffect(() => {
+    const onBeforeUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
@@ -343,6 +350,7 @@ export default function VideoRoom({ session, onLeave }) {
   };
 
   const handleLeave = async () => {
+    if (!window.confirm('Leave this session?')) return;
     clearTimeout(pollingRef.current);
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     Object.values(peersRef.current).forEach((pc) => pc.close());

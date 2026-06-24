@@ -249,6 +249,25 @@ function Stage({ session, initialCanPublish, onLeave }) {
   // Stop & flush if the host leaves mid-recording.
   useEffect(() => () => { try { stopRecording(); } catch {} }, []);
 
+  // Warn before the browser tab/window is closed or reloaded while in a class —
+  // closing loses the live session (and any in-progress recording).
+  useEffect(() => {
+    const onBeforeUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  // Confirm before leaving the class. If a recording is still running, warn
+  // that leaving discards it (they should press ⏹ to save it first).
+  const confirmLeave = () => {
+    if (recState === 'recording') {
+      if (!window.confirm('You are still recording. Stop the recording (⏹) first to save it.\n\nLeave anyway and discard the recording?')) return;
+    } else if (!window.confirm('Leave this session?')) {
+      return;
+    }
+    onLeave?.();
+  };
+
   const handCount = Object.keys(raisedHands).length;
 
   return (
@@ -344,7 +363,7 @@ function Stage({ session, initialCanPublish, onLeave }) {
             </button>
           )
         )}
-        <button className="btn-control btn-leave" onClick={onLeave} title="Leave session">📞</button>
+        <button className="btn-control btn-leave" onClick={confirmLeave} title="Leave session">📞</button>
       </div>
     </div>
   );
