@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './components/Login';
@@ -14,6 +14,16 @@ import SuperadminPortal from './portals/SuperadminPortal';
 
 function AppRoutes() {
   const { user, loading } = useAuth();
+
+  // While signed in, warn before the browser tab/window is closed or reloaded
+  // so unsaved work isn't lost. Browsers show their own generic confirmation
+  // text here — custom messages aren't allowed. Not active on the login page.
+  useEffect(() => {
+    if (!user) return;
+    const onBeforeUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [user]);
 
   if (loading) {
     return <div className="loading-screen"><div className="spinner" /><p>Loading TijusPro...</p></div>;
