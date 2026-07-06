@@ -1282,76 +1282,65 @@ function periodBounds(period) {
   return { start: `${startDate} 00:00:00`, end: `${endDate} 00:00:00`, startDate, endDate };
 }
 
-// Teaching time a tutor actually delivered in [start,end): summed durations of
-// sessions that were conducted (completed OR someone joined — same rule the
-// tutor's own earnings view uses). Hours are computed in JS over the string
+// Actual teaching time a tutor delivered in [start,end). We use the REAL time
+// taken, measured from each conducted session's attendance records — the span
+// from the earliest join to the latest leave, or the longest single participant
+// duration — and fall back to the scheduled start→end only when a session has
+// no usable attendance timing. Hours are computed in JS over the string
 // timestamps so we don't rely on SQL date math.
 async function tutorSessionHours(tutorId, start, end) {
   const rows = await db.all(
-    "SELECT s.start_time, s.end_time FROM sessions s WHERE s.tutor_id=? AND s.start_time>=? AND s.start_time<? AND (s.status='completed' OR EXISTS(SELECT 1 FROM attendance_logs a WHERE a.session_id=s.session_id))",
+    `SELECT s.session_id, s.start_time, s.end_time,
+            MIN(a.join_time)        AS first_join,
+            MAX(a.leave_time)       AS last_leave,
+            MAX(a.duration_minutes) AS max_dur
+     FROM sessions s
+     LEFT JOIN attendance_logs a ON a.session_id = s.session_id
+     WHERE s.tutor_id=? AND s.start_time>=? AND s.start_time<?
+       AND (s.status='completed' OR EXISTS(SELECT 1 FROM attendance_logs a2 WHERE a2.session_id=s.session_id))
+     GROUP BY s.session_id, s.start_time, s.end_time`,
     [tutorId, start, end]
   );
   let hours = 0;
   let sessions = 0;
   for (const r of rows) {
-    const h = (new Date(r.end_time) - new Date(r.start_time)) / 3600000;
-    if (Number.isFinite(h) && h > 0) { hours += h; sessions += 1; }
+    let mins = 0;
+    // Real time taken: earliest join → latest leave across all participants.
+    if (r.first_join && r.last_leave) {
+      mins = (new Date(r.last_leave) - new Date(r.first_join)) / 60000;
+    }
+    // Fallbacks: longest recorded participant duration, then scheduled length.
+    if (!(mins > 0) && Number(r.max_dur) > 0) mins = Number(r.max_dur);
+    if (!(mins > 0)) mins = (new Date(r.end_time) - new Date(r.start_time)) / 60000;
+    if (Number.isFinite(mins) && mins > 0) { hours += mins / 60; sessions += 1; }
   }
   return { hours, sessions };
 }
 
-// Clock-in time a non-teaching staff member logged in the period. Absent/leave
-// days contribute no hours.
-async function staffAttendanceHours(userId, startDate, endDate) {
-  const rows = await db.all(
-    "SELECT hours, status FROM staff_attendance WHERE user_id=? AND work_date>=? AND work_date<?",
-    [userId, startDate, endDate]
-  );
-  let hours = 0;
-  let days = 0;
-  for (const r of rows) {
-    if (r.status === 'absent' || r.status === 'leave') continue;
-    const h = Number(r.hours) || 0;
-    if (h > 0) hours += h;
-    days += 1;
-  }
-  return { hours, days };
-}
-
-// Build salary rows for a period — one per active staff member. Salary is
-// simply (hours worked × payout_rate), where "hours worked" is teaching-session
-// time for tutors and clock-in time for other staff. Joined against
-// payroll_runs so the caller knows who's already been marked paid.
+// Build salary rows for a period — one per active tutor. Salary is simply
+// (hours worked × payout_rate), where "hours worked" is the actual time taken
+// in their sessions (from attendance records). Joined against payroll_runs so
+// the caller knows who's already been marked paid.
 async function computePayroll(period) {
   const b = periodBounds(period);
   if (!b) return null;
   const currency = (await db.get("SELECT currency FROM app_settings WHERE id=1"))?.currency || 'INR';
   const staff = await db.all(
-    "SELECT id, name, email, role, avatar_color, payout_rate FROM users WHERE role IN (?) AND status='active' ORDER BY role, name",
-    [STAFF_ROLES]
+    "SELECT id, name, email, role, avatar_color, payout_rate FROM users WHERE role='tutor' AND status='active' ORDER BY name"
   );
   const paidRows = await db.all("SELECT * FROM payroll_runs WHERE period=?", [period]);
   const paidByUser = new Map(paidRows.map((r) => [r.user_id, r]));
   const rows = [];
   for (const u of staff) {
     const rate = Number(u.payout_rate) || 0;
-    let hours = 0;
-    let sessions = 0;
-    let days = 0;
-    if (u.role === 'tutor') {
-      const t = await tutorSessionHours(u.id, b.start, b.end);
-      hours = t.hours; sessions = t.sessions;
-    } else {
-      const a = await staffAttendanceHours(u.id, b.startDate, b.endDate);
-      hours = a.hours; days = a.days;
-    }
-    hours = Math.round(hours * 100) / 100;
+    const t = await tutorSessionHours(u.id, b.start, b.end);
+    const hours = Math.round(t.hours * 100) / 100;
     const gross = Math.round(hours * rate * 100) / 100;
     const paid = paidByUser.get(u.id);
     rows.push({
       user_id: u.id, name: u.name, email: u.email, role: u.role, avatar_color: u.avatar_color,
-      payout_rate: rate, hours, sessions, days,
-      source: u.role === 'tutor' ? 'sessions' : 'clock-in',
+      payout_rate: rate, hours, sessions: t.sessions, days: 0,
+      source: 'sessions',
       gross_amount: gross,
       paid: !!paid,
       paid_at: paid ? paid.paid_at : null,

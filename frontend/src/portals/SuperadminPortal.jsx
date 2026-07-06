@@ -2556,13 +2556,13 @@ export default function SuperadminPortal() {
               </div>
             </div>
             <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
-              Salary = hours worked × payout rate. Tutor hours come from conducted sessions; advisor/manager hours from their clock-in records.
+              Salary = hours worked × payout rate, for tutors. Hours are the <strong>actual time taken in each session</strong>, measured from the attendance records (earliest join → latest leave).
             </p>
             {payroll && (
               <>
                 <div className="kpi-grid">
                   <KPICard title="Total Payroll" value={formatMoney(payroll.totals.gross_total)} subtitle={new Date(payrollPeriod + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} icon="dollar" color="#10B981" />
-                  <KPICard title="Staff" value={payroll.totals.staff_count} icon="users" color="#3B82F6" />
+                  <KPICard title="Tutors" value={payroll.totals.staff_count} icon="users" color="#3B82F6" />
                   <KPICard title="Paid" value={payroll.totals.paid_count} icon="check-circle" color="#8B5CF6" />
                   <KPICard title="Pending" value={payroll.totals.pending_count} icon="alert" color="#F59E0B" />
                 </div>
