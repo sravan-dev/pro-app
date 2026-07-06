@@ -71,6 +71,17 @@ export default function SuperadminPortal() {
   const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
   const [reports, setReports] = useState(null);
 
+  // Salary / Payroll (salary = hours worked × payout rate)
+  const [payrollPeriod, setPayrollPeriod] = useState(() => new Date().toISOString().slice(0, 7));
+  const [payroll, setPayroll] = useState(null);
+  const [payrollBusy, setPayrollBusy] = useState(false);
+  // Staff attendance (admin management)
+  const [staffAttPeriod, setStaffAttPeriod] = useState(() => new Date().toISOString().slice(0, 7));
+  const [staffAtt, setStaffAtt] = useState([]);
+  const [staffList, setStaffList] = useState([]); // active staff for the picker
+  const [showStaffAttForm, setShowStaffAttForm] = useState(false);
+  const [staffAttForm, setStaffAttForm] = useState({ user_id: '', work_date: '', status: 'present', hours: 0, note: '' });
+
   // Student detail view (full profile of one student)
   const [studentDetail, setStudentDetail] = useState(null);
   const [studentDetailLoading, setStudentDetailLoading] = useState(false);
@@ -388,6 +399,20 @@ export default function SuperadminPortal() {
       loadContacts(0, '');
     }
   }, [activeTab, hubspot.hubspot_connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Salary / Payroll — recomputes whenever the tab or selected month changes.
+  useEffect(() => {
+    if (activeTab === 'payroll') api.getPayroll(payrollPeriod).then(setPayroll).catch(() => setPayroll(null));
+  }, [activeTab, payrollPeriod]);
+
+  // Staff-attendance list (+ staff picker) for the admin management tab.
+  useEffect(() => {
+    if (activeTab !== 'staffattendance') return;
+    api.getStaffAttendance({ period: staffAttPeriod }).then(setStaffAtt).catch(() => {});
+    if (staffList.length === 0) {
+      api.getUsers().then((us) => setStaffList(us.filter((u) => ['tutor', 'advisor', 'manager'].includes(u.role)))).catch(() => {});
+    }
+  }, [activeTab, staffAttPeriod]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Same lazy-load pattern for the Kajabi Contacts tab.
   useEffect(() => {
@@ -1191,6 +1216,86 @@ export default function SuperadminPortal() {
     { key: 'join', label: 'Join Time', accessor: 'join_time', render: (r) => r.join_time ? new Date(r.join_time).toLocaleTimeString() : '-' },
     { key: 'leave', label: 'Leave Time', accessor: 'leave_time', render: (r) => r.leave_time ? new Date(r.leave_time).toLocaleTimeString() : '-' },
     { key: 'duration', label: 'Duration (min)', accessor: 'duration_minutes' },
+  ];
+
+  // ----- Salary / Payroll & Staff Attendance -----------------------------
+  const roleLabel = (r) => (r ? r.charAt(0).toUpperCase() + r.slice(1) : '');
+  const fmtClock = (t) => (t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-');
+  const refreshPayroll = () => api.getPayroll(payrollPeriod).then(setPayroll).catch(() => {});
+  const refreshStaffAtt = () => api.getStaffAttendance({ period: staffAttPeriod }).then(setStaffAtt).catch(() => {});
+
+  const payStaff = async (userId) => {
+    setPayrollBusy(true);
+    try { await api.payPayroll({ period: payrollPeriod, user_id: userId }); await refreshPayroll(); showMsg('Marked as paid', 'success'); }
+    catch (e) { showMsg(e.message, 'error'); }
+    finally { setPayrollBusy(false); }
+  };
+  const unpayStaff = async (userId) => {
+    if (!confirm('Undo this payment? It will show as pending again.')) return;
+    try { await api.unpayPayroll(payrollPeriod, userId); await refreshPayroll(); showMsg('Payment reverted', 'success'); }
+    catch (e) { showMsg(e.message, 'error'); }
+  };
+  const payAll = async () => {
+    const pending = (payroll?.rows || []).filter((r) => !r.paid && r.gross_amount > 0);
+    if (!pending.length) { showMsg('Nothing pending to pay for this month', 'info'); return; }
+    if (!confirm(`Mark ${pending.length} staff as paid for ${payrollPeriod}?`)) return;
+    setPayrollBusy(true);
+    try { await api.payPayroll({ period: payrollPeriod, user_ids: pending.map((r) => r.user_id) }); await refreshPayroll(); showMsg('Payroll marked paid', 'success'); }
+    catch (e) { showMsg(e.message, 'error'); }
+    finally { setPayrollBusy(false); }
+  };
+
+  const openStaffAttForm = () => { setStaffAttForm({ user_id: '', work_date: new Date().toISOString().slice(0, 10), status: 'present', hours: 0, note: '' }); setShowStaffAttForm(true); };
+  const editStaffAtt = (r) => { setStaffAttForm({ user_id: r.user_id, work_date: r.work_date, status: r.status, hours: Number(r.hours) || 0, note: r.note || '' }); setShowStaffAttForm(true); };
+  const saveStaffAtt = async (e) => {
+    e.preventDefault();
+    if (!staffAttForm.user_id || !staffAttForm.work_date) { showMsg('Staff and date are required', 'error'); return; }
+    try { await api.saveStaffAttendance(staffAttForm); setShowStaffAttForm(false); await refreshStaffAtt(); showMsg('Attendance saved', 'success'); }
+    catch (e2) { showMsg(e2.message, 'error'); }
+  };
+  const deleteStaffAtt = async (id) => {
+    if (!confirm('Delete this attendance record?')) return;
+    try { await api.deleteStaffAttendance(id); await refreshStaffAtt(); showMsg('Deleted', 'success'); }
+    catch (e) { showMsg(e.message, 'error'); }
+  };
+
+  const payrollColumns = [
+    { key: 'name', label: 'Staff', accessor: 'name', render: (r) => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="avatar-sm" style={{ backgroundColor: r.avatar_color }}>{r.name?.[0]}</div>
+        <div><div>{r.name}</div><div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{r.email}</div></div>
+      </div>
+    ) },
+    { key: 'role', label: 'Role', accessor: 'role', render: (r) => <span className="status-badge">{roleLabel(r.role)}</span> },
+    { key: 'hours', label: 'Hours', accessor: 'hours', render: (r) => `${(Number(r.hours) || 0).toFixed(2)} h` },
+    { key: 'from', label: 'From', accessor: 'source', render: (r) => (r.source === 'sessions' ? `${r.sessions} sessions` : `${r.days} days`) },
+    { key: 'rate', label: 'Rate / hr', accessor: 'payout_rate', render: (r) => formatMoney(r.payout_rate) },
+    { key: 'salary', label: 'Salary', accessor: 'gross_amount', render: (r) => <strong>{formatMoney(r.gross_amount)}</strong> },
+    { key: 'status', label: 'Status', accessor: (r) => (r.paid ? 'Paid' : 'Pending'), render: (r) => <span className={`status-badge status-${r.paid ? 'completed' : 'scheduled'}`}>{r.paid ? 'Paid' : 'Pending'}</span> },
+    { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
+      r.paid
+        ? <button className="btn btn-sm btn-ghost text-danger" onClick={() => unpayStaff(r.user_id)}>Undo</button>
+        : (r.gross_amount > 0
+          ? <button className="btn btn-sm btn-primary" disabled={payrollBusy} onClick={() => payStaff(r.user_id)}>Mark Paid</button>
+          : <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>—</span>)
+    ) },
+  ];
+
+  const staffAttColumns = [
+    { key: 'staff', label: 'Staff', accessor: 'staff_name' },
+    { key: 'role', label: 'Role', accessor: 'staff_role', render: (r) => roleLabel(r.staff_role) },
+    { key: 'date', label: 'Date', accessor: 'work_date', render: (r) => new Date(r.work_date).toLocaleDateString() },
+    { key: 'in', label: 'In', accessor: 'check_in', render: (r) => fmtClock(r.check_in) },
+    { key: 'out', label: 'Out', accessor: 'check_out', render: (r) => fmtClock(r.check_out) },
+    { key: 'hours', label: 'Hours', accessor: 'hours', render: (r) => (Number(r.hours) || 0).toFixed(2) },
+    { key: 'status', label: 'Status', accessor: 'status', render: (r) => <span className="status-badge">{r.status}</span> },
+    { key: 'note', label: 'Note', accessor: 'note', render: (r) => r.note || '-' },
+    { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
+      <div className="table-actions">
+        <button className="btn btn-sm btn-ghost" onClick={() => editStaffAtt(r)}>Edit</button>
+        <button className="btn btn-sm btn-ghost text-danger" onClick={() => deleteStaffAtt(r.id)}>Delete</button>
+      </div>
+    ) },
   ];
 
   const auditColumns = [
@@ -2419,6 +2524,96 @@ export default function SuperadminPortal() {
           <div className="portal-page">
             <h2>Attendance Records</h2>
             <DataTable columns={attendanceColumns} data={allAttendance} pageSize={20} />
+          </div>
+        )}
+
+        {/* ===== STAFF ATTENDANCE (admin) ===== */}
+        {activeTab === 'staffattendance' && (
+          <div className="portal-page">
+            <div className="page-header">
+              <h2>Staff Attendance</h2>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input type="month" value={staffAttPeriod} onChange={(e) => setStaffAttPeriod(e.target.value)} style={{ maxWidth: 170 }} />
+                <button className="btn btn-ghost" onClick={refreshStaffAtt}>↻ Refresh</button>
+                <button className="btn btn-primary" onClick={openStaffAttForm}>+ Add / Edit Day</button>
+              </div>
+            </div>
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
+              Work-attendance for advisors &amp; managers — their logged hours drive salary (hours × payout rate). They can also clock in themselves from their portal. Tutors are paid from their session records instead.
+            </p>
+            <DataTable columns={staffAttColumns} data={staffAtt} pageSize={20} />
+          </div>
+        )}
+
+        {/* ===== SALARY / PAYROLL (admin) ===== */}
+        {activeTab === 'payroll' && (
+          <div className="portal-page">
+            <div className="page-header">
+              <h2>Salary / Payroll</h2>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input type="month" value={payrollPeriod} onChange={(e) => setPayrollPeriod(e.target.value)} style={{ maxWidth: 170 }} />
+                <button className="btn btn-primary" disabled={payrollBusy} onClick={payAll}>Mark All Paid</button>
+              </div>
+            </div>
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
+              Salary = hours worked × payout rate. Tutor hours come from conducted sessions; advisor/manager hours from their clock-in records.
+            </p>
+            {payroll && (
+              <>
+                <div className="kpi-grid">
+                  <KPICard title="Total Payroll" value={formatMoney(payroll.totals.gross_total)} subtitle={new Date(payrollPeriod + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} icon="dollar" color="#10B981" />
+                  <KPICard title="Staff" value={payroll.totals.staff_count} icon="users" color="#3B82F6" />
+                  <KPICard title="Paid" value={payroll.totals.paid_count} icon="check-circle" color="#8B5CF6" />
+                  <KPICard title="Pending" value={payroll.totals.pending_count} icon="alert" color="#F59E0B" />
+                </div>
+                <DataTable columns={payrollColumns} data={payroll.rows} pageSize={20} />
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Staff attendance add/edit modal */}
+        {showStaffAttForm && (
+          <div className="modal-overlay" onClick={() => setShowStaffAttForm(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, width: '92%' }}>
+              <h3>Staff Attendance</h3>
+              <form onSubmit={saveStaffAtt}>
+                <div className="form-group">
+                  <label>Staff Member</label>
+                  <select value={staffAttForm.user_id} onChange={(e) => setStaffAttForm({ ...staffAttForm, user_id: e.target.value })} required>
+                    <option value="">Select staff…</option>
+                    {staffList.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+                  </select>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Date</label>
+                    <input type="date" value={staffAttForm.work_date} onChange={(e) => setStaffAttForm({ ...staffAttForm, work_date: e.target.value })} required />
+                  </div>
+                  <div className="form-group">
+                    <label>Status</label>
+                    <select value={staffAttForm.status} onChange={(e) => setStaffAttForm({ ...staffAttForm, status: e.target.value })}>
+                      <option value="present">Present</option>
+                      <option value="half_day">Half day</option>
+                      <option value="leave">Leave</option>
+                      <option value="absent">Absent</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>Hours worked</label>
+                  <input type="number" min="0" step="0.25" value={staffAttForm.hours} onChange={(e) => setStaffAttForm({ ...staffAttForm, hours: parseFloat(e.target.value) || 0 })} placeholder="0" />
+                </div>
+                <div className="form-group">
+                  <label>Note</label>
+                  <input type="text" value={staffAttForm.note} onChange={(e) => setStaffAttForm({ ...staffAttForm, note: e.target.value })} placeholder="Optional" />
+                </div>
+                <div className="form-actions">
+                  <button type="button" className="btn btn-ghost" onClick={() => setShowStaffAttForm(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary">Save</button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 

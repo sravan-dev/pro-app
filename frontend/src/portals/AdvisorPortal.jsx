@@ -6,6 +6,7 @@ import KPICard from '../components/KPICard';
 import DataTable from '../components/DataTable';
 import ContactEnrollments from '../components/ContactEnrollments';
 import Tickets from '../components/Tickets';
+import StaffAttendanceSelf from '../components/StaffAttendanceSelf';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
 
@@ -111,6 +112,8 @@ export default function AdvisorPortal() {
         )}
 
         {activeTab === 'enrolls' && <ContactEnrollments />}
+
+        {activeTab === 'attendance' && <StaffAttendanceSelf />}
 
         {activeTab === 'tickets' && <Tickets />}
 

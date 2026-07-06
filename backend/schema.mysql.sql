@@ -276,6 +276,53 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
   INDEX idx_ticket_messages_ticket (ticket_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Staff attendance — daily work-attendance for non-teaching staff (advisors,
+-- managers) who don't have session records to derive hours from. Each staff
+-- member has at most one row per day (uq_staff_att). check_in/check_out are the
+-- same datetime strings sessions use; `hours` is computed in JS on clock-out.
+-- status: present / half_day / leave / absent. Tutors are normally paid from
+-- their session records instead, but may also appear here if they clock in.
+CREATE TABLE IF NOT EXISTS staff_attendance (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  work_date VARCHAR(10) NOT NULL,
+  check_in VARCHAR(40) DEFAULT '',
+  check_out VARCHAR(40) DEFAULT '',
+  hours DOUBLE DEFAULT 0,
+  status VARCHAR(20) NOT NULL DEFAULT 'present',
+  note VARCHAR(255) DEFAULT '',
+  recorded_by INT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_staff_att (user_id, work_date),
+  INDEX idx_staff_att_user (user_id),
+  INDEX idx_staff_att_date (work_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Payroll runs — the "mark as paid" history. One locked row per staff member
+-- per month (uq_payroll). The salary is computed from attendance/session
+-- records at pay time and snapshotted here (payout_type/rate/units/gross_amount)
+-- so historical payslips don't change if rates or records change later.
+CREATE TABLE IF NOT EXISTS payroll_runs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  period VARCHAR(7) NOT NULL,
+  role VARCHAR(20) DEFAULT '',
+  payout_type VARCHAR(20) DEFAULT 'monthly',
+  payout_rate DOUBLE DEFAULT 0,
+  units DOUBLE DEFAULT 0,
+  unit_label VARCHAR(20) DEFAULT '',
+  gross_amount DOUBLE DEFAULT 0,
+  currency VARCHAR(10) DEFAULT 'INR',
+  status VARCHAR(20) NOT NULL DEFAULT 'paid',
+  note VARCHAR(255) DEFAULT '',
+  paid_by INT NULL,
+  paid_at DATETIME NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_payroll (user_id, period),
+  INDEX idx_payroll_period (period),
+  INDEX idx_payroll_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Contact enrollments — an intimation created when a superadmin enrolls a
 -- HubSpot contact. Emailed to all managers & advisors and listed under their
 -- "Enrolls" tab.

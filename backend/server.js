@@ -1259,6 +1259,246 @@ app.get('/api/attendance-logs', async (req, res) => {
   res.json(rows);
 });
 
+// ============================================================
+// Staff Attendance & Salary / Payroll
+// ============================================================
+// Roles that draw a salary (and can clock in). Students are excluded.
+const STAFF_ROLES = ['tutor', 'advisor', 'manager'];
+
+// 'YYYY-MM' -> bounds for that calendar month. `start`/`end` are datetime
+// strings for the half-open range [start, end) used against session timestamps;
+// `startDate`/`endDate` are the date-only ('YYYY-MM-DD') bounds used against the
+// staff_attendance.work_date column. Returns null for a malformed period.
+function periodBounds(period) {
+  const m = /^(\d{4})-(\d{2})$/.exec(period || '');
+  if (!m) return null;
+  const y = parseInt(m[1], 10);
+  const mo = parseInt(m[2], 10);
+  if (mo < 1 || mo > 12) return null;
+  const ny = mo === 12 ? y + 1 : y;
+  const nmo = mo === 12 ? 1 : mo + 1;
+  const startDate = `${period}-01`;
+  const endDate = `${ny}-${String(nmo).padStart(2, '0')}-01`;
+  return { start: `${startDate} 00:00:00`, end: `${endDate} 00:00:00`, startDate, endDate };
+}
+
+// Teaching time a tutor actually delivered in [start,end): summed durations of
+// sessions that were conducted (completed OR someone joined — same rule the
+// tutor's own earnings view uses). Hours are computed in JS over the string
+// timestamps so we don't rely on SQL date math.
+async function tutorSessionHours(tutorId, start, end) {
+  const rows = await db.all(
+    "SELECT s.start_time, s.end_time FROM sessions s WHERE s.tutor_id=? AND s.start_time>=? AND s.start_time<? AND (s.status='completed' OR EXISTS(SELECT 1 FROM attendance_logs a WHERE a.session_id=s.session_id))",
+    [tutorId, start, end]
+  );
+  let hours = 0;
+  let sessions = 0;
+  for (const r of rows) {
+    const h = (new Date(r.end_time) - new Date(r.start_time)) / 3600000;
+    if (Number.isFinite(h) && h > 0) { hours += h; sessions += 1; }
+  }
+  return { hours, sessions };
+}
+
+// Clock-in time a non-teaching staff member logged in the period. Absent/leave
+// days contribute no hours.
+async function staffAttendanceHours(userId, startDate, endDate) {
+  const rows = await db.all(
+    "SELECT hours, status FROM staff_attendance WHERE user_id=? AND work_date>=? AND work_date<?",
+    [userId, startDate, endDate]
+  );
+  let hours = 0;
+  let days = 0;
+  for (const r of rows) {
+    if (r.status === 'absent' || r.status === 'leave') continue;
+    const h = Number(r.hours) || 0;
+    if (h > 0) hours += h;
+    days += 1;
+  }
+  return { hours, days };
+}
+
+// Build salary rows for a period — one per active staff member. Salary is
+// simply (hours worked × payout_rate), where "hours worked" is teaching-session
+// time for tutors and clock-in time for other staff. Joined against
+// payroll_runs so the caller knows who's already been marked paid.
+async function computePayroll(period) {
+  const b = periodBounds(period);
+  if (!b) return null;
+  const currency = (await db.get("SELECT currency FROM app_settings WHERE id=1"))?.currency || 'INR';
+  const staff = await db.all(
+    "SELECT id, name, email, role, avatar_color, payout_rate FROM users WHERE role IN (?) AND status='active' ORDER BY role, name",
+    [STAFF_ROLES]
+  );
+  const paidRows = await db.all("SELECT * FROM payroll_runs WHERE period=?", [period]);
+  const paidByUser = new Map(paidRows.map((r) => [r.user_id, r]));
+  const rows = [];
+  for (const u of staff) {
+    const rate = Number(u.payout_rate) || 0;
+    let hours = 0;
+    let sessions = 0;
+    let days = 0;
+    if (u.role === 'tutor') {
+      const t = await tutorSessionHours(u.id, b.start, b.end);
+      hours = t.hours; sessions = t.sessions;
+    } else {
+      const a = await staffAttendanceHours(u.id, b.startDate, b.endDate);
+      hours = a.hours; days = a.days;
+    }
+    hours = Math.round(hours * 100) / 100;
+    const gross = Math.round(hours * rate * 100) / 100;
+    const paid = paidByUser.get(u.id);
+    rows.push({
+      user_id: u.id, name: u.name, email: u.email, role: u.role, avatar_color: u.avatar_color,
+      payout_rate: rate, hours, sessions, days,
+      source: u.role === 'tutor' ? 'sessions' : 'clock-in',
+      gross_amount: gross,
+      paid: !!paid,
+      paid_at: paid ? paid.paid_at : null,
+      paid_amount: paid ? Number(paid.gross_amount) || 0 : null,
+    });
+  }
+  const totals = {
+    staff_count: rows.length,
+    gross_total: Math.round(rows.reduce((s, r) => s + r.gross_amount, 0) * 100) / 100,
+    paid_count: rows.filter((r) => r.paid).length,
+    pending_count: rows.filter((r) => !r.paid).length,
+    paid_total: Math.round(paidRows.reduce((s, r) => s + (Number(r.gross_amount) || 0), 0) * 100) / 100,
+  };
+  return { period, currency, rows, totals };
+}
+
+// List staff-attendance rows. Superadmin sees everyone (optionally filtered by
+// user_id and/or period); staff see only their own.
+app.get('/api/staff-attendance', async (req, res) => {
+  const user = await requireAuth(req, res); if (!user) return;
+  const isAdmin = user.role === 'superadmin';
+  const params = [];
+  let where = '1=1';
+  if (!isAdmin) { where += ' AND sa.user_id=?'; params.push(user.id); }
+  else if (req.query.user_id) { where += ' AND sa.user_id=?'; params.push(parseInt(req.query.user_id)); }
+  if (req.query.period) {
+    const b = periodBounds(req.query.period);
+    if (b) { where += ' AND sa.work_date>=? AND sa.work_date<?'; params.push(b.startDate, b.endDate); }
+  }
+  const rows = await db.all(
+    `SELECT sa.*, u.name as staff_name, u.role as staff_role, u.avatar_color FROM staff_attendance sa JOIN users u ON u.id=sa.user_id WHERE ${where} ORDER BY sa.work_date DESC, u.name LIMIT 500`,
+    params
+  );
+  res.json(rows);
+});
+
+// Self clock in / out for the logged-in staff member. One row per day: first
+// call of the day records check-in, the next records check-out and hours.
+app.post('/api/staff-attendance/clock', async (req, res) => {
+  const user = await requireRole(req, res, [...STAFF_ROLES, 'superadmin']); if (!user) return;
+  const now = nowStr();
+  const today = now.slice(0, 10);
+  const existing = await db.get("SELECT * FROM staff_attendance WHERE user_id=? AND work_date=?", [user.id, today]);
+  if (!existing) {
+    await db.run("INSERT INTO staff_attendance (user_id,work_date,check_in,status,recorded_by) VALUES (?,?,?,'present',?)", [user.id, today, now, user.id]);
+    return res.json({ message: 'Clocked in', action: 'in', check_in: now });
+  }
+  if (!existing.check_out) {
+    const hrs = Math.round(((new Date(now) - new Date(existing.check_in)) / 3600000) * 100) / 100;
+    await db.run("UPDATE staff_attendance SET check_out=?, hours=? WHERE id=?", [now, hrs > 0 ? hrs : 0, existing.id]);
+    return res.json({ message: 'Clocked out', action: 'out', check_out: now, hours: hrs > 0 ? hrs : 0 });
+  }
+  return res.status(400).json({ error: 'Already clocked out for today' });
+});
+
+// Admin upsert — create or adjust one staff member's day (manual entry). Hours
+// are taken as given, or derived from check_in/check_out when both are present.
+app.post('/api/staff-attendance', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const { user_id, work_date, check_in, check_out, hours, status, note } = req.body;
+  if (!user_id || !work_date) return res.status(400).json({ error: 'Staff and date required' });
+  let h = Number(hours) || 0;
+  if (!h && check_in && check_out) {
+    const d = (new Date(check_out) - new Date(check_in)) / 3600000;
+    if (Number.isFinite(d) && d > 0) h = Math.round(d * 100) / 100;
+  }
+  const st = ['present', 'half_day', 'leave', 'absent'].includes(status) ? status : 'present';
+  await db.run(
+    `INSERT INTO staff_attendance (user_id,work_date,check_in,check_out,hours,status,note,recorded_by)
+     VALUES (?,?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), check_out=VALUES(check_out), hours=VALUES(hours), status=VALUES(status), note=VALUES(note), recorded_by=VALUES(recorded_by)`,
+    [user_id, work_date, check_in || '', check_out || '', h, st, note || '', admin.id]
+  );
+  auditLog(admin.id, 'upsert_staff_attendance', 'staff_attendance', user_id, `${work_date}: ${st} ${h}h`);
+  res.json({ message: 'Attendance saved' });
+});
+
+app.delete('/api/staff-attendance', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'Record ID required' });
+  await db.run("DELETE FROM staff_attendance WHERE id=?", [id]);
+  auditLog(admin.id, 'delete_staff_attendance', 'staff_attendance', id);
+  res.json({ message: 'Deleted' });
+});
+
+// Computed payroll for a period (defaults to the current month).
+app.get('/api/payroll', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const period = req.query.period || nowStr().slice(0, 7);
+  const result = await computePayroll(period);
+  if (!result) return res.status(400).json({ error: 'Invalid period (expected YYYY-MM)' });
+  res.json(result);
+});
+
+// Mark one, several, or all staff as paid for a period. The computed salary is
+// snapshotted into payroll_runs so the history doesn't drift if rates or
+// records change later. Idempotent per (user, period).
+app.post('/api/payroll/pay', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const { period } = req.body;
+  if (!periodBounds(period)) return res.status(400).json({ error: 'Invalid period (expected YYYY-MM)' });
+  const computed = await computePayroll(period);
+  let targets = computed.rows;
+  if (req.body.user_id) {
+    targets = targets.filter((r) => r.user_id === Number(req.body.user_id));
+  } else if (Array.isArray(req.body.user_ids)) {
+    const set = new Set(req.body.user_ids.map(Number));
+    targets = targets.filter((r) => set.has(r.user_id));
+  } // else: everyone in the run
+  if (!targets.length) return res.status(400).json({ error: 'No matching staff to pay' });
+  const now = nowStr();
+  for (const r of targets) {
+    await db.run(
+      `INSERT INTO payroll_runs (user_id,period,role,payout_type,payout_rate,units,unit_label,gross_amount,currency,status,paid_by,paid_at)
+       VALUES (?,?,?,'per_hour',?,?,'hours',?,?,'paid',?,?)
+       ON DUPLICATE KEY UPDATE payout_rate=VALUES(payout_rate), units=VALUES(units), gross_amount=VALUES(gross_amount), currency=VALUES(currency), paid_by=VALUES(paid_by), paid_at=VALUES(paid_at)`,
+      [r.user_id, period, r.role, r.payout_rate, r.hours, r.gross_amount, computed.currency, admin.id, now]
+    );
+  }
+  auditLog(admin.id, 'pay_payroll', 'payroll', null, `${period}: paid ${targets.length} staff`);
+  res.json({ message: `Marked ${targets.length} staff as paid`, count: targets.length });
+});
+
+// Undo a payment for a user in a period (removes the run so it shows Pending).
+app.post('/api/payroll/unpay', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const { period, user_id } = req.body;
+  if (!period || !user_id) return res.status(400).json({ error: 'Period and user required' });
+  await db.run("DELETE FROM payroll_runs WHERE period=? AND user_id=?", [period, user_id]);
+  auditLog(admin.id, 'unpay_payroll', 'payroll', user_id, period);
+  res.json({ message: 'Payment reverted' });
+});
+
+// Paid-run history, newest first (optionally filtered by staff member).
+app.get('/api/payroll/history', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const params = [];
+  let where = '1=1';
+  if (req.query.user_id) { where += ' AND pr.user_id=?'; params.push(parseInt(req.query.user_id)); }
+  const rows = await db.all(
+    `SELECT pr.*, u.name as staff_name, u.role as staff_role FROM payroll_runs pr JOIN users u ON u.id=pr.user_id WHERE ${where} ORDER BY pr.period DESC, u.name LIMIT 500`,
+    params
+  );
+  res.json(rows);
+});
+
 // Meeting records
 app.get('/api/meeting-records', async (req, res) => {
   const user = await requireAuth(req, res); if (!user) return;

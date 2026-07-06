@@ -130,6 +130,24 @@ export const api = {
   getMeetingRecords: () => request('/meeting-records'),
   deleteMeetingRecord: (id) => request(`/meeting-records?id=${id}`, { method: 'DELETE' }),
 
+  // Staff attendance (work-attendance clock-in for staff; admin management)
+  getStaffAttendance: ({ user_id = '', period = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (user_id) params.set('user_id', String(user_id));
+    if (period) params.set('period', period);
+    const qs = params.toString();
+    return request(`/staff-attendance${qs ? `?${qs}` : ''}`);
+  },
+  clockAttendance: () => request('/staff-attendance/clock', { method: 'POST' }),
+  saveStaffAttendance: (data) => request('/staff-attendance', { method: 'POST', body: data }),
+  deleteStaffAttendance: (id) => request(`/staff-attendance?id=${id}`, { method: 'DELETE' }),
+
+  // Salary / Payroll (superadmin) — salary = worked hours × payout rate
+  getPayroll: (period) => request(period ? `/payroll?period=${period}` : '/payroll'),
+  payPayroll: (data) => request('/payroll/pay', { method: 'POST', body: data }),
+  unpayPayroll: (period, userId) => request('/payroll/unpay', { method: 'POST', body: { period, user_id: userId } }),
+  getPayrollHistory: ({ user_id = '' } = {}) => request(`/payroll/history${user_id ? `?user_id=${user_id}` : ''}`),
+
   // Settings
   clearData: (target) => request('/clear-data', { method: 'POST', body: { target } }),
 

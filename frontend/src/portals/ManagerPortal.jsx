@@ -7,6 +7,7 @@ import DataTable from '../components/DataTable';
 import ContactEnrollments from '../components/ContactEnrollments';
 import Tickets from '../components/Tickets';
 import RatingsView from '../components/RatingsView';
+import StaffAttendanceSelf from '../components/StaffAttendanceSelf';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
 
@@ -169,6 +170,8 @@ export default function ManagerPortal() {
         {activeTab === 'ratings' && <RatingsView />}
 
         {activeTab === 'enrolls' && <ContactEnrollments />}
+
+        {activeTab === 'attendance' && <StaffAttendanceSelf />}
 
         {activeTab === 'tickets' && <Tickets />}
 
