@@ -173,6 +173,11 @@ export default function SuperadminPortal() {
   const [pendingEnrollContact, setPendingEnrollContact] = useState(null); // contact awaiting "create student" confirm
   const [enrollBusy, setEnrollBusy] = useState(false);
 
+  // Quick "Assign Course" action from a student row: pick a course and enroll.
+  const [assignCourseStudent, setAssignCourseStudent] = useState(null); // the student being assigned, or null (modal closed)
+  const [assignCourseId, setAssignCourseId] = useState('');
+  const [assignCourseBusy, setAssignCourseBusy] = useState(false);
+
   const [showSessionForm, setShowSessionForm] = useState(false);
   const [sessionForm, setSessionForm] = useState({ course_id: '', tutor_id: '', student_id: '', start_time: '', end_time: '' });
 
@@ -934,6 +939,29 @@ export default function SuperadminPortal() {
     } catch (err) { showMsg(err.message, 'error'); }
   };
 
+  // Open the "Assign Course" modal for a student and (re)fetch courses from the
+  // DB so the picker is always current.
+  const openAssignCourse = (student) => {
+    setAssignCourseStudent(student);
+    setAssignCourseId('');
+    api.getCourses().then(setAllCourses).catch(() => {});
+  };
+
+  const submitAssignCourse = async (e) => {
+    e.preventDefault();
+    if (!assignCourseStudent || !assignCourseId) { showMsg('Please select a course', 'error'); return; }
+    setAssignCourseBusy(true);
+    try {
+      await api.createEnrollment({ student_id: assignCourseStudent.id, course_id: assignCourseId });
+      showMsg(`${assignCourseStudent.name} assigned to course`, 'success');
+      setAssignCourseStudent(null);
+      api.getStudents().then(setAllStudents).catch(() => {});
+      api.getEnrollments().then(setAllEnrollments).catch(() => {});
+      fetchData();
+    } catch (err) { showMsg(err.message || 'Failed to assign course', 'error'); }
+    finally { setAssignCourseBusy(false); }
+  };
+
   const dropEnrollment = async (id) => {
     if (!confirm('Drop this enrollment?')) return;
     try {
@@ -1109,11 +1137,12 @@ export default function SuperadminPortal() {
     } catch (err) { showMsg(err.message || 'Failed to send invite', 'error'); }
   };
 
-  const actionBtns = (onEdit, onDelete, deleteLabel = 'Deactivate', onPermanentDelete = null) => (r) => (
+  const actionBtns = (onEdit, onDelete, deleteLabel = 'Deactivate', onPermanentDelete = null, extra = null) => (r) => (
     <div className="table-actions">
       {r.id && r.email && (
         <button className="btn btn-sm btn-ghost" style={{ color: '#10B981' }} onClick={(e) => { e.stopPropagation(); handleInvite(r); }}>Invite</button>
       )}
+      {extra && extra(r)}
       <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); onEdit(r); }}>Edit</button>
       {onDelete && r.status !== 'inactive' && r.status !== 'archived' && r.status !== 'dropped' && (
         <button className="btn btn-sm btn-ghost text-danger" onClick={(e) => { e.stopPropagation(); onDelete(r.id || r.enrollment_id); }}>{deleteLabel}</button>
@@ -1132,7 +1161,9 @@ export default function SuperadminPortal() {
     { key: 'courses', label: 'Courses', accessor: 'enrolled_courses' },
     { key: 'progress', label: 'Avg Progress', accessor: 'avg_progress', render: (r) => progressCol(r, 'avg_progress') },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
-    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser) },
+    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser, (r) => (
+      <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); openAssignCourse(r); }}>Assign Course</button>
+    )) },
   ];
 
   const tutorColumns = [
@@ -1842,6 +1873,36 @@ export default function SuperadminPortal() {
     </div>
   );
 
+  const assignCourseModal = assignCourseStudent && (
+    <div className="modal-overlay" onClick={() => !assignCourseBusy && setAssignCourseStudent(null)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+        <h3>Assign Course</h3>
+        <form onSubmit={submitAssignCourse}>
+          <div className="form-group">
+            <label>Student</label>
+            <input value={`${assignCourseStudent.name}${assignCourseStudent.email ? ` (${assignCourseStudent.email})` : ''}`} disabled />
+          </div>
+          <div className="form-group">
+            <label>Course *</label>
+            <select value={assignCourseId} onChange={(e) => setAssignCourseId(e.target.value)} required autoFocus>
+              <option value="">Select course...</option>
+              {allCourses.filter((c) => c.status !== 'archived').map((c) => (
+                <option key={c.id} value={c.id}>{c.name}{c.category ? ` — ${c.category}` : ''}</option>
+              ))}
+            </select>
+            {allCourses.length === 0 && (
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>No courses found. Create a course first.</p>
+            )}
+          </div>
+          <div className="form-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setAssignCourseStudent(null)} disabled={assignCourseBusy}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={assignCourseBusy || !assignCourseId}>{assignCourseBusy ? 'Assigning…' : 'Assign'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+
   const enrollContactModal = pendingEnrollContact && (
     <div className="modal-overlay" onClick={() => !enrollBusy && setPendingEnrollContact(null)}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
@@ -2004,6 +2065,7 @@ export default function SuperadminPortal() {
         {materialsMgrModal}
         {enrollFormModal}
         {enrollContactModal}
+        {assignCourseModal}
         {sessionFormModal}
         {slotFormModal}
 
