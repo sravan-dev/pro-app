@@ -824,9 +824,16 @@ app.delete('/api/enrollments', async (req, res) => {
   const id = parseInt(req.query.id);
   if (!id) return res.status(400).json({ error: 'ID required' });
   const permanent = req.query.permanent === 'true';
+  // Grab the course up front so we can refresh its denormalized students_count
+  // after the enrollment is removed / dropped (POST already keeps it in sync).
+  const enr = await db.get("SELECT course_id FROM enrollments WHERE enrollment_id=?", [id]);
+  const recount = async () => {
+    if (enr) await db.run("UPDATE courses SET students_count=(SELECT COUNT(*) FROM enrollments WHERE course_id=courses.id AND status IN ('active','completed')) WHERE id=?", [enr.course_id]);
+  };
   if (permanent) {
     try {
       await db.run("DELETE FROM enrollments WHERE enrollment_id=?", [id]);
+      await recount();
       auditLog(user.id, 'delete_enrollment', 'enrollment', id);
       res.json({ message: 'Enrollment permanently deleted' });
     } catch (err) {
@@ -834,6 +841,7 @@ app.delete('/api/enrollments', async (req, res) => {
     }
   } else {
     await db.run("UPDATE enrollments SET status='dropped' WHERE enrollment_id=?", [id]);
+    await recount();
     auditLog(user.id, 'drop_enrollment', 'enrollment', id);
     res.json({ message: 'Dropped' });
   }

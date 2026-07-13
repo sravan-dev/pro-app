@@ -178,6 +178,11 @@ export default function SuperadminPortal() {
   const [assignCourseId, setAssignCourseId] = useState('');
   const [assignCourseBusy, setAssignCourseBusy] = useState(false);
 
+  // View/manage a student's assigned courses (click the Course(s) cell to remove).
+  const [coursesModalStudent, setCoursesModalStudent] = useState(null); // student whose courses are shown, or null (closed)
+  const [coursesModalRows, setCoursesModalRows] = useState([]);
+  const [coursesModalLoading, setCoursesModalLoading] = useState(false);
+
   const [showSessionForm, setShowSessionForm] = useState(false);
   const [sessionForm, setSessionForm] = useState({ course_id: '', tutor_id: '', student_id: '', start_time: '', end_time: '' });
 
@@ -963,6 +968,32 @@ export default function SuperadminPortal() {
     finally { setAssignCourseBusy(false); }
   };
 
+  // Open a modal listing a student's enrolled courses so they can be removed.
+  const openStudentCourses = async (student) => {
+    setCoursesModalStudent(student);
+    setCoursesModalRows([]);
+    setCoursesModalLoading(true);
+    try {
+      const all = await api.getEnrollments();
+      setAllEnrollments(all);
+      setCoursesModalRows(all.filter((en) => en.student_id === student.id));
+    } catch (err) { showMsg(err.message || 'Failed to load courses', 'error'); }
+    finally { setCoursesModalLoading(false); }
+  };
+
+  const removeStudentCourse = async (enrollment) => {
+    if (!confirm(`Remove "${enrollment.course_name}" from ${coursesModalStudent?.name || 'this student'}? This permanently deletes the enrollment.`)) return;
+    try {
+      await api.permanentDeleteEnrollment(enrollment.enrollment_id);
+      showMsg('Course removed', 'success');
+      setCoursesModalRows((rows) => rows.filter((r) => r.enrollment_id !== enrollment.enrollment_id));
+      api.getStudents().then(setAllStudents).catch(() => {});
+      api.getEnrollments().then(setAllEnrollments).catch(() => {});
+      api.getCourses().then(setAllCourses).catch(() => {});
+      fetchData();
+    } catch (err) { showMsg(err.message || 'Failed to remove course', 'error'); }
+  };
+
   const dropEnrollment = async (id) => {
     if (!confirm('Drop this enrollment?')) return;
     try {
@@ -1161,7 +1192,9 @@ export default function SuperadminPortal() {
     { key: 'team', label: 'Team', accessor: 'team_name', render: (r) => r.team_name || <span style={{ color: 'var(--color-text-secondary)' }}>—</span> },
     { key: 'courses', label: 'Courses', accessor: 'enrolled_courses' },
     { key: 'course_names', label: 'Course(s)', accessor: 'course_names', render: (r) => r.course_names
-      ? <span style={{ display: 'inline-block', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' }} title={r.course_names}>{r.course_names}</span>
+      ? <button type="button" onClick={(e) => { e.stopPropagation(); openStudentCourses(r); }}
+          title={`${r.course_names} — click to manage`}
+          style={{ display: 'inline-block', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle', background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--color-primary, #E97A2B)', cursor: 'pointer', textDecoration: 'underline' }}>{r.course_names}</button>
       : <span style={{ color: 'var(--color-text-secondary)' }}>—</span> },
     { key: 'progress', label: 'Avg Progress', accessor: 'avg_progress', render: (r) => progressCol(r, 'avg_progress') },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
@@ -1910,6 +1943,34 @@ export default function SuperadminPortal() {
     </div>
   );
 
+  const studentCoursesModal = coursesModalStudent && (
+    <div className="modal-overlay" onClick={() => setCoursesModalStudent(null)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+        <h3>Courses — {coursesModalStudent.name}</h3>
+        {coursesModalLoading ? (
+          <p style={{ color: 'var(--color-text-secondary)' }}>Loading…</p>
+        ) : coursesModalRows.length === 0 ? (
+          <p style={{ color: 'var(--color-text-secondary)' }}>No courses assigned.</p>
+        ) : (
+          <div>
+            {coursesModalRows.map((en) => (
+              <div key={en.enrollment_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--color-border, #eee)' }}>
+                <div>
+                  <div>{en.course_name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{[en.course_category, en.status].filter(Boolean).join(' · ')}</div>
+                </div>
+                <button className="btn btn-sm btn-ghost text-danger" onClick={() => removeStudentCourse(en)}>🗑 Delete</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="form-actions">
+          <button type="button" className="btn btn-ghost" onClick={() => setCoursesModalStudent(null)}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+
   const enrollContactModal = pendingEnrollContact && (
     <div className="modal-overlay" onClick={() => !enrollBusy && setPendingEnrollContact(null)}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
@@ -2073,6 +2134,7 @@ export default function SuperadminPortal() {
         {enrollFormModal}
         {enrollContactModal}
         {assignCourseModal}
+        {studentCoursesModal}
         {sessionFormModal}
         {slotFormModal}
 
