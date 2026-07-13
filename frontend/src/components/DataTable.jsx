@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 
-export default function DataTable({ columns, data, onRowClick, searchable = true, pageSize = 10, selectable = false, onBulkAction = null, bulkActionLabel = 'Delete Selected' }) {
+export default function DataTable({ columns, data, onRowClick, searchable = true, pageSize = 10, selectable = false, onBulkAction = null, bulkActionLabel = 'Delete Selected', rowId = null }) {
   const [search, setSearch] = useState('');
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState('asc');
@@ -42,7 +42,7 @@ export default function DataTable({ columns, data, onRowClick, searchable = true
     }
   };
 
-  const getRowId = (row) => row.id || row.enrollment_id || row.session_id;
+  const getRowId = (row) => (rowId ? rowId(row) : (row.id || row.enrollment_id || row.session_id));
 
   const toggleSelect = (row) => {
     const id = getRowId(row);

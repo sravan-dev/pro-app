@@ -591,6 +591,15 @@ export default function SuperadminPortal() {
     } catch (err) { showMsg(err.message, 'error'); }
   };
 
+  const bulkDeleteRecordings = async (ids) => {
+    if (!confirm(`Delete ${ids.length} recording(s)? This permanently removes the files. This cannot be undone.`)) return;
+    try {
+      await Promise.all(ids.map((id) => api.deleteMeetingRecord(id)));
+      setRecordings((list) => list.filter((x) => !ids.includes(x.record_id)));
+      showMsg(`${ids.length} recording(s) deleted`, 'success');
+    } catch (err) { showMsg(err.message || 'Failed to delete recordings', 'error'); }
+  };
+
   // ===== MEETINGS (temporary link + passcode) =====
   const meetingLink = (code) => `${window.location.origin}/m/${code}`;
 
@@ -2662,6 +2671,10 @@ export default function SuperadminPortal() {
                 ]}
                 data={recordings}
                 pageSize={20}
+                selectable
+                rowId={(r) => r.record_id}
+                onBulkAction={bulkDeleteRecordings}
+                bulkActionLabel="Delete Selected"
               />
             )}
 
