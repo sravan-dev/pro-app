@@ -147,6 +147,20 @@ try {
   ensureUploadDirs(UPLOADS_ROOT);
 }
 console.log(`[uploads] serving /uploads from ${UPLOADS_ROOT}`);
+// Warn loudly if uploads live inside the deployed project tree: a deploy that
+// replaces the tree wipes them, and every recording/material then shows as
+// "Missing". This is the #1 cause of vanished recordings — set UPLOADS_ROOT to a
+// persistent path outside the app folder (see backend/.env.example).
+{
+  const rel = path.relative(path.resolve(__dirname, '..'), path.resolve(UPLOADS_ROOT));
+  const insideAppTree = rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  if (insideAppTree) {
+    console.warn(`[uploads] WARNING: UPLOADS_ROOT="${UPLOADS_ROOT}" is inside the app folder, so ` +
+      `recordings, course materials and avatars will be DELETED on every deploy that replaces the ` +
+      `project tree (they then show as "Missing" in the app). Set UPLOADS_ROOT to a persistent ` +
+      `directory outside the app, e.g. /home/<user>/lms-uploads, and restart Node.`);
+  }
+}
 app.use('/uploads', express.static(UPLOADS_ROOT));
 
 // Multer for file uploads
