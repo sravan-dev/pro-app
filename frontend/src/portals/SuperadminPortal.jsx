@@ -1160,6 +1160,9 @@ export default function SuperadminPortal() {
     { key: 'email', label: 'Email', accessor: 'email' },
     { key: 'team', label: 'Team', accessor: 'team_name', render: (r) => r.team_name || <span style={{ color: 'var(--color-text-secondary)' }}>—</span> },
     { key: 'courses', label: 'Courses', accessor: 'enrolled_courses' },
+    { key: 'course_names', label: 'Course(s)', accessor: 'course_names', render: (r) => r.course_names
+      ? <span style={{ display: 'inline-block', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' }} title={r.course_names}>{r.course_names}</span>
+      : <span style={{ color: 'var(--color-text-secondary)' }}>—</span> },
     { key: 'progress', label: 'Avg Progress', accessor: 'avg_progress', render: (r) => progressCol(r, 'avg_progress') },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
     { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser, (r) => (
