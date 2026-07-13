@@ -1128,6 +1128,7 @@ export default function SuperadminPortal() {
     { key: 'avatar', label: '', sortable: false, render: avatarCol },
     { key: 'name', label: 'Name', accessor: 'name' },
     { key: 'email', label: 'Email', accessor: 'email' },
+    { key: 'team', label: 'Team', accessor: 'team_name', render: (r) => r.team_name || <span style={{ color: 'var(--color-text-secondary)' }}>—</span> },
     { key: 'courses', label: 'Courses', accessor: 'enrolled_courses' },
     { key: 'progress', label: 'Avg Progress', accessor: 'avg_progress', render: (r) => progressCol(r, 'avg_progress') },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
