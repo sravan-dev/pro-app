@@ -42,7 +42,10 @@ export default function DataTable({ columns, data, onRowClick, searchable = true
     }
   };
 
-  const getRowId = (row) => (rowId ? rowId(row) : (row.id || row.enrollment_id || row.session_id));
+  // record_id comes first: recording rows have no id/enrollment_id, and several
+  // recordings can share one session_id — keying on session_id would collide
+  // and React would render only one of them.
+  const getRowId = (row) => (rowId ? rowId(row) : (row.record_id || row.id || row.enrollment_id || row.session_id));
 
   const toggleSelect = (row) => {
     const id = getRowId(row);

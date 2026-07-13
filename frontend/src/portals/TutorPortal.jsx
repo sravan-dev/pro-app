@@ -574,6 +574,7 @@ export default function TutorPortal() {
                 ]}
                 data={recordings}
                 searchable={false}
+                rowId={(r) => r.record_id}
               />
             )}
 
