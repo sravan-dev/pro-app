@@ -957,6 +957,7 @@ export default function SuperadminPortal() {
       setAssignCourseStudent(null);
       api.getStudents().then(setAllStudents).catch(() => {});
       api.getEnrollments().then(setAllEnrollments).catch(() => {});
+      api.getCourses().then(setAllCourses).catch(() => {}); // backend bumped students_count — refresh the Courses tab
       fetchData();
     } catch (err) { showMsg(err.message || 'Failed to assign course', 'error'); }
     finally { setAssignCourseBusy(false); }
@@ -1873,6 +1874,9 @@ export default function SuperadminPortal() {
     </div>
   );
 
+  // Only active courses are assignable — this excludes archived courses and the
+  // hidden __test_call__ sentinel course (created as a 'draft').
+  const assignableCourses = allCourses.filter((c) => c.status === 'active');
   const assignCourseModal = assignCourseStudent && (
     <div className="modal-overlay" onClick={() => !assignCourseBusy && setAssignCourseStudent(null)}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
@@ -1886,12 +1890,12 @@ export default function SuperadminPortal() {
             <label>Course *</label>
             <select value={assignCourseId} onChange={(e) => setAssignCourseId(e.target.value)} required autoFocus>
               <option value="">Select course...</option>
-              {allCourses.filter((c) => c.status !== 'archived').map((c) => (
+              {assignableCourses.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}{c.category ? ` — ${c.category}` : ''}</option>
               ))}
             </select>
-            {allCourses.length === 0 && (
-              <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>No courses found. Create a course first.</p>
+            {assignableCourses.length === 0 && (
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>No active courses available to assign. Create or unarchive a course first.</p>
             )}
           </div>
           <div className="form-actions">
