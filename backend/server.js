@@ -112,8 +112,12 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'tijuspro-secret-key-change-in-prod',
   resave: false,
   saveUninitialized: false,
+  // Slide the 24h window forward on every request, so an actively-used session
+  // isn't logged out mid-work at exactly 24h after login — only 24h of
+  // inactivity ends it.
+  rolling: true,
   cookie: {
-    maxAge: 86400000,
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
     httpOnly: true,
     sameSite: 'lax',
   },
