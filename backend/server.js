@@ -240,6 +240,35 @@ async function sendEmail(to, subject, html) {
     }
   }
 
+  // ---- Gmail SMTP (app password) -----------------------------------------
+  if (provider === 'gmail') {
+    if (!cfg || !cfg.gmail_user || !cfg.gmail_app_password) {
+      console.log(`[EMAIL] Gmail not configured. Would send to ${to}: ${subject}`);
+      return { sent: false, reason: 'Gmail not configured' };
+    }
+    try {
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: { user: cfg.gmail_user, pass: cfg.gmail_app_password },
+      });
+      // Gmail forces the sender to the authenticated account; from_email can
+      // only add a display name (e.g. "Tiju's Academy <acct@gmail.com>").
+      await transporter.sendMail({
+        from: cfg.from_email || cfg.gmail_user,
+        to,
+        subject,
+        html,
+      });
+      console.log(`[EMAIL] Sent via Gmail to ${to}: ${subject}`);
+      return { sent: true };
+    } catch (err) {
+      console.error(`[EMAIL] Gmail error to ${to}:`, err.message);
+      return { sent: false, reason: err.message };
+    }
+  }
+
   // ---- Hostinger / generic SMTP (nodemailer) -----------------------------
   if (!cfg || !cfg.host || !cfg.user) {
     console.log(`[EMAIL] SMTP not configured. Would send to ${to}: ${subject}`);
@@ -2878,19 +2907,19 @@ app.get('/api/livekit/usage', async (req, res) => {
 // ============================================================
 app.get('/api/smtp-settings', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  const smtp = await db.get("SELECT host, port, `user`, pass, from_email, provider, resend_api_key, resend_monthly_cap, resend_quota_used, resend_quota_at FROM smtp_settings WHERE id=1");
-  res.json(smtp || { host: '', port: 587, user: '', pass: '', from_email: '', provider: 'smtp', resend_api_key: '', resend_monthly_cap: 0, resend_quota_used: '', resend_quota_at: null });
+  const smtp = await db.get("SELECT host, port, `user`, pass, from_email, provider, resend_api_key, resend_monthly_cap, resend_quota_used, resend_quota_at, gmail_user, gmail_app_password FROM smtp_settings WHERE id=1");
+  res.json(smtp || { host: '', port: 587, user: '', pass: '', from_email: '', provider: 'smtp', resend_api_key: '', resend_monthly_cap: 0, resend_quota_used: '', resend_quota_at: null, gmail_user: '', gmail_app_password: '' });
 });
 
 app.post('/api/smtp-settings', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  const { host, port, user: smtpUser, pass, from_email, provider, resend_api_key, resend_monthly_cap } = req.body;
+  const { host, port, user: smtpUser, pass, from_email, provider, resend_api_key, resend_monthly_cap, gmail_user, gmail_app_password } = req.body;
   // Note: resend_quota_used/resend_quota_at are written only by sendEmail (from
   // Resend's response header) and deliberately left out here so saving settings
   // never clobbers the cached usage figure.
-  await db.run(`INSERT INTO smtp_settings (id, host, port, \`user\`, pass, from_email, provider, resend_api_key, resend_monthly_cap) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON DUPLICATE KEY UPDATE host=VALUES(host), port=VALUES(port), \`user\`=VALUES(\`user\`), pass=VALUES(pass), from_email=VALUES(from_email), provider=VALUES(provider), resend_api_key=VALUES(resend_api_key), resend_monthly_cap=VALUES(resend_monthly_cap)`,
-    [host || '', port || 587, smtpUser || '', pass || '', from_email || '', provider || 'smtp', resend_api_key || '', parseInt(resend_monthly_cap) || 0]);
+  await db.run(`INSERT INTO smtp_settings (id, host, port, \`user\`, pass, from_email, provider, resend_api_key, resend_monthly_cap, gmail_user, gmail_app_password) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE host=VALUES(host), port=VALUES(port), \`user\`=VALUES(\`user\`), pass=VALUES(pass), from_email=VALUES(from_email), provider=VALUES(provider), resend_api_key=VALUES(resend_api_key), resend_monthly_cap=VALUES(resend_monthly_cap), gmail_user=VALUES(gmail_user), gmail_app_password=VALUES(gmail_app_password)`,
+    [host || '', port || 587, smtpUser || '', pass || '', from_email || '', provider || 'smtp', resend_api_key || '', parseInt(resend_monthly_cap) || 0, (gmail_user || '').trim(), (gmail_app_password || '').replace(/\s+/g, '')]);
   auditLog(user.id, 'update_smtp_settings', 'settings', 1);
   res.json({ message: 'SMTP settings saved' });
 });

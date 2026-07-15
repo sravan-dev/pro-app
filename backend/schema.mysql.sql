@@ -152,7 +152,9 @@ CREATE TABLE IF NOT EXISTS smtp_settings (
   resend_api_key VARCHAR(255) DEFAULT '',
   resend_monthly_cap INT DEFAULT 0,
   resend_quota_used VARCHAR(64) DEFAULT '',
-  resend_quota_at DATETIME NULL
+  resend_quota_at DATETIME NULL,
+  gmail_user VARCHAR(255) DEFAULT '',
+  gmail_app_password VARCHAR(255) DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS categories (

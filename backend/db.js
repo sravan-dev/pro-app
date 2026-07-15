@@ -165,6 +165,8 @@ async function initSchema() {
   await addColumnIfMissing('smtp_settings', 'resend_monthly_cap', 'resend_monthly_cap INT DEFAULT 0');
   await addColumnIfMissing('smtp_settings', 'resend_quota_used', "resend_quota_used VARCHAR(64) DEFAULT ''");
   await addColumnIfMissing('smtp_settings', 'resend_quota_at', 'resend_quota_at DATETIME NULL');
+  await addColumnIfMissing('smtp_settings', 'gmail_user', "gmail_user VARCHAR(255) DEFAULT ''");
+  await addColumnIfMissing('smtp_settings', 'gmail_app_password', "gmail_app_password VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('sessions', 'student_id', 'student_id INT NULL');
 
   // Single-row settings defaults.

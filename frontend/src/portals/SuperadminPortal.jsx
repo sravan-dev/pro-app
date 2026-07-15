@@ -189,7 +189,7 @@ export default function SuperadminPortal() {
   const [activeSession, setActiveSession] = useState(null);
 
   // SMTP settings
-  const [smtpForm, setSmtpForm] = useState({ host: '', port: 587, user: '', pass: '', from_email: '', provider: 'smtp', resend_api_key: '', resend_monthly_cap: 0, resend_quota_used: '', resend_quota_at: null });
+  const [smtpForm, setSmtpForm] = useState({ host: '', port: 587, user: '', pass: '', from_email: '', provider: 'smtp', resend_api_key: '', resend_monthly_cap: 0, resend_quota_used: '', resend_quota_at: null, gmail_user: '', gmail_app_password: '' });
   const [smtpLoaded, setSmtpLoaded] = useState(false);
   const [smtpTestEmail, setSmtpTestEmail] = useState('');
   const [smtpSaving, setSmtpSaving] = useState(false);
@@ -394,7 +394,7 @@ export default function SuperadminPortal() {
     if (activeTab === 'meetings') api.getMeetings().then(setMeetings).catch(() => {});
     if (activeTab === 'dashboard' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
-    if (activeTab === 'integrations' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm({ provider: 'smtp', resend_api_key: '', resend_monthly_cap: 0, resend_quota_used: '', resend_quota_at: null, ...s }); setSmtpLoaded(true); }).catch(() => {});
+    if (activeTab === 'integrations' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm({ provider: 'smtp', resend_api_key: '', resend_monthly_cap: 0, resend_quota_used: '', resend_quota_at: null, gmail_user: '', gmail_app_password: '', ...s }); setSmtpLoaded(true); }).catch(() => {});
     if (activeTab !== 'students') setStudentDetail(null);
   }, [activeTab]);
 
@@ -3332,7 +3332,7 @@ export default function SuperadminPortal() {
             {/* SMTP Configuration */}
             <div className="settings-section" style={{ marginBottom: '2rem' }}>
               <h3>Email Configuration</h3>
-              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1.5rem' }}>Choose how transactional email (welcome emails, password reset links) is delivered. Hostinger uses standard SMTP; Resend uses the Resend HTTP API.</p>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1.5rem' }}>Choose how transactional email (welcome emails, password reset links) is delivered. Hostinger uses standard SMTP; Resend uses the Resend HTTP API; Gmail uses your Google account with an app password.</p>
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 setSmtpSaving(true);
@@ -3347,6 +3347,7 @@ export default function SuperadminPortal() {
                   <select value={smtpForm.provider} onChange={(e) => setSmtpForm({ ...smtpForm, provider: e.target.value })}>
                     <option value="smtp">Hostinger — SMTP</option>
                     <option value="resend">Resend — API</option>
+                    <option value="gmail">Gmail — App Password</option>
                   </select>
                 </div>
 
@@ -3413,6 +3414,26 @@ export default function SuperadminPortal() {
                         </div>
                       );
                     })()}
+                  </>
+                )}
+
+                {smtpForm.provider === 'gmail' && (
+                  <>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Gmail Address</label>
+                        <input value={smtpForm.gmail_user} onChange={(e) => setSmtpForm({ ...smtpForm, gmail_user: e.target.value })} placeholder="youraccount@gmail.com" />
+                        <small style={{ color: 'var(--color-text-secondary)' }}>The Google account emails are sent from. Google Workspace addresses work too.</small>
+                      </div>
+                      <div className="form-group">
+                        <label>App Password</label>
+                        <input type="password" value={smtpForm.gmail_app_password} onChange={(e) => setSmtpForm({ ...smtpForm, gmail_app_password: e.target.value })} placeholder="xxxx xxxx xxxx xxxx" />
+                        <small style={{ color: 'var(--color-text-secondary)' }}>Not your Gmail password. Create one at Google Account → Security → 2-Step Verification → App passwords (2-Step Verification must be on). Paste with or without spaces.</small>
+                      </div>
+                    </div>
+                    <div className="alert" style={{ background: 'rgba(148,163,184,0.12)', color: 'var(--color-text-secondary)' }}>
+                      Gmail always sends from the address above — the From Address below can only set a display name (e.g. Tiju's Academy &lt;youraccount@gmail.com&gt;). Free Gmail accounts are limited to ~500 emails/day.
+                    </div>
                   </>
                 )}
 
