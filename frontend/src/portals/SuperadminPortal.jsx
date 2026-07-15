@@ -1285,7 +1285,7 @@ export default function SuperadminPortal() {
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
     { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser, (r) => (
       <>
-        <button className="btn btn-sm btn-ghost" style={{ color: 'var(--color-primary, #E97A2B)' }} title={r.assigned_tutor_name ? `Tutor: ${r.assigned_tutor_name}` : 'No tutor assigned'} onClick={(e) => { e.stopPropagation(); openAssignTutor(r); }}>Assign Tutor</button>
+        <button className="btn btn-sm btn-danger" title={r.assigned_tutor_name ? `Tutor: ${r.assigned_tutor_name}` : 'No tutor assigned'} onClick={(e) => { e.stopPropagation(); openAssignTutor(r); }}>Assign Tutor</button>
         <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); openAssignCourse(r); }}>Assign Course</button>
       </>
     )) },
