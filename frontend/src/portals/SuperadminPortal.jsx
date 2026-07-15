@@ -151,6 +151,8 @@ export default function SuperadminPortal() {
   const [courseForm, setCourseForm] = useState({ name: '', category: 'Technology', tutor_id: '', color: '#3B82F6', icon: 'book' });
 
   const [inviteResult, setInviteResult] = useState(null);
+  const [inviteAllBusy, setInviteAllBusy] = useState(false);
+  const [inviteAllResult, setInviteAllResult] = useState(null); // summary of the bulk student invite, or null
 
   // Categories
   const [categories, setCategories] = useState([]);
@@ -1190,6 +1192,18 @@ export default function SuperadminPortal() {
     } catch (err) { showMsg(err.message || 'Failed to send invite', 'error'); }
   };
 
+  // Bulk invite every active student. Each invite resets that student's
+  // password to a fresh temp one, so confirm before firing.
+  const handleInviteAll = async () => {
+    if (!confirm('Send login invites to ALL active students?\n\nEach student\'s password is reset to a fresh temporary one and emailed to them. Students who already use their account will need the new password.')) return;
+    setInviteAllBusy(true);
+    try {
+      const res = await api.inviteAllStudents();
+      setInviteAllResult(res);
+    } catch (err) { showMsg(err.message || 'Failed to send invites', 'error'); }
+    finally { setInviteAllBusy(false); }
+  };
+
   const actionBtns = (onEdit, onDelete, deleteLabel = 'Deactivate', onPermanentDelete = null, extra = null) => (r) => (
     <div className="table-actions">
       {r.id && r.email && (
@@ -2167,6 +2181,40 @@ export default function SuperadminPortal() {
             </div>
           </div>
         )}
+
+        {inviteAllResult && (
+          <div className="modal-overlay" onClick={() => setInviteAllResult(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+              <h3>Invite All — Results</h3>
+              <p style={{ color: 'var(--color-text-secondary)' }}>
+                {inviteAllResult.total === 0
+                  ? 'No active students with an email address were found.'
+                  : `${inviteAllResult.emailed} of ${inviteAllResult.total} student(s) were emailed their login details.`}
+              </p>
+              {(inviteAllResult.failed || []).length > 0 && (
+                <>
+                  <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+                    Email failed for the students below. Their passwords were still reset — share these login details manually (Login: {inviteAllResult.login_url}):
+                  </p>
+                  <div style={{ background: 'var(--color-bg)', borderRadius: '8px', padding: '12px 14px', fontSize: '14px', lineHeight: 1.9, maxHeight: 260, overflowY: 'auto' }}>
+                    {inviteAllResult.failed.map((f) => (
+                      <div key={f.email} style={{ borderBottom: '1px solid var(--color-border, #eee)', padding: '4px 0' }}>
+                        <strong>{f.name}</strong> — {f.email} · <code style={{ background: 'rgba(0,0,0,0.06)', padding: '2px 6px', borderRadius: '4px' }}>{f.password}</code>
+                        {f.reason ? <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{f.reason}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '8px' }}>
+                Every invited student's password was reset to a fresh temporary one; they'll set their own on first login.
+              </p>
+              <div className="form-actions">
+                <button className="btn btn-primary" onClick={() => setInviteAllResult(null)}>Done</button>
+              </div>
+            </div>
+          </div>
+        )}
         {courseFormModal}
         {courseMgrModal}
         {categoryMgrModal}
@@ -2421,7 +2469,10 @@ export default function SuperadminPortal() {
           <div className="portal-page">
             <div className="page-header">
               <h2>Student Management</h2>
-              <button className="btn btn-primary" onClick={() => openCreateUser('student')}>+ Add Student</button>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button className="btn btn-ghost" style={{ color: '#10B981' }} disabled={inviteAllBusy} onClick={handleInviteAll}>{inviteAllBusy ? 'Sending Invites…' : 'Invite All'}</button>
+                <button className="btn btn-primary" onClick={() => openCreateUser('student')}>+ Add Student</button>
+              </div>
             </div>
             <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
               Click a student to view their full profile.

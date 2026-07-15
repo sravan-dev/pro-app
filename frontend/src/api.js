@@ -46,6 +46,7 @@ export const api = {
   createUser: (data) => request('/users', { method: 'POST', body: data }),
   updateUser: (data) => request('/users', { method: 'PUT', body: data }),
   inviteUser: (id) => request('/users/invite', { method: 'POST', body: { user_id: id } }),
+  inviteAllStudents: () => request('/users/invite-all', { method: 'POST', body: { role: 'student' } }),
   deleteUser: (id) => request(`/users?id=${id}`, { method: 'DELETE' }),
   permanentDeleteUser: (id) => request(`/users?id=${id}&permanent=true`, { method: 'DELETE' }),
 

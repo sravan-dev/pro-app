@@ -1665,6 +1665,23 @@ app.put('/api/users', async (req, res) => {
   res.json({ message: 'Updated' });
 });
 
+// Shared invite email body (single + bulk invite).
+function inviteEmailHtml(name, email, tempPassword, loginUrl) {
+  return `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+      <h2 style="color:#4F46E5">You're invited to Tiju's Academy</h2>
+      <p>Hello <strong>${name}</strong>,</p>
+      <p>Use the details below to log in:</p>
+      <table style="border-collapse:collapse;margin:16px 0">
+        <tr><td style="padding:8px 16px;font-weight:bold;color:#555">Email:</td><td style="padding:8px 16px">${email}</td></tr>
+        <tr><td style="padding:8px 16px;font-weight:bold;color:#555">Password:</td><td style="padding:8px 16px"><code>${tempPassword}</code></td></tr>
+      </table>
+      <p><a href="${loginUrl}" style="display:inline-block;padding:12px 24px;background:#4F46E5;color:#fff;text-decoration:none;border-radius:6px">Log In</a></p>
+      <p style="color:#888;font-size:14px;margin-top:20px">You'll be asked to set your own password after the first login.</p>
+    </div>`;
+}
+
+const makeTempPassword = () => crypto.randomBytes(6).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) + '1!';
+
 // Invite: reset the user's password to a fresh temp one and email the login
 // link + password. The temp password is also returned so the admin can share
 // it if SMTP is off.
@@ -1674,23 +1691,33 @@ app.post('/api/users/invite', async (req, res) => {
   if (!user_id) return res.status(400).json({ error: 'User ID required' });
   const u = await db.get("SELECT id,name,email,role FROM users WHERE id=?", [user_id]);
   if (!u) return res.status(404).json({ error: 'User not found' });
-  const tempPassword = crypto.randomBytes(6).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) + '1!';
+  const tempPassword = makeTempPassword();
   await db.run("UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?", [bcrypt.hashSync(tempPassword, 10), u.id]);
   const loginUrl = `${req.protocol}://${req.get('host')}/login`;
-  const emailResult = await sendEmail(u.email, "Your Tiju's Academy login",
-    `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
-      <h2 style="color:#4F46E5">You're invited to Tiju's Academy</h2>
-      <p>Hello <strong>${u.name}</strong>,</p>
-      <p>Use the details below to log in:</p>
-      <table style="border-collapse:collapse;margin:16px 0">
-        <tr><td style="padding:8px 16px;font-weight:bold;color:#555">Email:</td><td style="padding:8px 16px">${u.email}</td></tr>
-        <tr><td style="padding:8px 16px;font-weight:bold;color:#555">Password:</td><td style="padding:8px 16px"><code>${tempPassword}</code></td></tr>
-      </table>
-      <p><a href="${loginUrl}" style="display:inline-block;padding:12px 24px;background:#4F46E5;color:#fff;text-decoration:none;border-radius:6px">Log In</a></p>
-      <p style="color:#888;font-size:14px;margin-top:20px">You'll be asked to set your own password after the first login.</p>
-    </div>`);
+  const emailResult = await sendEmail(u.email, "Your Tiju's Academy login", inviteEmailHtml(u.name, u.email, tempPassword, loginUrl));
   auditLog(admin.id, 'invite_user', 'user', u.id);
   res.json({ message: 'Invite ready', email: u.email, password: tempPassword, login_url: loginUrl, emailed: emailResult.sent });
+});
+
+// Bulk invite: reset every active student's password to a fresh temp one and
+// email each their login details. Returns per-user failures (with the temp
+// password) so the admin can share credentials manually when email fails.
+app.post('/api/users/invite-all', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
+  const role = req.body?.role === 'tutor' ? 'tutor' : 'student';
+  const users = await db.all("SELECT id,name,email FROM users WHERE role=? AND status!='inactive' AND email IS NOT NULL AND email!=''", [role]);
+  const loginUrl = `${req.protocol}://${req.get('host')}/login`;
+  let emailed = 0;
+  const failed = [];
+  for (const u of users) {
+    const tempPassword = makeTempPassword();
+    await db.run("UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?", [bcrypt.hashSync(tempPassword, 10), u.id]);
+    const emailResult = await sendEmail(u.email, "Your Tiju's Academy login", inviteEmailHtml(u.name, u.email, tempPassword, loginUrl));
+    if (emailResult.sent) emailed++;
+    else failed.push({ name: u.name, email: u.email, password: tempPassword, reason: emailResult.reason || '' });
+  }
+  auditLog(admin.id, 'invite_all', 'user', null, `Invited ${users.length} ${role}(s), ${emailed} emailed`);
+  res.json({ message: 'Bulk invite complete', total: users.length, emailed, failed, login_url: loginUrl });
 });
 
 app.delete('/api/users', async (req, res) => {
