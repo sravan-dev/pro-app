@@ -180,6 +180,11 @@ export default function SuperadminPortal() {
   const [assignCourseId, setAssignCourseId] = useState('');
   const [assignCourseBusy, setAssignCourseBusy] = useState(false);
 
+  // Quick "Assign Tutor" action from a student row: sets users.assigned_tutor_id.
+  const [assignTutorStudent, setAssignTutorStudent] = useState(null); // the student being assigned, or null (modal closed)
+  const [assignTutorId, setAssignTutorId] = useState('');
+  const [assignTutorBusy, setAssignTutorBusy] = useState(false);
+
   // View/manage a student's assigned courses (click the Course(s) cell to remove or add).
   const [coursesModalStudent, setCoursesModalStudent] = useState(null); // student whose courses are shown, or null (closed)
   const [coursesModalRows, setCoursesModalRows] = useState([]);
@@ -972,6 +977,27 @@ export default function SuperadminPortal() {
     finally { setAssignCourseBusy(false); }
   };
 
+  // Open the "Assign Tutor" modal pre-selected with the student's current tutor,
+  // and (re)fetch tutors so the picker is always current.
+  const openAssignTutor = (student) => {
+    setAssignTutorStudent(student);
+    setAssignTutorId(student.assigned_tutor_id ? String(student.assigned_tutor_id) : '');
+    api.getTutors().then(setAllTutors).catch(() => {});
+  };
+
+  const submitAssignTutor = async (e) => {
+    e.preventDefault();
+    if (!assignTutorStudent) return;
+    setAssignTutorBusy(true);
+    try {
+      await api.assignStudent({ student_id: assignTutorStudent.id, assigned_tutor_id: assignTutorId || null });
+      showMsg(assignTutorId ? `Tutor assigned to ${assignTutorStudent.name}` : `Tutor removed from ${assignTutorStudent.name}`, 'success');
+      setAssignTutorStudent(null);
+      api.getStudents().then(setAllStudents).catch(() => {}); // refresh assigned_tutor_id so reopening pre-selects correctly
+    } catch (err) { showMsg(err.message || 'Failed to assign tutor', 'error'); }
+    finally { setAssignTutorBusy(false); }
+  };
+
   // Open a modal listing a student's enrolled courses so they can be removed.
   const openStudentCourses = async (student) => {
     setCoursesModalStudent(student);
@@ -1258,7 +1284,10 @@ export default function SuperadminPortal() {
     { key: 'progress', label: 'Avg Progress', accessor: 'avg_progress', render: (r) => progressCol(r, 'avg_progress') },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
     { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser, (r) => (
-      <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); openAssignCourse(r); }}>Assign Course</button>
+      <>
+        <button className="btn btn-sm btn-ghost" style={{ color: 'var(--color-primary, #E97A2B)' }} title={r.assigned_tutor_name ? `Tutor: ${r.assigned_tutor_name}` : 'No tutor assigned'} onClick={(e) => { e.stopPropagation(); openAssignTutor(r); }}>Assign Tutor</button>
+        <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); openAssignCourse(r); }}>Assign Course</button>
+      </>
     )) },
   ];
 
@@ -2002,6 +2031,38 @@ export default function SuperadminPortal() {
     </div>
   );
 
+  // Only active tutors are assignable. "No tutor" clears the assignment.
+  const assignableTutors = allTutors.filter((t) => t.status === 'active');
+  const assignTutorModal = assignTutorStudent && (
+    <div className="modal-overlay" onClick={() => !assignTutorBusy && setAssignTutorStudent(null)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+        <h3>Assign Tutor</h3>
+        <form onSubmit={submitAssignTutor}>
+          <div className="form-group">
+            <label>Student</label>
+            <input value={`${assignTutorStudent.name}${assignTutorStudent.email ? ` (${assignTutorStudent.email})` : ''}`} disabled />
+          </div>
+          <div className="form-group">
+            <label>Tutor</label>
+            <select value={assignTutorId} onChange={(e) => setAssignTutorId(e.target.value)} autoFocus>
+              <option value="">— No tutor —</option>
+              {assignableTutors.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}{t.specialization ? ` — ${t.specialization}` : ''}</option>
+              ))}
+            </select>
+            {assignableTutors.length === 0 && (
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>No active tutors available. Add a tutor first.</p>
+            )}
+          </div>
+          <div className="form-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setAssignTutorStudent(null)} disabled={assignTutorBusy}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={assignTutorBusy}>{assignTutorBusy ? 'Saving…' : 'Assign'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+
   const studentCoursesModal = coursesModalStudent && (
     <div className="modal-overlay" onClick={() => !coursesModalAdding && setCoursesModalStudent(null)}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
@@ -2250,6 +2311,7 @@ export default function SuperadminPortal() {
         {enrollFormModal}
         {enrollContactModal}
         {assignCourseModal}
+        {assignTutorModal}
         {studentCoursesModal}
         {sessionFormModal}
         {slotFormModal}

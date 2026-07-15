@@ -523,7 +523,7 @@ app.get('/api/portal-data', async (req, res) => {
 // Students
 app.get('/api/students', async (req, res) => {
   const user = await requireRole(req, res, ['tutor','advisor','manager','superadmin']); if (!user) return;
-  res.json(await db.all("SELECT u.id,u.name,u.email,u.role,u.specialization,u.status,u.avatar_color,u.created_at,u.team_id, (SELECT name FROM teams WHERE id=u.team_id) AS team_name, COUNT(DISTINCT e.enrollment_id) as enrolled_courses, GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ', ') as course_names, ROUND(AVG(e.progress_percentage),1) as avg_progress FROM users u LEFT JOIN enrollments e ON e.student_id=u.id LEFT JOIN courses c ON c.id=e.course_id WHERE u.role='student' GROUP BY u.id ORDER BY u.name"));
+  res.json(await db.all("SELECT u.id,u.name,u.email,u.role,u.specialization,u.status,u.avatar_color,u.created_at,u.team_id, (SELECT name FROM teams WHERE id=u.team_id) AS team_name, u.assigned_tutor_id, (SELECT name FROM users t WHERE t.id=u.assigned_tutor_id) AS assigned_tutor_name, COUNT(DISTINCT e.enrollment_id) as enrolled_courses, GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ', ') as course_names, ROUND(AVG(e.progress_percentage),1) as avg_progress FROM users u LEFT JOIN enrollments e ON e.student_id=u.id LEFT JOIN courses c ON c.id=e.course_id WHERE u.role='student' GROUP BY u.id ORDER BY u.name"));
 });
 
 // Full profile for a single student (everything related to them)
