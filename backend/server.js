@@ -2919,7 +2919,7 @@ app.post('/api/smtp-settings', async (req, res) => {
   // never clobbers the cached usage figure.
   await db.run(`INSERT INTO smtp_settings (id, host, port, \`user\`, pass, from_email, provider, resend_api_key, resend_monthly_cap, gmail_user, gmail_app_password) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE host=VALUES(host), port=VALUES(port), \`user\`=VALUES(\`user\`), pass=VALUES(pass), from_email=VALUES(from_email), provider=VALUES(provider), resend_api_key=VALUES(resend_api_key), resend_monthly_cap=VALUES(resend_monthly_cap), gmail_user=VALUES(gmail_user), gmail_app_password=VALUES(gmail_app_password)`,
-    [host || '', port || 587, smtpUser || '', pass || '', from_email || '', provider || 'smtp', resend_api_key || '', parseInt(resend_monthly_cap) || 0, (gmail_user || '').trim(), (gmail_app_password || '').replace(/\s+/g, '')]);
+    [host || '', port || 587, smtpUser || '', pass || '', from_email || '', provider || 'smtp', resend_api_key || '', parseInt(resend_monthly_cap) || 0, String(gmail_user || '').trim(), String(gmail_app_password || '').replace(/\s+/g, '')]);
   auditLog(user.id, 'update_smtp_settings', 'settings', 1);
   res.json({ message: 'SMTP settings saved' });
 });
