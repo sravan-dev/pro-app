@@ -1700,24 +1700,60 @@ app.post('/api/users/invite', async (req, res) => {
 });
 
 // Bulk invite: reset every active student's password to a fresh temp one and
-// email each their login details. Returns per-user failures (with the temp
-// password) so the admin can share credentials manually when email fails.
+// email each their login details. The batch runs in the background and the
+// client polls /invite-all/status — a minutes-long batch must not ride on one
+// HTTP response, because losing that response would lose the temp passwords
+// for students whose email failed (the passwords are already reset by then).
+let inviteAllJob = null; // latest bulk-invite job; kept after finish so results survive a dropped connection
+
 app.post('/api/users/invite-all', async (req, res) => {
   const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
+  if (inviteAllJob && inviteAllJob.running) return res.status(409).json({ error: 'A bulk invite is already running' });
   const role = req.body?.role === 'tutor' ? 'tutor' : 'student';
   const users = await db.all("SELECT id,name,email FROM users WHERE role=? AND status!='inactive' AND email IS NOT NULL AND email!=''", [role]);
   const loginUrl = `${req.protocol}://${req.get('host')}/login`;
-  let emailed = 0;
-  const failed = [];
-  for (const u of users) {
-    const tempPassword = makeTempPassword();
-    await db.run("UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?", [bcrypt.hashSync(tempPassword, 10), u.id]);
-    const emailResult = await sendEmail(u.email, "Your Tiju's Academy login", inviteEmailHtml(u.name, u.email, tempPassword, loginUrl));
-    if (emailResult.sent) emailed++;
-    else failed.push({ name: u.name, email: u.email, password: tempPassword, reason: emailResult.reason || '' });
-  }
-  auditLog(admin.id, 'invite_all', 'user', null, `Invited ${users.length} ${role}(s), ${emailed} emailed`);
-  res.json({ message: 'Bulk invite complete', total: users.length, emailed, failed, login_url: loginUrl });
+  const job = { running: true, role, total: users.length, processed: 0, emailed: 0, failed: [], login_url: loginUrl, startedAt: new Date().toISOString(), finishedAt: null, error: null };
+  inviteAllJob = job;
+  res.status(202).json({ message: 'Bulk invite started', total: users.length });
+
+  (async () => {
+    for (const u of users) {
+      // Each step is error-contained: one student failing must not halt the
+      // batch or reject the (already-answered) handler.
+      const tempPassword = makeTempPassword();
+      try {
+        const hash = await bcrypt.hash(tempPassword, 10); // async — doesn't block the event loop like hashSync
+        await db.run("UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?", [hash, u.id]);
+      } catch (err) {
+        job.failed.push({ name: u.name, email: u.email, password: '', reason: `Password reset failed: ${err.message}. Re-run Invite for this student.` });
+        job.processed++;
+        continue;
+      }
+      try {
+        const emailResult = await sendEmail(u.email, "Your Tiju's Academy login", inviteEmailHtml(u.name, u.email, tempPassword, loginUrl));
+        if (emailResult.sent) job.emailed++;
+        else job.failed.push({ name: u.name, email: u.email, password: tempPassword, reason: emailResult.reason || '' });
+      } catch (err) {
+        job.failed.push({ name: u.name, email: u.email, password: tempPassword, reason: err.message || 'Email failed' });
+      }
+      auditLog(admin.id, 'invite_user', 'user', u.id);
+      job.processed++;
+      await new Promise((r) => setTimeout(r, 300)); // pace SMTP logins to avoid provider throttling
+    }
+    job.running = false;
+    job.finishedAt = new Date().toISOString();
+    auditLog(admin.id, 'invite_all', 'user', null, `Invited ${job.total} ${role}(s), ${job.emailed} emailed, ${job.failed.length} failed`);
+  })().catch((err) => {
+    job.running = false;
+    job.finishedAt = new Date().toISOString();
+    job.error = err.message || 'Bulk invite failed';
+  });
+});
+
+// Poll the bulk invite job: progress while running, full results when done.
+app.get('/api/users/invite-all/status', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
+  res.json(inviteAllJob || { running: false, total: null });
 });
 
 app.delete('/api/users', async (req, res) => {

@@ -1209,13 +1209,21 @@ export default function SuperadminPortal() {
   };
 
   // Bulk invite every active student. Each invite resets that student's
-  // password to a fresh temp one, so confirm before firing.
+  // password to a fresh temp one, so confirm before firing. The backend runs
+  // the batch in the background (202), so poll /invite-all/status until it
+  // finishes — the final payload carries the emailed/failed breakdown.
   const handleInviteAll = async () => {
     if (!confirm('Send login invites to ALL active students?\n\nEach student\'s password is reset to a fresh temporary one and emailed to them. Students who already use their account will need the new password.')) return;
     setInviteAllBusy(true);
     try {
-      const res = await api.inviteAllStudents();
-      setInviteAllResult(res);
+      await api.inviteAllStudents();
+      let status;
+      do {
+        await new Promise((r) => setTimeout(r, 2000));
+        status = await api.inviteAllStatus();
+      } while (status.running);
+      if (status.error) throw new Error(status.error);
+      setInviteAllResult(status);
     } catch (err) { showMsg(err.message || 'Failed to send invites', 'error'); }
     finally { setInviteAllBusy(false); }
   };
