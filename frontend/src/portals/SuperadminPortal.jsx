@@ -178,10 +178,12 @@ export default function SuperadminPortal() {
   const [assignCourseId, setAssignCourseId] = useState('');
   const [assignCourseBusy, setAssignCourseBusy] = useState(false);
 
-  // View/manage a student's assigned courses (click the Course(s) cell to remove).
+  // View/manage a student's assigned courses (click the Course(s) cell to remove or add).
   const [coursesModalStudent, setCoursesModalStudent] = useState(null); // student whose courses are shown, or null (closed)
   const [coursesModalRows, setCoursesModalRows] = useState([]);
   const [coursesModalLoading, setCoursesModalLoading] = useState(false);
+  const [coursesModalAddId, setCoursesModalAddId] = useState(''); // course picked in the modal's "add course" select
+  const [coursesModalAdding, setCoursesModalAdding] = useState(false);
 
   const [showSessionForm, setShowSessionForm] = useState(false);
   const [sessionForm, setSessionForm] = useState({ course_id: '', tutor_id: '', student_id: '', start_time: '', end_time: '' });
@@ -972,6 +974,7 @@ export default function SuperadminPortal() {
   const openStudentCourses = async (student) => {
     setCoursesModalStudent(student);
     setCoursesModalRows([]);
+    setCoursesModalAddId('');
     setCoursesModalLoading(true);
     try {
       const all = await api.getEnrollments();
@@ -992,6 +995,24 @@ export default function SuperadminPortal() {
       api.getCourses().then(setAllCourses).catch(() => {});
       fetchData();
     } catch (err) { showMsg(err.message || 'Failed to remove course', 'error'); }
+  };
+
+  // Enroll the modal's student in one more course (students can take several).
+  const addStudentCourse = async () => {
+    if (!coursesModalStudent || !coursesModalAddId) return;
+    setCoursesModalAdding(true);
+    try {
+      await api.createEnrollment({ student_id: coursesModalStudent.id, course_id: coursesModalAddId });
+      showMsg(`Course added for ${coursesModalStudent.name}`, 'success');
+      setCoursesModalAddId('');
+      const all = await api.getEnrollments();
+      setAllEnrollments(all);
+      setCoursesModalRows(all.filter((en) => en.student_id === coursesModalStudent.id));
+      api.getStudents().then(setAllStudents).catch(() => {});
+      api.getCourses().then(setAllCourses).catch(() => {}); // backend bumped students_count — refresh the Courses tab
+      fetchData();
+    } catch (err) { showMsg(err.message || 'Failed to add course', 'error'); }
+    finally { setCoursesModalAdding(false); }
   };
 
   const dropEnrollment = async (id) => {
@@ -1944,7 +1965,7 @@ export default function SuperadminPortal() {
   );
 
   const studentCoursesModal = coursesModalStudent && (
-    <div className="modal-overlay" onClick={() => setCoursesModalStudent(null)}>
+    <div className="modal-overlay" onClick={() => !coursesModalAdding && setCoursesModalStudent(null)}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
         <h3>Courses — {coursesModalStudent.name}</h3>
         {coursesModalLoading ? (
@@ -1964,8 +1985,28 @@ export default function SuperadminPortal() {
             ))}
           </div>
         )}
+        {!coursesModalLoading && (() => {
+          const enrolledIds = new Set(coursesModalRows.map((en) => String(en.course_id)));
+          const addable = assignableCourses.filter((c) => !enrolledIds.has(String(c.id)));
+          if (addable.length === 0) {
+            return <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 12 }}>All active courses are already assigned to this student.</p>;
+          }
+          return (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 14 }}>
+              <select value={coursesModalAddId} onChange={(e) => setCoursesModalAddId(e.target.value)} style={{ flex: 1 }} disabled={coursesModalAdding}>
+                <option value="">Add another course...</option>
+                {addable.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}{c.category ? ` — ${c.category}` : ''}</option>
+                ))}
+              </select>
+              <button type="button" className="btn btn-sm btn-primary" disabled={!coursesModalAddId || coursesModalAdding} onClick={addStudentCourse}>
+                {coursesModalAdding ? 'Adding…' : '+ Add'}
+              </button>
+            </div>
+          );
+        })()}
         <div className="form-actions">
-          <button type="button" className="btn btn-ghost" onClick={() => setCoursesModalStudent(null)}>Close</button>
+          <button type="button" className="btn btn-ghost" onClick={() => setCoursesModalStudent(null)} disabled={coursesModalAdding}>Close</button>
         </div>
       </div>
     </div>
