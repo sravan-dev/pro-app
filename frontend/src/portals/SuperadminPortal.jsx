@@ -978,6 +978,7 @@ export default function SuperadminPortal() {
     setCoursesModalRows([]);
     setCoursesModalAddId('');
     setCoursesModalLoading(true);
+    api.getCourses().then(setAllCourses).catch(() => {}); // keep the add-course picker current
     try {
       const all = await api.getEnrollments();
       setAllEnrollments(all);
@@ -1003,18 +1004,33 @@ export default function SuperadminPortal() {
   const addStudentCourse = async () => {
     if (!coursesModalStudent || !coursesModalAddId) return;
     setCoursesModalAdding(true);
+    let created;
     try {
-      await api.createEnrollment({ student_id: coursesModalStudent.id, course_id: coursesModalAddId });
-      showMsg(`Course added for ${coursesModalStudent.name}`, 'success');
-      setCoursesModalAddId('');
-      const all = await api.getEnrollments();
-      setAllEnrollments(all);
-      setCoursesModalRows(all.filter((en) => en.student_id === coursesModalStudent.id));
-      api.getStudents().then(setAllStudents).catch(() => {});
-      api.getCourses().then(setAllCourses).catch(() => {}); // backend bumped students_count — refresh the Courses tab
-      fetchData();
-    } catch (err) { showMsg(err.message || 'Failed to add course', 'error'); }
-    finally { setCoursesModalAdding(false); }
+      created = await api.createEnrollment({ student_id: coursesModalStudent.id, course_id: coursesModalAddId });
+    } catch (err) {
+      showMsg(err.message || 'Failed to add course', 'error');
+      setCoursesModalAdding(false);
+      return;
+    }
+    showMsg(`Course added for ${coursesModalStudent.name}`, 'success');
+    // Update the modal list from local data so a failed refresh below can't
+    // make the successful add look failed or leave the course re-addable.
+    const course = allCourses.find((c) => String(c.id) === String(coursesModalAddId));
+    setCoursesModalRows((rows) => [...rows, {
+      enrollment_id: created.enrollment_id,
+      student_id: coursesModalStudent.id,
+      course_id: coursesModalAddId,
+      course_name: course?.name || 'Course',
+      course_category: course?.category || '',
+      status: 'active',
+    }]);
+    setCoursesModalAddId('');
+    setCoursesModalAdding(false);
+    // Background refreshes (fire-and-forget, like submitAssignCourse).
+    api.getEnrollments().then(setAllEnrollments).catch(() => {});
+    api.getStudents().then(setAllStudents).catch(() => {});
+    api.getCourses().then(setAllCourses).catch(() => {}); // backend bumped students_count — refresh the Courses tab
+    fetchData();
   };
 
   const dropEnrollment = async (id) => {
@@ -1994,7 +2010,7 @@ export default function SuperadminPortal() {
                   <div>{en.course_name}</div>
                   <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{[en.course_category, en.status].filter(Boolean).join(' · ')}</div>
                 </div>
-                <button className="btn btn-sm btn-ghost text-danger" onClick={() => removeStudentCourse(en)}>🗑 Delete</button>
+                <button className="btn btn-sm btn-ghost text-danger" disabled={coursesModalAdding} onClick={() => removeStudentCourse(en)}>🗑 Delete</button>
               </div>
             ))}
           </div>
@@ -2002,6 +2018,9 @@ export default function SuperadminPortal() {
         {!coursesModalLoading && (() => {
           const enrolledIds = new Set(coursesModalRows.map((en) => String(en.course_id)));
           const addable = assignableCourses.filter((c) => !enrolledIds.has(String(c.id)));
+          if (assignableCourses.length === 0) {
+            return <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 12 }}>No active courses available to assign. Create or unarchive a course first.</p>;
+          }
           if (addable.length === 0) {
             return <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 12 }}>All active courses are already assigned to this student.</p>;
           }
