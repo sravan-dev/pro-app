@@ -185,6 +185,40 @@ export default function SuperadminPortal() {
   const [assignTutorId, setAssignTutorId] = useState('');
   const [assignTutorBusy, setAssignTutorBusy] = useState(false);
 
+  // Right-click context menu on a student row → Add Additional Faculty / Edit Batch.
+  const [studentCtxMenu, setStudentCtxMenu] = useState(null); // { x, y, student } or null
+
+  // "Add Additional Faculty" modal: extra tutors beyond the primary assigned one.
+  const [facultyStudent, setFacultyStudent] = useState(null); // student whose faculty is shown, or null (closed)
+  const [facultyRows, setFacultyRows] = useState([]);
+  const [facultyLoading, setFacultyLoading] = useState(false);
+  const [facultyAddId, setFacultyAddId] = useState(''); // tutor picked in the "add faculty" select
+  const [facultyBusy, setFacultyBusy] = useState(false);
+
+  // "Edit Batch" modal: move the student to another team/batch.
+  const [batchStudent, setBatchStudent] = useState(null); // student being moved, or null (closed)
+  const [batchTeamId, setBatchTeamId] = useState('');
+  const [batchBusy, setBatchBusy] = useState(false);
+
+  // Any click, right-click elsewhere, scroll, or Escape dismisses the context
+  // menu. Listeners attach in an effect (after the opening event finished), so
+  // the right-click that opened the menu can't immediately close it.
+  useEffect(() => {
+    if (!studentCtxMenu) return;
+    const close = () => setStudentCtxMenu(null);
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('click', close);
+    window.addEventListener('contextmenu', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('contextmenu', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [studentCtxMenu]);
+
   // View/manage a student's assigned courses (click the Course(s) cell to remove or add).
   const [coursesModalStudent, setCoursesModalStudent] = useState(null); // student whose courses are shown, or null (closed)
   const [coursesModalRows, setCoursesModalRows] = useState([]);
@@ -996,6 +1030,70 @@ export default function SuperadminPortal() {
       api.getStudents().then(setAllStudents).catch(() => {}); // refresh assigned_tutor_id so reopening pre-selects correctly
     } catch (err) { showMsg(err.message || 'Failed to assign tutor', 'error'); }
     finally { setAssignTutorBusy(false); }
+  };
+
+  // Right-click on a student row: open the custom context menu, clamped so it
+  // never renders off-screen near the right/bottom edges.
+  const openStudentContextMenu = (student, e) => {
+    e.preventDefault();
+    setStudentCtxMenu({
+      x: Math.min(e.clientX, window.innerWidth - 210),
+      y: Math.min(e.clientY, window.innerHeight - 100),
+      student,
+    });
+  };
+
+  // Open the "Add Additional Faculty" modal and load the student's extra tutors.
+  const openAddFaculty = async (student) => {
+    setFacultyStudent(student);
+    setFacultyRows([]);
+    setFacultyAddId('');
+    setFacultyLoading(true);
+    api.getTutors().then(setAllTutors).catch(() => {}); // keep the picker current
+    try { setFacultyRows(await api.getStudentTutors(student.id)); }
+    catch (err) { showMsg(err.message || 'Failed to load faculty', 'error'); }
+    finally { setFacultyLoading(false); }
+  };
+
+  const addFaculty = async () => {
+    if (!facultyStudent || !facultyAddId) return;
+    setFacultyBusy(true);
+    try {
+      await api.addStudentTutor({ student_id: facultyStudent.id, tutor_id: facultyAddId });
+      showMsg(`Faculty added for ${facultyStudent.name}`, 'success');
+      setFacultyAddId('');
+      setFacultyRows(await api.getStudentTutors(facultyStudent.id));
+    } catch (err) { showMsg(err.message || 'Failed to add faculty', 'error'); }
+    finally { setFacultyBusy(false); }
+  };
+
+  const removeFaculty = async (row) => {
+    if (!confirm(`Remove ${row.tutor_name} as additional faculty for ${facultyStudent?.name || 'this student'}?`)) return;
+    try {
+      await api.removeStudentTutor(row.id);
+      showMsg('Faculty removed', 'success');
+      setFacultyRows((rows) => rows.filter((r) => r.id !== row.id));
+    } catch (err) { showMsg(err.message || 'Failed to remove faculty', 'error'); }
+  };
+
+  // Open the "Edit Batch" modal pre-selected with the student's current team.
+  const openEditBatch = (student) => {
+    setBatchStudent(student);
+    setBatchTeamId(student.team_id ? String(student.team_id) : '');
+    api.getTeams().then(setTeams).catch(() => {}); // keep the picker current
+  };
+
+  const submitEditBatch = async (e) => {
+    e.preventDefault();
+    if (!batchStudent) return;
+    setBatchBusy(true);
+    try {
+      await api.assignStudent({ student_id: batchStudent.id, team_id: batchTeamId || null });
+      showMsg(`Batch updated for ${batchStudent.name}`, 'success');
+      setBatchStudent(null);
+      api.getStudents().then(setAllStudents).catch(() => {}); // refresh the Team column
+    } catch (err) { showMsg(err.message || 'Failed to update batch', 'error'); }
+    finally { setBatchBusy(false); }
   };
 
   // Open a modal listing a student's enrolled courses so they can be removed.
@@ -2063,6 +2161,97 @@ export default function SuperadminPortal() {
     </div>
   );
 
+  // Right-click menu on a student row.
+  const studentContextMenu = studentCtxMenu && (
+    <div style={{ position: 'fixed', top: studentCtxMenu.y, left: studentCtxMenu.x, zIndex: 1000, background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #E5E7EB)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', padding: 4, minWidth: 200 }}>
+      <div style={{ padding: '6px 10px', fontSize: 12, color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border, #eee)', marginBottom: 4, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{studentCtxMenu.student.name}</div>
+      <button className="btn btn-sm btn-ghost btn-block" style={{ justifyContent: 'flex-start' }} onClick={() => { openAddFaculty(studentCtxMenu.student); setStudentCtxMenu(null); }}>➕ Add Additional Faculty</button>
+      <button className="btn btn-sm btn-ghost btn-block" style={{ justifyContent: 'flex-start' }} onClick={() => { openEditBatch(studentCtxMenu.student); setStudentCtxMenu(null); }}>✏️ Edit Batch</button>
+    </div>
+  );
+
+  // "Add Additional Faculty" modal — list, remove, and add extra tutors.
+  const addFacultyModal = facultyStudent && (() => {
+    const addableFaculty = allTutors.filter((t) =>
+      t.status === 'active'
+      && String(t.id) !== String(facultyStudent.assigned_tutor_id || '')
+      && !facultyRows.some((r) => r.tutor_id === t.id));
+    return (
+      <div className="modal-overlay" onClick={() => !facultyBusy && setFacultyStudent(null)}>
+        <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+          <h3>Additional Faculty — {facultyStudent.name}</h3>
+          <p style={{ color: 'var(--color-text-secondary)', fontSize: 13, marginTop: 4 }}>
+            Primary tutor: {facultyStudent.assigned_tutor_name || 'none'}
+          </p>
+          {facultyLoading ? (
+            <p style={{ color: 'var(--color-text-secondary)' }}>Loading…</p>
+          ) : facultyRows.length === 0 ? (
+            <p style={{ color: 'var(--color-text-secondary)' }}>No additional faculty assigned.</p>
+          ) : (
+            <div>
+              {facultyRows.map((row) => (
+                <div key={row.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--color-border, #eee)' }}>
+                  <div>
+                    <div>{row.tutor_name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{[row.specialization, row.tutor_email].filter(Boolean).join(' · ')}</div>
+                  </div>
+                  <button className="btn btn-sm btn-ghost text-danger" disabled={facultyBusy} onClick={() => removeFaculty(row)}>🗑 Remove</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {!facultyLoading && (addableFaculty.length > 0 ? (
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <select value={facultyAddId} onChange={(e) => setFacultyAddId(e.target.value)} style={{ flex: 1 }}>
+                <option value="">Add faculty…</option>
+                {addableFaculty.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}{t.specialization ? ` — ${t.specialization}` : ''}</option>
+                ))}
+              </select>
+              <button className="btn btn-sm btn-primary" disabled={facultyBusy || !facultyAddId} onClick={addFaculty}>{facultyBusy ? 'Adding…' : 'Add'}</button>
+            </div>
+          ) : (
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 12 }}>No more active tutors available to add.</p>
+          ))}
+          <div className="form-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setFacultyStudent(null)} disabled={facultyBusy}>Close</button>
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
+  // "Edit Batch" modal — move the student to another team/batch.
+  const editBatchModal = batchStudent && (
+    <div className="modal-overlay" onClick={() => !batchBusy && setBatchStudent(null)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+        <h3>Edit Batch</h3>
+        <form onSubmit={submitEditBatch}>
+          <div className="form-group">
+            <label>Student</label>
+            <input value={`${batchStudent.name}${batchStudent.email ? ` (${batchStudent.email})` : ''}`} disabled />
+          </div>
+          <div className="form-group">
+            <label>Batch</label>
+            <select value={batchTeamId} onChange={(e) => setBatchTeamId(e.target.value)} autoFocus>
+              <option value="">— No batch —</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+            {teams.length === 0 && (
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>No batches yet. Create a team first.</p>
+            )}
+          </div>
+          <div className="form-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setBatchStudent(null)} disabled={batchBusy}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={batchBusy}>{batchBusy ? 'Saving…' : 'Save'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+
   const studentCoursesModal = coursesModalStudent && (
     <div className="modal-overlay" onClick={() => !coursesModalAdding && setCoursesModalStudent(null)}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
@@ -2312,6 +2501,9 @@ export default function SuperadminPortal() {
         {enrollContactModal}
         {assignCourseModal}
         {assignTutorModal}
+        {studentContextMenu}
+        {addFacultyModal}
+        {editBatchModal}
         {studentCoursesModal}
         {sessionFormModal}
         {slotFormModal}
@@ -2566,7 +2758,7 @@ export default function SuperadminPortal() {
             <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
               Click a student to view their full profile.
             </p>
-            <DataTable columns={studentColumns} data={allStudents} pageSize={15} selectable onRowClick={openStudentDetail} onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />
+            <DataTable columns={studentColumns} data={allStudents} pageSize={15} selectable onRowClick={openStudentDetail} onRowContextMenu={openStudentContextMenu} onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />
           </div>
         )}
 

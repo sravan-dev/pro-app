@@ -226,6 +226,17 @@ CREATE TABLE IF NOT EXISTS teams (
   INDEX idx_teams_manager (manager_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Additional faculty — extra tutors assigned to a student beyond the primary
+-- users.assigned_tutor_id. One row per (student, tutor) pair.
+CREATE TABLE IF NOT EXISTS student_tutors (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  student_id INT NOT NULL,
+  tutor_id INT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_student_tutor (student_id, tutor_id),
+  INDEX idx_student_tutors_tutor (tutor_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Ratings — a student rates their Manager, Advisor and Tutor (1-5 + comment).
 -- Re-ratable: one live row per (student, ratee), upserted on uq_rating.
 CREATE TABLE IF NOT EXISTS ratings (

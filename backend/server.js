@@ -2670,6 +2670,55 @@ app.post('/api/assignments', async (req, res) => {
   res.json({ message: 'Assignment saved' });
 });
 
+// --- Additional faculty: extra tutors for a student beyond the primary one ---
+app.get('/api/students/:id/tutors', async (req, res) => {
+  const user = await requireRole(req, res, ['tutor','advisor','manager','superadmin']); if (!user) return;
+  const id = parseInt(req.params.id);
+  res.json(await db.all(
+    `SELECT st.id, st.tutor_id, u.name AS tutor_name, u.email AS tutor_email, u.specialization, u.avatar_color, st.created_at
+     FROM student_tutors st JOIN users u ON u.id=st.tutor_id WHERE st.student_id=? ORDER BY u.name`, [id]));
+});
+
+app.post('/api/student-tutors', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
+  const { student_id, tutor_id } = req.body || {};
+  if (!student_id || !tutor_id) return res.status(400).json({ error: 'student_id and tutor_id required' });
+  const student = await db.get("SELECT id, role, team_id, assigned_tutor_id FROM users WHERE id=?", [student_id]);
+  if (!student || student.role !== 'student') return res.status(404).json({ error: 'Student not found' });
+  const tutor = await db.get("SELECT id, role, team_id FROM users WHERE id=?", [tutor_id]);
+  if (!tutor || tutor.role !== 'tutor') return res.status(404).json({ error: 'Tutor not found' });
+  if (student.assigned_tutor_id === tutor.id) return res.status(400).json({ error: 'Already the primary tutor for this student' });
+  // Managers may only touch their own team's students and tutors (same rule as /api/assignments).
+  if (user.role === 'manager') {
+    const myTeams = await managerTeamIds(user.id);
+    if (!myTeams.includes(student.team_id)) return res.status(403).json({ error: 'Student is not in your team' });
+    if (!myTeams.includes(tutor.team_id)) return res.status(400).json({ error: 'Selected tutor is not in your team' });
+  }
+  try {
+    const r = await db.run("INSERT INTO student_tutors (student_id, tutor_id) VALUES (?,?)", [student_id, tutor_id]);
+    auditLog(user.id, 'add_student_tutor', 'user', student_id, `Added additional faculty ${tutor_id}`);
+    res.json({ id: r.lastInsertRowid, message: 'Faculty added' });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'This tutor is already assigned to the student' });
+    throw err;
+  }
+});
+
+app.delete('/api/student-tutors', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
+  const id = parseInt(req.query.id);
+  if (!id) return res.status(400).json({ error: 'ID required' });
+  const row = await db.get("SELECT st.id, st.student_id, u.team_id FROM student_tutors st JOIN users u ON u.id=st.student_id WHERE st.id=?", [id]);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  if (user.role === 'manager') {
+    const myTeams = await managerTeamIds(user.id);
+    if (!myTeams.includes(row.team_id)) return res.status(403).json({ error: 'Student is not in your team' });
+  }
+  await db.run("DELETE FROM student_tutors WHERE id=?", [id]);
+  auditLog(user.id, 'remove_student_tutor', 'user', row.student_id, 'Removed additional faculty');
+  res.json({ message: 'Faculty removed' });
+});
+
 // --- Ratings ---
 // Student view: their three people + their current rating of each.
 app.get('/api/my-team', async (req, res) => {

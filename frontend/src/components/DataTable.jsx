@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 
-export default function DataTable({ columns, data, onRowClick, searchable = true, pageSize = 10, selectable = false, onBulkAction = null, bulkActionLabel = 'Delete Selected', rowId = null }) {
+export default function DataTable({ columns, data, onRowClick, onRowContextMenu = null, searchable = true, pageSize = 10, selectable = false, onBulkAction = null, bulkActionLabel = 'Delete Selected', rowId = null }) {
   const [search, setSearch] = useState('');
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState('asc');
@@ -133,6 +133,7 @@ export default function DataTable({ columns, data, onRowClick, searchable = true
                 <tr
                   key={getRowId(row) || i}
                   onClick={() => onRowClick?.(row)}
+                  onContextMenu={onRowContextMenu ? (e) => onRowContextMenu(row, e) : undefined}
                   className={`${onRowClick ? 'clickable' : ''} ${selectedIds.has(getRowId(row)) ? 'row-selected' : ''}`}
                 >
                   {selectable && (
