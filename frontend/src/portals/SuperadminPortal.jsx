@@ -3256,32 +3256,6 @@ export default function SuperadminPortal() {
                 </div>
 
                 <div className="section">
-                  <h3>Courses by Category</h3>
-                  <div className="stats-bars">
-                    {reports.courses_by_category?.map((c) => (
-                      <div key={c.category} className="stats-bar-item">
-                        <span className="stats-bar-label">{c.category}</span>
-                        <div className="stats-bar"><div className="stats-bar-fill" style={{ width: `${(c.count / (reports.total_courses || 1)) * 100}%` }} /></div>
-                        <span className="stats-bar-value">{c.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="section">
-                  <h3>Top Courses by Enrollment</h3>
-                  <div className="stats-bars">
-                    {reports.enrollments_by_course?.map((c) => (
-                      <div key={c.name} className="stats-bar-item">
-                        <span className="stats-bar-label">{c.name}</span>
-                        <div className="stats-bar"><div className="stats-bar-fill" style={{ width: `${(c.count / Math.max(...reports.enrollments_by_course.map((x) => x.count), 1)) * 100}%` }} /></div>
-                        <span className="stats-bar-value">{c.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="section">
                   <h3>Grade Distribution</h3>
                   <div className="grade-chips">
                     {reports.grade_distribution?.map((g) => (
@@ -3293,18 +3267,6 @@ export default function SuperadminPortal() {
                   </div>
                 </div>
 
-                <div className="section">
-                  <h3>Student Status Breakdown</h3>
-                  <div className="stats-bars">
-                    {reports.student_status_breakdown?.map((s) => (
-                      <div key={s.status} className="stats-bar-item">
-                        <span className="stats-bar-label">{s.status}</span>
-                        <div className="stats-bar"><div className="stats-bar-fill" style={{ width: `${(s.count / (reports.total_students || 1)) * 100}%` }} /></div>
-                        <span className="stats-bar-value">{s.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </>
             )}
           </div>
