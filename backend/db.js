@@ -168,6 +168,20 @@ async function initSchema() {
   await addColumnIfMissing('smtp_settings', 'gmail_user', "gmail_user VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('smtp_settings', 'gmail_app_password', "gmail_app_password VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('sessions', 'student_id', 'student_id INT NULL');
+  // Payroll: per-row shift breakdown snapshot taken at pay time.
+  await addColumnIfMissing('payroll_runs', 'breakdown', 'breakdown TEXT');
+
+  // Teaching staff are paid per hour at the rate of the shift they worked in
+  // (see SHIFTS in server.js), so move anyone still on the old 'monthly'
+  // default onto the shift scale. Guarded by a flag so it runs exactly once —
+  // an admin who deliberately picks another payout type later is left alone.
+  await addColumnIfMissing('app_settings', 'payroll_shift_migrated', 'payroll_shift_migrated TINYINT DEFAULT 0');
+  await run("INSERT IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')");
+  const migrated = (await get("SELECT payroll_shift_migrated AS f FROM app_settings WHERE id=1"))?.f;
+  if (!migrated) {
+    await run("UPDATE users SET payout_type='shift' WHERE role IN ('tutor','advisor','manager') AND (payout_type IS NULL OR payout_type='' OR payout_type='monthly')");
+    await run("UPDATE app_settings SET payroll_shift_migrated=1 WHERE id=1");
+  }
 
   // Single-row settings defaults.
   await run("INSERT IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')");

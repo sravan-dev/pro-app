@@ -144,7 +144,9 @@ export const api = {
   saveStaffAttendance: (data) => request('/staff-attendance', { method: 'POST', body: data }),
   deleteStaffAttendance: (id) => request(`/staff-attendance?id=${id}`, { method: 'DELETE' }),
 
-  // Salary / Payroll (superadmin) — salary = worked hours × payout rate
+  // Salary / Payroll (superadmin) — pay is per hour at the rate of the shift
+  // the work fell in; see SHIFTS in backend/server.js.
+  getShiftRates: (userId) => request(`/shift-rates${userId ? `?user_id=${userId}` : ''}`),
   getPayroll: (period) => request(period ? `/payroll?period=${period}` : '/payroll'),
   payPayroll: (data) => request('/payroll/pay', { method: 'POST', body: data }),
   unpayPayroll: (period, userId) => request('/payroll/unpay', { method: 'POST', body: { period, user_id: userId } }),

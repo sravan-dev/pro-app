@@ -70,14 +70,35 @@ async function getLiveKit() {
 const livekitRoomName = (sessionId) => `session-${sessionId}`;
 const livekitHttpUrl = () => livekit.url.replace(/^ws/, 'http');
 
-// UTC 'YYYY-MM-DD HH:MM:SS' — mirrors SQLite's datetime('now') string format so
-// stored timestamps and string comparisons behave as they did before.
+// Local 'YYYY-MM-DD HH:MM:SS'. Sessions are scheduled from a datetime-local
+// input, i.e. in the user's wall-clock time, and the payroll shift bands are
+// wall-clock too — so the timestamps we record ourselves (joins, leaves,
+// clock-ins) must be on that same clock. This used to emit UTC, which put
+// attendance and the schedule on two different clocks and could bill a session
+// against the wrong shift.
 function nowStr() {
-  return new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
-// Whole minutes between two timestamp strings (parsed as dates), never negative.
+// Parse one of our stored timestamp strings ('YYYY-MM-DD HH:MM:SS', or the same
+// with a 'T') as plain wall-clock time, deliberately ignoring any timezone. We
+// map it onto the UTC number line so arithmetic is stable no matter what zone
+// the server runs in and DST never adds or removes an hour. Returns null when
+// the string is empty or unparseable. Use this instead of `new Date(str)`
+// anywhere the result feeds a payroll figure.
+function parseTs(s) {
+  if (!s) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(String(s));
+  if (!m) return null;
+  const t = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6] || 0);
+  return Number.isFinite(t) ? t : null;
+}
+// Whole minutes between two timestamp strings, never negative.
 function durationMinutes(joinStr, leaveStr) {
-  const m = (new Date(leaveStr) - new Date(joinStr)) / 60000;
+  const a = parseTs(joinStr); const b = parseTs(leaveStr);
+  if (a === null || b === null) return 0;
+  const m = (b - a) / 60000;
   return Number.isFinite(m) && m > 0 ? Math.round(m) : 0;
 }
 // Is this a MySQL duplicate-key error? (replaces the old "UNIQUE" message check)
@@ -450,6 +471,12 @@ app.get('/api/portal-data', async (req, res) => {
       }
       data.teaching_stats = { total_sessions: tsRows.length, total_hours };
       data.payout = await db.get("SELECT payout_rate, payout_type FROM users WHERE id=?", [user.id]);
+      // This month's pay exactly as the payroll screen computes it — the tutor
+      // and the admin must never be looking at two different numbers.
+      data.payout_period = nowStr().slice(0, 7);
+      const ownRun = await computePayroll(data.payout_period, user.id);
+      data.payout_current = ownRun ? ownRun.rows[0] || null : null;
+      data.payout_currency = ownRun ? ownRun.currency : 'INR';
       break;
     }
     case 'advisor': {
@@ -1337,69 +1364,268 @@ function periodBounds(period) {
   return { start: `${startDate} 00:00:00`, end: `${endDate} 00:00:00`, startDate, endDate };
 }
 
-// Actual teaching time a tutor delivered in [start,end). We use the REAL time
-// taken, measured from each conducted session's attendance records — the span
-// from the earliest join to the latest leave, or the longest single participant
-// duration — and fall back to the scheduled start→end only when a session has
-// no usable attendance timing. Hours are computed in JS over the string
-// timestamps so we don't rely on SQL date math.
-async function tutorSessionHours(tutorId, start, end) {
-  const rows = await db.all(
-    `SELECT s.session_id, s.start_time, s.end_time,
-            MIN(a.join_time)        AS first_join,
-            MAX(a.leave_time)       AS last_leave,
-            MAX(a.duration_minutes) AS max_dur
-     FROM sessions s
-     LEFT JOIN attendance_logs a ON a.session_id = s.session_id
-     WHERE s.tutor_id=? AND s.start_time>=? AND s.start_time<?
-       AND (s.status='completed' OR EXISTS(SELECT 1 FROM attendance_logs a2 WHERE a2.session_id=s.session_id))
-     GROUP BY s.session_id, s.start_time, s.end_time`,
-    [tutorId, start, end]
-  );
-  let hours = 0;
-  let sessions = 0;
-  for (const r of rows) {
-    let mins = 0;
-    // Real time taken: earliest join → latest leave across all participants.
-    if (r.first_join && r.last_leave) {
-      mins = (new Date(r.last_leave) - new Date(r.first_join)) / 60000;
-    }
-    // Fallbacks: longest recorded participant duration, then scheduled length.
-    if (!(mins > 0) && Number(r.max_dur) > 0) mins = Number(r.max_dur);
-    if (!(mins > 0)) mins = (new Date(r.end_time) - new Date(r.start_time)) / 60000;
-    if (Number.isFinite(mins) && mins > 0) { hours += mins / 60; sessions += 1; }
+// ---- Shift model -------------------------------------------------------
+// Teaching staff are paid per hour at the rate of the shift the work fell in.
+// The four shifts tile the whole 24h clock (shift 3 wraps past midnight), and
+// each carries a rate BAND — the actual per-hour rate for one staff member in
+// one shift lives in user_shift_rates and is always clamped to that band. A
+// staff member with no row for a shift is paid that shift's minimum.
+const SHIFTS = [
+  { key: 'shift1', label: 'Shift 1', from: '08:00', to: '18:00', min_rate: 75, max_rate: 150 },
+  { key: 'shift2', label: 'Shift 2', from: '18:00', to: '23:00', min_rate: 120, max_rate: 190 },
+  { key: 'shift3', label: 'Shift 3', from: '23:00', to: '02:00', min_rate: 175, max_rate: 225 },
+  { key: 'shift4', label: 'Shift 4', from: '02:00', to: '08:00', min_rate: 200, max_rate: 300 },
+];
+const SHIFT_KEYS = SHIFTS.map((s) => s.key);
+// Minute-of-day boundaries between shifts: 02:00, 08:00, 18:00, 23:00.
+const SHIFT_BOUNDARIES = [120, 480, 1080, 1380];
+
+// Which shift does this minute-of-day (0-1439) belong to?
+function shiftForMinute(m) {
+  if (m >= 480 && m < 1080) return 'shift1';
+  if (m >= 1080 && m < 1380) return 'shift2';
+  if (m >= 1380 || m < 120) return 'shift3';
+  return 'shift4';
+}
+// An all-zero {shift1..shift4} bucket.
+function emptyShiftMinutes() {
+  return SHIFT_KEYS.reduce((o, k) => { o[k] = 0; return o; }, {});
+}
+// Split the wall-clock interval [s, e) — as returned by parseTs — into minutes
+// per shift. Walks shift boundaries rather than individual minutes, so even a
+// multi-day interval costs a handful of iterations.
+function splitRangeByShift(s, e) {
+  const out = emptyShiftMinutes();
+  if (s === null || e === null || !(e > s)) return out;
+  let cur = s;
+  while (cur < e) {
+    const minuteOfDay = Math.floor(cur / 60000) % 1440;
+    const next = SHIFT_BOUNDARIES.find((b) => b > minuteOfDay);
+    const minsLeftInShift = next !== undefined ? next - minuteOfDay : 1440 - minuteOfDay + SHIFT_BOUNDARIES[0];
+    const segEnd = Math.min(cur + minsLeftInShift * 60000, e);
+    out[shiftForMinute(minuteOfDay)] += (segEnd - cur) / 60000;
+    cur = segEnd;
   }
-  return { hours, sessions };
+  return out;
+}
+// Same, for two stored timestamp strings.
+function splitMinutesByShift(startTs, endTs) {
+  return splitRangeByShift(parseTs(startTs), parseTs(endTs));
+}
+function addShiftMinutes(into, more) {
+  for (const k of SHIFT_KEYS) into[k] += more[k] || 0;
+  return into;
+}
+function totalShiftHours(mins) {
+  return SHIFT_KEYS.reduce((h, k) => h + mins[k] / 60, 0);
+}
+// One staff member's per-shift rate, defaulting to the band minimum and clamped
+// to the band so a bad stored value can never pay outside the agreed scale.
+function resolveShiftRates(rateRows) {
+  const byShift = new Map((rateRows || []).map((r) => [r.shift, Number(r.rate)]));
+  const out = {};
+  for (const s of SHIFTS) {
+    const v = byShift.has(s.key) ? byShift.get(s.key) : s.min_rate;
+    out[s.key] = Number.isFinite(v) ? Math.min(Math.max(v, s.min_rate), s.max_rate) : s.min_rate;
+  }
+  return out;
+}
+// Persist an admin-supplied {shift1..shift4} rate map for one user. Values are
+// clamped to their band, so nothing outside the agreed pay scale can be stored
+// even if the request says otherwise. A missing/empty map leaves rates alone.
+async function saveShiftRates(userId, rates) {
+  if (!userId || !rates || typeof rates !== 'object') return;
+  for (const s of SHIFTS) {
+    const raw = rates[s.key];
+    if (raw === undefined || raw === null || raw === '') continue;
+    const v = Number(raw);
+    if (!Number.isFinite(v)) continue;
+    const clamped = Math.min(Math.max(v, s.min_rate), s.max_rate);
+    await db.run(
+      "INSERT INTO user_shift_rates (user_id,shift,rate) VALUES (?,?,?) ON DUPLICATE KEY UPDATE rate=VALUES(rate)",
+      [userId, s.key, clamped]
+    );
+  }
+}
+async function shiftRatesFor(userIds) {
+  const out = new Map();
+  if (!userIds.length) return out;
+  const rows = await db.all(
+    `SELECT user_id, shift, rate FROM user_shift_rates WHERE user_id IN (${userIds.map(() => '?').join(',')})`,
+    userIds
+  );
+  for (const id of userIds) out.set(id, resolveShiftRates(rows.filter((r) => r.user_id === id)));
+  return out;
 }
 
-// Build salary rows for a period — one per active tutor. Salary is simply
-// (hours worked × payout_rate), where "hours worked" is the actual time taken
-// in their sessions (from attendance records). Joined against payroll_runs so
-// the caller knows who's already been marked paid.
-async function computePayroll(period) {
+// Billable teaching time for a tutor in [start,end).
+//
+// Only the TUTOR's own attendance rows count: a session nobody taught is not
+// payable, and students joining early or leaving late no longer stretch the
+// bill. The billed span is clamped to the scheduled window, so a session left
+// open for days — or opened again long after it ended — cannot inflate pay.
+// Minutes are then split across the shifts they actually fell in.
+async function tutorSessionShifts(tutorId, start, end) {
+  const rows = await db.all(
+    `SELECT s.session_id, s.start_time, s.end_time,
+            MIN(CASE WHEN a.student_id = s.tutor_id THEN a.join_time END)       AS tutor_join,
+            MAX(CASE WHEN a.student_id = s.tutor_id THEN a.leave_time END)      AS tutor_leave,
+            MAX(CASE WHEN a.student_id = s.tutor_id THEN a.duration_minutes END) AS tutor_dur
+     FROM sessions s
+     JOIN attendance_logs a ON a.session_id = s.session_id
+     WHERE s.tutor_id=? AND s.start_time>=? AND s.start_time<?
+     GROUP BY s.session_id, s.start_time, s.end_time
+     HAVING tutor_join IS NOT NULL`,
+    [tutorId, start, end]
+  );
+  const minutes = emptyShiftMinutes();
+  let sessions = 0;
+  for (const r of rows) {
+    const schedStart = parseTs(r.start_time);
+    const schedEnd = parseTs(r.end_time);
+    const join = parseTs(r.tutor_join);
+    if (join === null) continue;
+    // When the tutor never left, fall back to their recorded duration, then to
+    // the scheduled end. Either way the clamp below caps it.
+    let leave = parseTs(r.tutor_leave);
+    if (leave === null && Number(r.tutor_dur) > 0) leave = join + Number(r.tutor_dur) * 60000;
+    if (leave === null) leave = schedEnd;
+    if (leave === null) continue;
+    // Clamp to the scheduled window. Sessions with no usable schedule are billed
+    // on the raw span.
+    let from = join;
+    let to = leave;
+    if (schedStart !== null && schedEnd !== null && schedEnd > schedStart) {
+      from = Math.max(from, schedStart);
+      to = Math.min(to, schedEnd);
+    }
+    if (!(to > from)) continue;
+    addShiftMinutes(minutes, splitRangeByShift(from, to));
+    sessions += 1;
+  }
+  return { minutes, sessions, hours: totalShiftHours(minutes) };
+}
+
+// Billable time for non-teaching staff (advisors, managers) in a period, taken
+// from their own clock-in/clock-out records. Days marked leave or absent are
+// skipped; a day with hours but no clock times can't be placed on the clock, so
+// it is credited to the shift its work_date's 09:00 falls in (shift 1).
+async function staffAttendanceShifts(userId, startDate, endDate) {
+  const rows = await db.all(
+    "SELECT work_date, check_in, check_out, hours, status FROM staff_attendance WHERE user_id=? AND work_date>=? AND work_date<?",
+    [userId, startDate, endDate]
+  );
+  const minutes = emptyShiftMinutes();
+  let days = 0;
+  for (const r of rows) {
+    if (r.status === 'leave' || r.status === 'absent') continue;
+    const inTs = parseTs(r.check_in);
+    const outTs = parseTs(r.check_out);
+    if (inTs !== null && outTs !== null && outTs > inTs) {
+      addShiftMinutes(minutes, splitMinutesByShift(r.check_in, r.check_out));
+      days += 1;
+    } else if (Number(r.hours) > 0) {
+      minutes.shift1 += Number(r.hours) * 60;
+      days += 1;
+    }
+  }
+  return { minutes, days, hours: totalShiftHours(minutes) };
+}
+
+// Build salary rows for a period — one per staff member who can draw a salary.
+//
+// Tutors are paid from the sessions they actually taught; advisors and managers
+// from their clock-in records. Under the default 'shift' payout type the pay is
+// the sum over shifts of (hours in that shift x that shift's rate). The other
+// payout types an admin can pick are honoured too, so a rate that means "per
+// month" is never multiplied by hours. Joined against payroll_runs so the
+// caller knows who has already been marked paid.
+async function computePayroll(period, onlyUserId = null) {
   const b = periodBounds(period);
   if (!b) return null;
   const currency = (await db.get("SELECT currency FROM app_settings WHERE id=1"))?.currency || 'INR';
+  // Active staff, plus anyone already deactivated who still has work or a
+  // recorded run in this period — someone let go mid-month must remain payable
+  // for what they already did, and must not silently drop off the run.
   const staff = await db.all(
-    "SELECT id, name, email, role, avatar_color, payout_rate FROM users WHERE role='tutor' AND status='active' ORDER BY name"
+    `SELECT id, name, email, role, avatar_color, status, payout_rate, payout_type
+     FROM users u
+     WHERE role IN ('tutor','advisor','manager')
+       AND (status='active'
+            OR id IN (SELECT user_id FROM payroll_runs WHERE period=?)
+            OR EXISTS(SELECT 1 FROM sessions s WHERE s.tutor_id=u.id AND s.start_time>=? AND s.start_time<?)
+            OR EXISTS(SELECT 1 FROM staff_attendance sa WHERE sa.user_id=u.id AND sa.work_date>=? AND sa.work_date<?))
+       ${onlyUserId ? 'AND id=?' : ''}
+     ORDER BY role, name`,
+    onlyUserId
+      ? [period, b.start, b.end, b.startDate, b.endDate, onlyUserId]
+      : [period, b.start, b.end, b.startDate, b.endDate]
   );
   const paidRows = await db.all("SELECT * FROM payroll_runs WHERE period=?", [period]);
   const paidByUser = new Map(paidRows.map((r) => [r.user_id, r]));
+  const ratesByUser = await shiftRatesFor(staff.map((u) => u.id));
   const rows = [];
   for (const u of staff) {
     const rate = Number(u.payout_rate) || 0;
-    const t = await tutorSessionHours(u.id, b.start, b.end);
-    const hours = Math.round(t.hours * 100) / 100;
-    const gross = Math.round(hours * rate * 100) / 100;
+    const type = u.payout_type || 'shift';
+    const shiftRates = ratesByUser.get(u.id) || resolveShiftRates([]);
+    const worked = u.role === 'tutor'
+      ? await tutorSessionShifts(u.id, b.start, b.end)
+      : await staffAttendanceShifts(u.id, b.startDate, b.endDate);
+    const hours = Math.round(worked.hours * 100) / 100;
+    const sessions = worked.sessions || 0;
+    const days = worked.days || 0;
+
+    // Per-shift hours and money, rounded for display only — the gross is summed
+    // from unrounded minutes so the parts always add up to the whole.
+    const shifts = SHIFTS.map((s) => ({
+      key: s.key, label: s.label, from: s.from, to: s.to,
+      hours: Math.round((worked.minutes[s.key] / 60) * 100) / 100,
+      rate: shiftRates[s.key],
+      amount: Math.round((worked.minutes[s.key] / 60) * shiftRates[s.key] * 100) / 100,
+    }));
+
+    let gross = 0;
+    let units = hours;
+    let unitLabel = 'hours';
+    switch (type) {
+      case 'shift':
+        gross = SHIFT_KEYS.reduce((sum, k) => sum + (worked.minutes[k] / 60) * shiftRates[k], 0);
+        break;
+      case 'per_hour':
+        gross = worked.hours * rate;
+        break;
+      case 'per_session':
+        gross = sessions * rate; units = sessions; unitLabel = 'sessions';
+        break;
+      case 'per_course': {
+        const n = (await db.get("SELECT COUNT(*) AS n FROM courses WHERE tutor_id=?", [u.id]))?.n || 0;
+        gross = n * rate; units = n; unitLabel = 'courses';
+        break;
+      }
+      case 'monthly':
+      default:
+        // A flat monthly salary is NOT multiplied by anything.
+        gross = rate; units = 1; unitLabel = 'month';
+        break;
+    }
+    gross = Math.round(gross * 100) / 100;
+
     const paid = paidByUser.get(u.id);
     rows.push({
       user_id: u.id, name: u.name, email: u.email, role: u.role, avatar_color: u.avatar_color,
-      payout_rate: rate, hours, sessions: t.sessions, days: 0,
-      source: 'sessions',
+      status: u.status,
+      payout_rate: rate, payout_type: type,
+      hours, sessions, days,
+      source: u.role === 'tutor' ? 'sessions' : 'attendance',
+      shifts,
+      units, unit_label: unitLabel,
       gross_amount: gross,
       paid: !!paid,
       paid_at: paid ? paid.paid_at : null,
+      // What was actually paid, and whether the figure has drifted since.
       paid_amount: paid ? Number(paid.gross_amount) || 0 : null,
+      drift: paid ? Math.round((gross - (Number(paid.gross_amount) || 0)) * 100) / 100 : 0,
     });
   }
   const totals = {
@@ -1407,9 +1633,18 @@ async function computePayroll(period) {
     gross_total: Math.round(rows.reduce((s, r) => s + r.gross_amount, 0) * 100) / 100,
     paid_count: rows.filter((r) => r.paid).length,
     pending_count: rows.filter((r) => !r.paid).length,
-    paid_total: Math.round(paidRows.reduce((s, r) => s + (Number(r.gross_amount) || 0), 0) * 100) / 100,
+    // Only runs for staff still listed above, so a deleted user's orphaned run
+    // can't inflate the period total.
+    paid_total: Math.round(rows.reduce((s, r) => s + (r.paid_amount || 0), 0) * 100) / 100,
+    hours_total: Math.round(rows.reduce((s, r) => s + r.hours, 0) * 100) / 100,
   };
-  return { period, currency, rows, totals };
+  const shift_totals = SHIFTS.map((s, i) => ({
+    key: s.key, label: s.label, from: s.from, to: s.to,
+    min_rate: s.min_rate, max_rate: s.max_rate,
+    hours: Math.round(rows.reduce((h, r) => h + r.shifts[i].hours, 0) * 100) / 100,
+    amount: Math.round(rows.reduce((a, r) => a + (r.payout_type === 'shift' ? r.shifts[i].amount : 0), 0) * 100) / 100,
+  }));
+  return { period, currency, shifts: SHIFTS, rows, totals, shift_totals };
 }
 
 // List staff-attendance rows. Superadmin sees everyone (optionally filtered by
@@ -1482,6 +1717,17 @@ app.delete('/api/staff-attendance', async (req, res) => {
   res.json({ message: 'Deleted' });
 });
 
+// The shift bands themselves, plus (optionally) one staff member's stored rates.
+// The admin form uses this to render the rate inputs with the right limits.
+app.get('/api/shift-rates', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const userId = parseInt(req.query.user_id);
+  const rates = userId
+    ? resolveShiftRates(await db.all("SELECT shift, rate FROM user_shift_rates WHERE user_id=?", [userId]))
+    : resolveShiftRates([]);
+  res.json({ shifts: SHIFTS, rates });
+});
+
 // Computed payroll for a period (defaults to the current month).
 app.get('/api/payroll', async (req, res) => {
   const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
@@ -1499,6 +1745,7 @@ app.post('/api/payroll/pay', async (req, res) => {
   const { period } = req.body;
   if (!periodBounds(period)) return res.status(400).json({ error: 'Invalid period (expected YYYY-MM)' });
   const computed = await computePayroll(period);
+  if (!computed) return res.status(400).json({ error: 'Invalid period (expected YYYY-MM)' });
   let targets = computed.rows;
   if (req.body.user_id) {
     targets = targets.filter((r) => r.user_id === Number(req.body.user_id));
@@ -1510,10 +1757,12 @@ app.post('/api/payroll/pay', async (req, res) => {
   const now = nowStr();
   for (const r of targets) {
     await db.run(
-      `INSERT INTO payroll_runs (user_id,period,role,payout_type,payout_rate,units,unit_label,gross_amount,currency,status,paid_by,paid_at)
-       VALUES (?,?,?,'per_hour',?,?,'hours',?,?,'paid',?,?)
-       ON DUPLICATE KEY UPDATE payout_rate=VALUES(payout_rate), units=VALUES(units), gross_amount=VALUES(gross_amount), currency=VALUES(currency), paid_by=VALUES(paid_by), paid_at=VALUES(paid_at)`,
-      [r.user_id, period, r.role, r.payout_rate, r.hours, r.gross_amount, computed.currency, admin.id, now]
+      `INSERT INTO payroll_runs (user_id,period,role,payout_type,payout_rate,units,unit_label,gross_amount,currency,status,breakdown,paid_by,paid_at)
+       VALUES (?,?,?,?,?,?,?,?,?,'paid',?,?,?)
+       ON DUPLICATE KEY UPDATE payout_type=VALUES(payout_type), payout_rate=VALUES(payout_rate), units=VALUES(units), unit_label=VALUES(unit_label), gross_amount=VALUES(gross_amount), currency=VALUES(currency), breakdown=VALUES(breakdown), paid_by=VALUES(paid_by), paid_at=VALUES(paid_at)`,
+      [r.user_id, period, r.role, r.payout_type, r.payout_rate, r.units, r.unit_label, r.gross_amount, computed.currency,
+       JSON.stringify({ hours: r.hours, sessions: r.sessions, days: r.days, source: r.source, shifts: r.shifts }),
+       admin.id, now]
     );
   }
   auditLog(admin.id, 'pay_payroll', 'payroll', null, `${period}: paid ${targets.length} staff`);
@@ -1525,8 +1774,12 @@ app.post('/api/payroll/unpay', async (req, res) => {
   const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
   const { period, user_id } = req.body;
   if (!period || !user_id) return res.status(400).json({ error: 'Period and user required' });
+  // Record what was being reverted before the row goes — otherwise the only
+  // evidence that money was marked paid disappears with it.
+  const prev = await db.get("SELECT gross_amount, currency, paid_at FROM payroll_runs WHERE period=? AND user_id=?", [period, user_id]);
   await db.run("DELETE FROM payroll_runs WHERE period=? AND user_id=?", [period, user_id]);
-  auditLog(admin.id, 'unpay_payroll', 'payroll', user_id, period);
+  auditLog(admin.id, 'unpay_payroll', 'payroll', user_id,
+    prev ? `${period}: reverted ${prev.currency} ${prev.gross_amount} (paid ${prev.paid_at})` : period);
   res.json({ message: 'Payment reverted' });
 });
 
@@ -1610,18 +1863,23 @@ app.get('/api/reports', async (req, res) => {
 // Users CRUD
 app.get('/api/users', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  res.json(await db.all("SELECT id,name,email,portal,role,status,avatar_color,specialization,must_change_password,created_at FROM users ORDER BY created_at DESC"));
+  res.json(await db.all("SELECT id,name,email,portal,role,status,avatar_color,specialization,payout_rate,payout_type,must_change_password,created_at FROM users ORDER BY created_at DESC"));
 });
 
 app.post('/api/users', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  const { name, email, role, password, specialization, avatar_color, gender, team_id } = req.body;
+  const { name, email, role, password, specialization, avatar_color, gender, team_id, payout_rate, payout_type, shift_rates } = req.body;
   if (!name || !email || !role) return res.status(400).json({ error: 'Name, email, role required' });
   if (!['student','tutor','advisor','manager','superadmin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (await db.get("SELECT 1 FROM users WHERE email=?", [email])) return res.status(400).json({ error: 'Email exists' });
   const plainPassword = password || 'password123';
   const hash = bcrypt.hashSync(plainPassword, 10);
-  const r = await db.run("INSERT INTO users (name,email,portal,role,password_hash,avatar_color,specialization,gender,team_id,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,1)", [name, email, role, role, hash, avatar_color || '#4F46E5', specialization || '', gender || '', team_id || null]);
+  const r = await db.run(
+    "INSERT INTO users (name,email,portal,role,password_hash,avatar_color,specialization,gender,team_id,payout_rate,payout_type,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)",
+    [name, email, role, role, hash, avatar_color || '#4F46E5', specialization || '', gender || '', team_id || null,
+     Number(payout_rate) || 0, payout_type || (STAFF_ROLES.includes(role) ? 'shift' : 'monthly')]
+  );
+  await saveShiftRates(r.lastInsertRowid, shift_rates);
   auditLog(user.id, 'create_user', 'user', r.lastInsertRowid, `Created: ${name} (${role})`);
   // Send welcome email (non-blocking, don't fail user creation if email fails)
   const loginUrl = `${req.protocol}://${req.get('host')}/login`;
@@ -1646,8 +1904,9 @@ app.post('/api/users', async (req, res) => {
 
 app.put('/api/users', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  const { id, password, ...fields } = req.body;
+  const { id, password, shift_rates, ...fields } = req.body;
   if (!id) return res.status(400).json({ error: 'User ID required' });
+  await saveShiftRates(id, shift_rates);
   const allowed = ['name','email','role','status','specialization','avatar_color','payout_rate','payout_type','gender','team_id','advisor_id','assigned_tutor_id'];
   const nullable = ['team_id','advisor_id','assigned_tutor_id'];
   const sets = []; const vals = [];
@@ -1658,10 +1917,19 @@ app.put('/api/users', async (req, res) => {
     }
   }
   if (password) { sets.push('password_hash=?'); vals.push(bcrypt.hashSync(password, 10)); sets.push('must_change_password=1'); }
-  if (!sets.length) return res.status(400).json({ error: 'No fields' });
+  if (!sets.length) {
+    // Shift rates are stored in their own table, so a shift-rates-only edit is
+    // a valid update even though no users column changed.
+    if (shift_rates) return res.json({ message: 'Updated' });
+    return res.status(400).json({ error: 'No fields' });
+  }
   vals.push(id);
+  const before = fields.payout_rate !== undefined || fields.payout_type !== undefined
+    ? await db.get("SELECT payout_rate, payout_type FROM users WHERE id=?", [id]) : null;
   await db.run(`UPDATE users SET ${sets.join(',')} WHERE id=?`, vals);
-  auditLog(user.id, 'update_user', 'user', id);
+  auditLog(user.id, 'update_user', 'user', id, before
+    ? `pay: ${before.payout_type} ${before.payout_rate} -> ${fields.payout_type ?? before.payout_type} ${fields.payout_rate ?? before.payout_rate}`
+    : undefined);
   res.json({ message: 'Updated' });
 });
 

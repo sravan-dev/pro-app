@@ -207,19 +207,23 @@ export default function TutorPortal() {
   const formatMoney = (n) => `${currency} ${Math.round(n || 0).toLocaleString()}`;
 
   // Payout rate/type are configured per tutor by the admin (Settings → Users).
-  const payoutInfo = data?.payout || { payout_rate: 0, payout_type: 'monthly' };
+  const payoutInfo = data?.payout || { payout_rate: 0, payout_type: 'shift' };
   const payoutRate = payoutInfo.payout_rate || 0;
-  const payoutType = payoutInfo.payout_type || 'monthly';
+  const payoutType = payoutInfo.payout_type || 'shift';
   const payoutUnitLabel = ({
-    per_hour: 'per hour', per_session: 'per session', per_course: 'per course', monthly: 'per month',
+    shift: 'per hour, by shift', per_hour: 'per hour', per_session: 'per session', per_course: 'per course', monthly: 'per month',
   })[payoutType] || payoutType;
 
+  // This month's pay comes from the server, computed by the very same code the
+  // admin's payroll screen pays from. Never recompute it here — a second
+  // formula in the client is how a tutor and an admin end up with two different
+  // numbers for the same month.
+  const currentRun = data?.payout_current || null;
+  const payoutPeriod = data?.payout_period || '';
+  const monthPayout = currentRun ? currentRun.gross_amount : 0;
+  const monthHours = currentRun ? currentRun.hours : 0;
+  const monthShifts = currentRun ? currentRun.shifts || [] : [];
   const totalHours = Math.round(teachingStats.total_hours || 0);
-  let totalPayout = 0;
-  if (payoutType === 'per_hour') totalPayout = (teachingStats.total_hours || 0) * payoutRate;
-  else if (payoutType === 'per_session') totalPayout = (teachingStats.total_sessions || 0) * payoutRate;
-  else if (payoutType === 'per_course') totalPayout = courses.length * payoutRate;
-  else totalPayout = payoutRate; // monthly flat rate
 
   return (
     <div className="portal-layout portal-tutor">
@@ -505,11 +509,33 @@ export default function TutorPortal() {
           <div className="portal-page">
             <h2>Payouts & Earnings</h2>
             <div className="kpi-grid">
-              <KPICard title="Total Hours" value={`${totalHours}h`} icon="clock" color="#3B82F6" />
-              <KPICard title="Payout Rate" value={formatMoney(payoutRate)} subtitle={payoutUnitLabel} icon="dollar" color="#10B981" />
-              <KPICard title="Total Earned" value={formatMoney(totalPayout)} subtitle={payoutType === 'monthly' ? 'current month' : undefined} icon="dollar" color="#F59E0B" />
-              <KPICard title="Sessions Done" value={teachingStats.total_sessions} icon="check-circle" color="#8B5CF6" />
+              <KPICard title="Paid Hours" value={`${monthHours.toFixed(2)}h`} subtitle="this month" icon="clock" color="#3B82F6" />
+              <KPICard title="Payout Basis" value={payoutType === 'shift' ? 'Shift-wise' : formatMoney(payoutRate)} subtitle={payoutUnitLabel} icon="dollar" color="#10B981" />
+              <KPICard title="Earned This Month" value={formatMoney(monthPayout)} subtitle={payoutPeriod} icon="dollar" color="#F59E0B" />
+              <KPICard
+                title="Payment"
+                value={currentRun?.paid ? 'Paid' : 'Pending'}
+                subtitle={currentRun?.paid ? formatMoney(currentRun.paid_amount) : undefined}
+                icon="check-circle"
+                color={currentRun?.paid ? '#8B5CF6' : '#F59E0B'}
+              />
             </div>
+
+            {monthShifts.some((sh) => sh.hours > 0) && (
+              <div className="section">
+                <h3>This Month by Shift</h3>
+                <DataTable
+                  columns={[
+                    { key: 'shift', label: 'Shift', accessor: (r) => `${r.label} · ${r.from}–${r.to}` },
+                    { key: 'hours', label: 'Hours', accessor: (r) => `${r.hours.toFixed(2)} h` },
+                    { key: 'rate', label: 'Rate / hr', accessor: (r) => formatMoney(r.rate) },
+                    { key: 'amount', label: 'Amount', accessor: (r) => formatMoney(r.amount) },
+                  ]}
+                  data={monthShifts.filter((sh) => sh.hours > 0)}
+                  searchable={false}
+                />
+              </div>
+            )}
 
             <div className="section">
               <h3>Session History</h3>
@@ -522,14 +548,7 @@ export default function TutorPortal() {
                     const end = new Date(r.end_time);
                     return `${Math.round((end - start) / 60000)} min`;
                   }},
-                  { key: 'payout', label: 'Payout', accessor: (r) => {
-                    if (payoutType === 'per_hour') {
-                      const hours = (new Date(r.end_time) - new Date(r.start_time)) / 3600000;
-                      return formatMoney(hours * payoutRate);
-                    }
-                    if (payoutType === 'per_session') return formatMoney(payoutRate);
-                    return '—';
-                  }},
+                  { key: 'conducted', label: 'Counted', accessor: (r) => (r.conducted || r.status === 'completed' ? 'Yes' : 'No') },
                 ]}
                 data={sessions.filter((s) => s.conducted || s.status === 'completed')}
                 searchable={false}

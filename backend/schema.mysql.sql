@@ -354,3 +354,16 @@ CREATE TABLE IF NOT EXISTS contact_enrollments (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_contact_enroll_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Per-tutor hourly rate for each shift. Shift bands (start/end and the min/max
+-- rate) are defined in code (SHIFTS in server.js); this table holds the rate an
+-- admin actually set for one staff member in one shift, always clamped to that
+-- shift's band. A missing row means "band minimum".
+CREATE TABLE IF NOT EXISTS user_shift_rates (
+  user_id INT NOT NULL,
+  shift VARCHAR(20) NOT NULL,
+  rate DOUBLE NOT NULL DEFAULT 0,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, shift),
+  INDEX idx_user_shift_rates_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -89,7 +89,10 @@ export default function SuperadminPortal() {
   // Modals
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [userForm, setUserForm] = useState({ name: '', email: '', role: 'student', password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly', gender: '', team_id: '', course_id: '', new_course_name: '' });
+  const [userForm, setUserForm] = useState({ name: '', email: '', role: 'student', password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'shift', gender: '', team_id: '', course_id: '', new_course_name: '', shift_rates: null });
+  // Shift bands (hours + rate range) come from the server so the pay scale lives
+  // in exactly one place.
+  const [shiftBands, setShiftBands] = useState([]);
   const [showUserPassword, setShowUserPassword] = useState(false);
   const [courseDraft, setCourseDraft] = useState('');
   const [addingCourse, setAddingCourse] = useState(false);
@@ -498,9 +501,18 @@ export default function SuperadminPortal() {
     if (categories.length === 0) api.getCategories().then(setCategories).catch(() => {});
   };
 
+  // Pull the shift bands and, for an existing user, their stored rates.
+  const loadShiftRates = (userId) => api.getShiftRates(userId)
+    .then(({ shifts, rates }) => {
+      setShiftBands(shifts || []);
+      setUserForm((f) => ({ ...f, shift_rates: rates || null }));
+    })
+    .catch(() => {});
+
   const openCreateUser = (role = 'student') => {
     setEditingUser(null);
-    setUserForm({ name: '', email: '', role, password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'monthly', gender: '', team_id: '', course_id: '', new_course_name: '' });
+    setUserForm({ name: '', email: '', role, password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'shift', gender: '', team_id: '', course_id: '', new_course_name: '', shift_rates: null });
+    loadShiftRates();
     setCourseDraft('');
     setAddingCourse(false);
     setShowUserPassword(false);
@@ -510,7 +522,8 @@ export default function SuperadminPortal() {
 
   const openEditUser = (user) => {
     setEditingUser(user);
-    setUserForm({ name: user.name, email: user.email, role: user.role, password: '', specialization: user.specialization || '', avatar_color: user.avatar_color, status: user.status, payout_rate: user.payout_rate || 0, payout_type: user.payout_type || 'monthly', gender: user.gender || '', team_id: user.team_id || '', course_id: '', new_course_name: '' });
+    setUserForm({ name: user.name, email: user.email, role: user.role, password: '', specialization: user.specialization || '', avatar_color: user.avatar_color, status: user.status, payout_rate: user.payout_rate || 0, payout_type: user.payout_type || 'shift', gender: user.gender || '', team_id: user.team_id || '', course_id: '', new_course_name: '', shift_rates: null });
+    loadShiftRates(user.id);
     setCourseDraft('');
     setAddingCourse(false);
     setShowUserPassword(false);
@@ -1534,12 +1547,39 @@ export default function SuperadminPortal() {
     { key: 'role', label: 'Role', accessor: 'role', render: (r) => <span className="status-badge">{roleLabel(r.role)}</span> },
     { key: 'hours', label: 'Hours', accessor: 'hours', render: (r) => `${(Number(r.hours) || 0).toFixed(2)} h` },
     { key: 'from', label: 'From', accessor: 'source', render: (r) => (r.source === 'sessions' ? `${r.sessions} sessions` : `${r.days} days`) },
-    { key: 'rate', label: 'Rate / hr', accessor: 'payout_rate', render: (r) => formatMoney(r.payout_rate) },
+    // Per-shift hours, so the total is auditable rather than a bare number.
+    { key: 'shifts', label: 'Shift Split', sortable: false, render: (r) => (
+      (r.shifts || []).some((sh) => sh.hours > 0)
+        ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {(r.shifts || []).filter((sh) => sh.hours > 0).map((sh) => (
+              <span key={sh.key} className="status-badge" title={`${sh.label} ${sh.from}–${sh.to} @ ${formatMoney(sh.rate)}/h = ${formatMoney(sh.amount)}`}>
+                {sh.label.replace('Shift ', 'S')} {sh.hours.toFixed(2)}h
+              </span>
+            ))}
+          </div>
+        : <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>—</span>
+    ) },
+    // A rate only means something next to the unit it is expressed in.
+    { key: 'rate', label: 'Rate', accessor: 'payout_rate', render: (r) => (
+      r.payout_type === 'shift'
+        ? <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>shift-wise</span>
+        : <span>{formatMoney(r.payout_rate)} <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>/ {r.unit_label}</span></span>
+    ) },
     { key: 'salary', label: 'Salary', accessor: 'gross_amount', render: (r) => <strong>{formatMoney(r.gross_amount)}</strong> },
+    // For a paid row, what was actually paid — and whether the live figure has
+    // moved since, which happens when work is recorded after payment.
+    { key: 'paid_amount', label: 'Paid', accessor: (r) => r.paid_amount || 0, render: (r) => (
+      r.paid
+        ? <span>{formatMoney(r.paid_amount)}{r.drift ? <span style={{ color: 'var(--color-warning, #F59E0B)', fontSize: 12 }}> ({r.drift > 0 ? '+' : ''}{formatMoney(r.drift)} since)</span> : null}</span>
+        : <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>—</span>
+    ) },
     { key: 'status', label: 'Status', accessor: (r) => (r.paid ? 'Paid' : 'Pending'), render: (r) => <span className={`status-badge status-${r.paid ? 'completed' : 'scheduled'}`}>{r.paid ? 'Paid' : 'Pending'}</span> },
     { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
       r.paid
-        ? <button className="btn btn-sm btn-ghost text-danger" onClick={() => unpayStaff(r.user_id)}>Undo</button>
+        ? <div className="table-actions">
+            {r.drift ? <button className="btn btn-sm btn-primary" disabled={payrollBusy} onClick={() => payStaff(r.user_id)}>Re-pay</button> : null}
+            <button className="btn btn-sm btn-ghost text-danger" onClick={() => unpayStaff(r.user_id)}>Undo</button>
+          </div>
         : (r.gross_amount > 0
           ? <button className="btn btn-sm btn-primary" disabled={payrollBusy} onClick={() => payStaff(r.user_id)}>Mark Paid</button>
           : <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>—</span>)
@@ -1648,29 +1688,65 @@ export default function SuperadminPortal() {
               </select>
             </div>
           )}
-          {userForm.role === 'tutor' && (
-            <div className="form-row">
-              <div className="form-group">
-                <label>Payout Rate ({appSettings.currency})</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={userForm.payout_rate}
-                  onChange={(e) => setUserForm({ ...userForm, payout_rate: parseFloat(e.target.value) || 0 })}
-                  placeholder="0"
-                />
+          {['tutor', 'advisor', 'manager'].includes(userForm.role) && (
+            <>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Payout Type</label>
+                  <select value={userForm.payout_type || 'shift'} onChange={(e) => setUserForm({ ...userForm, payout_type: e.target.value })}>
+                    <option value="shift">Shift-wise (per hour)</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="per_session">Per Session</option>
+                    <option value="per_hour">Per Hour (flat)</option>
+                    <option value="per_course">Per Course</option>
+                  </select>
+                </div>
+                {userForm.payout_type !== 'shift' && (
+                  <div className="form-group">
+                    <label>Payout Rate ({appSettings.currency})</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={userForm.payout_rate}
+                      onChange={(e) => setUserForm({ ...userForm, payout_rate: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                    />
+                  </div>
+                )}
               </div>
-              <div className="form-group">
-                <label>Payout Type</label>
-                <select value={userForm.payout_type || 'monthly'} onChange={(e) => setUserForm({ ...userForm, payout_type: e.target.value })}>
-                  <option value="monthly">Monthly</option>
-                  <option value="per_session">Per Session</option>
-                  <option value="per_hour">Per Hour</option>
-                  <option value="per_course">Per Course</option>
-                </select>
-              </div>
-            </div>
+              {(userForm.payout_type || 'shift') === 'shift' && (
+                <div className="form-group">
+                  <label>Shift Rates ({appSettings.currency} per hour)</label>
+                  <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '0 0 8px' }}>
+                    Hours are billed at the rate of the shift they fall in. Each rate must sit inside its band; values outside are clamped when saved.
+                  </p>
+                  {shiftBands.map((sh) => (
+                    <div key={sh.key} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                      <span style={{ width: 150, fontSize: 13 }}>
+                        <strong>{sh.label}</strong>{' '}
+                        <span style={{ color: 'var(--color-text-secondary)' }}>{sh.from}–{sh.to}</span>
+                      </span>
+                      <input
+                        type="number"
+                        min={sh.min_rate}
+                        max={sh.max_rate}
+                        step="1"
+                        style={{ maxWidth: 120 }}
+                        value={userForm.shift_rates?.[sh.key] ?? sh.min_rate}
+                        onChange={(e) => setUserForm({
+                          ...userForm,
+                          shift_rates: { ...(userForm.shift_rates || {}), [sh.key]: e.target.value },
+                        })}
+                      />
+                      <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                        band {sh.min_rate}–{sh.max_rate}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
           {userForm.role === 'tutor' && (
             <div className="form-group">
@@ -3054,7 +3130,7 @@ export default function SuperadminPortal() {
               </div>
             </div>
             <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
-              Work-attendance for advisors &amp; managers — their logged hours drive salary (hours × payout rate). They can also clock in themselves from their portal. Tutors are paid from their session records instead.
+              Work-attendance for advisors &amp; managers — their logged hours drive salary, billed per hour at the rate of the shift each hour fell in. They can also clock in themselves from their portal. Tutors are paid from their session records instead.
             </p>
             <DataTable columns={staffAttColumns} data={staffAtt} pageSize={20} />
           </div>
@@ -3071,16 +3147,36 @@ export default function SuperadminPortal() {
               </div>
             </div>
             <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
-              Salary = hours worked × payout rate, for tutors. Hours are the <strong>actual time taken in each session</strong>, measured from the attendance records (earliest join → latest leave).
+              Pay is <strong>per hour at the rate of the shift the work fell in</strong>. Tutor hours are the tutor's own time in each session (their join → leave, capped at the scheduled window); advisors and managers are paid from their clock-in records. A session the tutor never joined is not payable.
             </p>
             {payroll && (
               <>
                 <div className="kpi-grid">
                   <KPICard title="Total Payroll" value={formatMoney(payroll.totals.gross_total)} subtitle={new Date(payrollPeriod + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} icon="dollar" color="#10B981" />
-                  <KPICard title="Tutors" value={payroll.totals.staff_count} icon="users" color="#3B82F6" />
-                  <KPICard title="Paid" value={payroll.totals.paid_count} icon="check-circle" color="#8B5CF6" />
+                  <KPICard title="Staff" value={payroll.totals.staff_count} icon="users" color="#3B82F6" />
+                  <KPICard title="Paid" value={`${payroll.totals.paid_count} · ${formatMoney(payroll.totals.paid_total)}`} icon="check-circle" color="#8B5CF6" />
                   <KPICard title="Pending" value={payroll.totals.pending_count} icon="alert" color="#F59E0B" />
                 </div>
+
+                {/* Where the month's hours and money actually landed. */}
+                <div className="section">
+                  <h3>Shift Breakdown</h3>
+                  <div className="stats-bars">
+                    {(payroll.shift_totals || []).map((sh) => (
+                      <div key={sh.key} className="stats-bar-item">
+                        <span className="stats-bar-label">{sh.label} · {sh.from}–{sh.to}</span>
+                        <div className="stats-bar">
+                          <div className="stats-bar-fill" style={{ width: `${(sh.hours / Math.max(...(payroll.shift_totals || []).map((x) => x.hours), 1)) * 100}%` }} />
+                        </div>
+                        <span className="stats-bar-value">{sh.hours.toFixed(2)} h · {formatMoney(sh.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                    Rate bands per hour: {(payroll.shifts || []).map((sh) => `${sh.label} ${sh.from}–${sh.to} ${appSettings.currency} ${sh.min_rate}–${sh.max_rate}`).join('  ·  ')}
+                  </p>
+                </div>
+
                 <DataTable columns={payrollColumns} data={payroll.rows} pageSize={20} />
               </>
             )}
