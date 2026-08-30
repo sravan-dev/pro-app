@@ -70,16 +70,29 @@ async function getLiveKit() {
 const livekitRoomName = (sessionId) => `session-${sessionId}`;
 const livekitHttpUrl = () => livekit.url.replace(/^ws/, 'http');
 
-// Local 'YYYY-MM-DD HH:MM:SS'. Sessions are scheduled from a datetime-local
-// input, i.e. in the user's wall-clock time, and the payroll shift bands are
-// wall-clock too — so the timestamps we record ourselves (joins, leaves,
-// clock-ins) must be on that same clock. This used to emit UTC, which put
-// attendance and the schedule on two different clocks and could bill a session
-// against the wrong shift.
+// The wall clock everything is measured against. Sessions are scheduled from a
+// datetime-local input in the admin's local time (the academy's zone), and the
+// payroll shift bands are wall-clock too — so the timestamps we record ourselves
+// (joins, leaves, clock-ins) MUST be on that same clock. Using the server's
+// local time is NOT enough: hosting runs in UTC, so `new Date().getHours()`
+// yields UTC while the schedule is (e.g.) IST — a 5h30 gap that made the payroll
+// clamp discard every session as "not taken". Pin the clock to APP_TZ instead,
+// independent of where the server runs. Override via APP_TZ in .env.
+const APP_TZ = process.env.APP_TZ || 'Asia/Kolkata';
+// Format a Date as 'YYYY-MM-DD HH:MM:SS' in APP_TZ, no timezone suffix.
+function fmtInTz(d) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TZ, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(d).reduce((o, p) => { o[p.type] = p.value; return o; }, {});
+  // Intl can emit '24' for midnight in some engines; normalise to '00'.
+  const hh = parts.hour === '24' ? '00' : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day} ${hh}:${parts.minute}:${parts.second}`;
+}
+// Local 'YYYY-MM-DD HH:MM:SS' in the academy's timezone (APP_TZ).
 function nowStr() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  return fmtInTz(new Date());
 }
 // Parse one of our stored timestamp strings ('YYYY-MM-DD HH:MM:SS', or the same
 // with a 'T') as plain wall-clock time, deliberately ignoring any timezone. We

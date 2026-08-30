@@ -183,6 +183,36 @@ async function initSchema() {
     await run("UPDATE app_settings SET payroll_shift_migrated=1 WHERE id=1");
   }
 
+  // One-time attendance timezone repair. Old attendance_logs were recorded on
+  // the server's UTC clock while sessions are scheduled in the academy's local
+  // zone (IST, +5:30). That gap made the payroll clamp discard every session as
+  // "not taken" (zero pay). Shift the clearly-UTC rows forward by APP_TZ's
+  // offset so they land inside their scheduled window. Guarded by a flag so it
+  // runs exactly once; only rows whose join is >60 min BEFORE the scheduled
+  // start are touched, so correctly-clocked rows are never moved. Set
+  // ATTENDANCE_TZ_OFFSET_MINUTES in .env for a non-IST academy (e.g. 480 = +8h).
+  await addColumnIfMissing('app_settings', 'attendance_tz_fixed', 'attendance_tz_fixed TINYINT DEFAULT 0');
+  const tzFixed = (await get("SELECT attendance_tz_fixed AS f FROM app_settings WHERE id=1"))?.f;
+  if (!tzFixed) {
+    const offset = parseInt(process.env.ATTENDANCE_TZ_OFFSET_MINUTES || '330', 10);
+    const res = await run(
+      `UPDATE attendance_logs a
+       JOIN sessions s ON s.session_id = a.session_id
+       SET a.join_time  = DATE_ADD(a.join_time,  INTERVAL ? MINUTE),
+           a.leave_time = CASE WHEN a.leave_time IS NULL THEN NULL
+                               ELSE DATE_ADD(a.leave_time, INTERVAL ? MINUTE) END
+       WHERE a.join_time IS NOT NULL
+         AND TIMESTAMPDIFF(
+               MINUTE,
+               a.join_time,
+               STR_TO_DATE(REPLACE(SUBSTRING(s.start_time,1,16),'T',' '), '%Y-%m-%d %H:%i')
+             ) > 60`,
+      [offset, offset]
+    );
+    await run("UPDATE app_settings SET attendance_tz_fixed=1 WHERE id=1");
+    console.log(`[migrate] attendance timezone fix: shifted ${res.changes} row(s) by +${offset} min`);
+  }
+
   // Single-row settings defaults.
   await run("INSERT IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')");
 
