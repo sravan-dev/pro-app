@@ -1867,9 +1867,22 @@ app.get('/api/reports', async (req, res) => {
     student_status_breakdown: await db.all("SELECT status, COUNT(*) as count FROM users WHERE role='student' GROUP BY status"),
     grade_distribution: await db.all("SELECT grade, COUNT(*) as count FROM enrollments WHERE grade!='' GROUP BY grade ORDER BY grade"),
   };
-  const totalLogs = (await db.get("SELECT COUNT(*) as c FROM attendance_logs")).c;
+  // Attendance rate = expected (student, completed-session) pairs that were
+  // actually attended, over all expected pairs. The "attended" count must be a
+  // SUBSET of "possible" — count each enrolled student at most once per session
+  // (a student who rejoins writes several attendance_logs rows), ignore the
+  // tutor's own logs, and ignore logs from sessions that aren't completed.
+  // Counting raw attendance_logs rows in the numerator inflated this well past
+  // 100% (duplicate joins + tutor rows + live-session logs).
   const totalPossible = (await db.get("SELECT COUNT(*) as c FROM sessions s JOIN enrollments e ON e.course_id=s.course_id WHERE s.status='completed'")).c;
-  data.avg_attendance_rate = totalPossible > 0 ? +((totalLogs / totalPossible) * 100).toFixed(1) : 0;
+  const totalAttended = (await db.get(
+    `SELECT COUNT(*) as c FROM sessions s
+     JOIN enrollments e ON e.course_id=s.course_id
+     WHERE s.status='completed'
+       AND EXISTS(SELECT 1 FROM attendance_logs a
+                  WHERE a.session_id=s.session_id AND a.student_id=e.student_id)`
+  )).c;
+  data.avg_attendance_rate = totalPossible > 0 ? +((totalAttended / totalPossible) * 100).toFixed(1) : 0;
   res.json(data);
 });
 
