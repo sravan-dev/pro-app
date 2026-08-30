@@ -151,6 +151,7 @@ export const api = {
   payPayroll: (data) => request('/payroll/pay', { method: 'POST', body: data }),
   unpayPayroll: (period, userId) => request('/payroll/unpay', { method: 'POST', body: { period, user_id: userId } }),
   getPayrollHistory: ({ user_id = '' } = {}) => request(`/payroll/history${user_id ? `?user_id=${user_id}` : ''}`),
+  getPayrollMonthly: (months = 12) => request(`/payroll/monthly?months=${months}`),
 
   // Settings
   clearData: (target) => request('/clear-data', { method: 'POST', body: { target } }),

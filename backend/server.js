@@ -1809,6 +1809,28 @@ app.get('/api/payroll/history', async (req, res) => {
   res.json(rows);
 });
 
+// Monthly payroll gross — powers the dashboard revenue graph. Sums gross_amount
+// per period across the last N months (default 12), oldest→newest, with empty
+// months filled to zero so the chart has a continuous axis.
+app.get('/api/payroll/monthly', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const months = Math.min(Math.max(parseInt(req.query.months) || 12, 1), 36);
+  const rows = await db.all(
+    "SELECT period, SUM(gross_amount) AS gross FROM payroll_runs GROUP BY period ORDER BY period DESC LIMIT ?",
+    [months]
+  );
+  const byPeriod = new Map(rows.map((r) => [r.period, Number(r.gross) || 0]));
+  // Build a continuous run of the last `months` YYYY-MM keys ending this month.
+  const out = [];
+  const now = new Date();
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const period = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    out.push({ period, gross: byPeriod.get(period) || 0 });
+  }
+  res.json(out);
+});
+
 // Meeting records
 app.get('/api/meeting-records', async (req, res) => {
   const user = await requireAuth(req, res); if (!user) return;

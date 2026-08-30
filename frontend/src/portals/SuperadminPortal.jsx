@@ -36,6 +36,49 @@ function BarChart({ title, rows = [], color = '#4F46E5', emptyLabel = 'No data y
   );
 }
 
+// Revenue (monthly payroll gross) line/area chart. `data` is [{period,gross}]
+// oldest→newest. Pure SVG, no chart lib.
+function RevenueChart({ data = [], color = '#10B981', currency = 'INR' }) {
+  const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n || 0);
+  const total = data.reduce((s, d) => s + (d.gross || 0), 0);
+  const W = 720, H = 220, PAD = 8;
+  const max = Math.max(...data.map((d) => d.gross || 0), 1);
+  const n = data.length;
+  const x = (i) => (n <= 1 ? W / 2 : PAD + (i * (W - PAD * 2)) / (n - 1));
+  const y = (v) => H - PAD - ((v || 0) / max) * (H - PAD * 2);
+  const line = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(d.gross).toFixed(1)}`).join(' ');
+  const area = n ? `${line} L ${x(n - 1).toFixed(1)} ${H - PAD} L ${x(0).toFixed(1)} ${H - PAD} Z` : '';
+  const label = (p) => { const [yy, mm] = p.split('-'); return new Date(yy, mm - 1, 1).toLocaleString('en-US', { month: 'short' }); };
+  return (
+    <div className="card" style={{ padding: '1.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
+        <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Total ({n} mo)</span>
+        <strong style={{ fontSize: '1.15rem' }}>{fmt(total)}</strong>
+      </div>
+      {total === 0 ? (
+        <p style={{ color: 'var(--color-text-secondary)' }}>No payroll recorded yet.</p>
+      ) : (
+        <svg viewBox={`0 0 ${W} ${H + 22}`} width="100%" role="img" aria-label="Monthly revenue">
+          <defs>
+            <linearGradient id="revfill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity="0.28" />
+              <stop offset="100%" stopColor={color} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path d={area} fill="url(#revfill)" />
+          <path d={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+          {data.map((d, i) => (
+            <g key={d.period}>
+              <circle cx={x(i)} cy={y(d.gross)} r="3" fill={color} />
+              <text x={x(i)} y={H + 16} textAnchor="middle" fontSize="11" fill="var(--color-text-secondary)">{label(d.period)}</text>
+            </g>
+          ))}
+        </svg>
+      )}
+    </div>
+  );
+}
+
 export default function SuperadminPortal() {
   const { user } = useAuth();
   const firstName = user?.name?.split(' ')[0] || 'there';
@@ -70,6 +113,9 @@ export default function SuperadminPortal() {
   const [meetingForm, setMeetingForm] = useState({ title: '', name: '', email: '' });
   const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
   const [reports, setReports] = useState(null);
+
+  // Dashboard revenue graph (monthly payroll gross)
+  const [revenueMonthly, setRevenueMonthly] = useState([]);
 
   // Salary / Payroll (salary = hours worked × payout rate)
   const [payrollPeriod, setPayrollPeriod] = useState(() => new Date().toISOString().slice(0, 7));
@@ -308,6 +354,7 @@ export default function SuperadminPortal() {
     api.getTutors().then(setAllTutors).catch(() => {});
     api.getCourses().then(setAllCourses).catch(() => {});
     api.getSessions().then(setAllSessions).catch(() => {});
+    api.getPayrollMonthly(12).then(setRevenueMonthly).catch(() => {});
   }, []);
 
   // Poll the backend/DB health so the dashboard can show a live status badge.
@@ -1316,12 +1363,6 @@ export default function SuperadminPortal() {
 
   const stats = data?.stats || {};
   const charts = data?.charts || {};
-  const liveSessions = data?.live_sessions || [];
-  // Active = scheduled or live. Pull participant counts from live_sessions.
-  const liveCountById = Object.fromEntries(liveSessions.map((s) => [s.session_id, s.active_participants]));
-  const activeSessions = allSessions
-    .filter((s) => s.status === 'scheduled' || s.status === 'live')
-    .map((s) => ({ ...s, active_participants: liveCountById[s.session_id] ?? 0 }));
   const users = data?.users || [];
   const tutors = users.filter((u) => u.role === 'tutor');
   const students = users.filter((u) => u.role === 'student');
@@ -2625,50 +2666,8 @@ export default function SuperadminPortal() {
             </div>
 
             <div className="section" style={{ marginTop: '1.5rem' }}>
-              <h3 style={{ marginBottom: '0.75rem' }}>Active Sessions</h3>
-              {activeSessions.length === 0 ? (
-                <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>
-                  No active sessions right now.
-                </div>
-              ) : (
-                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                  <table className="data-table" style={{ width: '100%' }}>
-                    <thead>
-                      <tr>
-                        <th>Course</th>
-                        <th>Tutor</th>
-                        <th>Start</th>
-                        <th>Status</th>
-                        <th>In Room</th>
-                        <th style={{ textAlign: 'right' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activeSessions.map((s) => {
-                        const live = s.status === 'live';
-                        return (
-                          <tr key={s.session_id}>
-                            <td><strong>{s.course_name}</strong></td>
-                            <td>{s.tutor_name || 'Tutor'}</td>
-                            <td style={{ fontSize: '13px', color: '#888' }}>{s.start_time ? new Date(s.start_time).toLocaleString() : '—'}</td>
-                            <td>
-                              <span style={{ fontSize: '12px', fontWeight: 600, padding: '2px 10px', borderRadius: '999px', background: live ? '#FEE2E2' : '#DBEAFE', color: live ? '#991B1B' : '#1E40AF' }}>
-                                {live ? 'Live' : 'Scheduled'}
-                              </span>
-                            </td>
-                            <td>{live ? <span style={{ color: '#10B981' }}>● {s.active_participants}</span> : '—'}</td>
-                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                              <button className="btn btn-sm btn-primary" onClick={() => handleJoinSession(s)}>Join</button>
-                              {live && <button className="btn btn-sm btn-danger" onClick={() => endSession(s.session_id)}>End</button>}
-                              <button className="btn btn-sm btn-ghost text-danger" onClick={() => deleteSession(s.session_id)}>Delete</button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <h3 style={{ marginBottom: '0.75rem' }}>Revenue (last 12 months)</h3>
+              <RevenueChart data={revenueMonthly} />
             </div>
           </div>
         )}
