@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import VideoRoom from './VideoRoom';
 import LiveKitRoom from './LiveKitRoom';
+import SessionEndToast from './SessionEndToast';
 
 // Picks the video backend based on the admin's provider setting:
 //   - 'livekit' → SFU webinar room (scales to 50-100+)
@@ -27,6 +28,14 @@ export default function SessionRoom({ session, onLeave }) {
     );
   }
 
-  if (provider === 'livekit') return <LiveKitRoom session={session} onLeave={onLeave} />;
-  return <VideoRoom session={session} onLeave={onLeave} />;
+  // The end-of-session countdown toast rides alongside whichever room renders,
+  // so tutor and student both get warned regardless of the video backend.
+  return (
+    <>
+      <SessionEndToast session={session} />
+      {provider === 'livekit'
+        ? <LiveKitRoom session={session} onLeave={onLeave} />
+        : <VideoRoom session={session} onLeave={onLeave} />}
+    </>
+  );
 }

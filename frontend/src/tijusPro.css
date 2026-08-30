@@ -488,6 +488,68 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
   .skeleton::after { animation: none; }
 }
 
+/* ========================================
+   Session end-of-time warning toasts
+   Fixed top-right, fade in on arrival and fade out on dismiss. Rendered by
+   SessionEndToast inside the live session room (dark surface).
+   ======================================== */
+.session-toast-wrap {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none; /* wrapper ignores clicks; each toast re-enables them */
+  max-width: calc(100vw - 32px);
+}
+.session-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 240px;
+  max-width: 340px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 10px;
+  background: rgba(17, 24, 39, 0.96);
+  color: #fef3c7;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-left: 4px solid #f59e0b;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  font-size: 14px;
+  line-height: 1.35;
+  animation: session-toast-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.session-toast.leaving {
+  animation: session-toast-out 0.45s ease forwards;
+}
+.session-toast-icon { flex: 0 0 auto; font-size: 15px; }
+.session-toast-text { flex: 1 1 auto; }
+.session-toast-close {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: #fcd34d;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.7;
+}
+.session-toast-close:hover { opacity: 1; }
+@keyframes session-toast-in {
+  from { opacity: 0; transform: translateX(24px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes session-toast-out {
+  to { opacity: 0; transform: translateX(24px) scale(0.98); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-toast, .session-toast.leaving { animation-duration: 0.01ms; }
+}
+
 .skeleton-kpi {
   display: flex;
   align-items: center;
