@@ -3142,6 +3142,7 @@ export default function SuperadminPortal() {
               <h2>Salary / Payroll</h2>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <input type="month" value={payrollPeriod} onChange={(e) => setPayrollPeriod(e.target.value)} style={{ maxWidth: 170 }} />
+                <button className="btn btn-secondary" disabled={payrollBusy} onClick={() => setPayrollPeriod(new Date().toISOString().slice(0, 7))}>Reset</button>
                 <button className="btn btn-primary" disabled={payrollBusy} onClick={payAll}>Mark All Paid</button>
               </div>
             </div>
