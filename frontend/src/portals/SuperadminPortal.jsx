@@ -3191,9 +3191,6 @@ export default function SuperadminPortal() {
                 <input type="month" value={payrollPeriod} onChange={(e) => setPayrollPeriod(e.target.value)} style={{ maxWidth: 170 }} />
                 <button className="btn btn-secondary" disabled={payrollBusy} onClick={() => setPayrollPeriod(new Date().toISOString().slice(0, 7))}>Reset</button>
                 <button className="btn btn-primary" disabled={payrollBusy} onClick={payAll}>Mark All Paid</button>
-                <button className="btn btn-primary" disabled={payrollBusy || payrollPicked.size === 0} onClick={calculateSalary}>
-                  Calculate Salary{payrollPicked.size ? ` (${payrollPicked.size})` : ''}
-                </button>
               </div>
             </div>
             <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
@@ -3225,6 +3222,13 @@ export default function SuperadminPortal() {
                   <p style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
                     Rate bands per hour: {(payroll.shifts || []).map((sh) => `${sh.label} ${sh.from}–${sh.to} ${appSettings.currency} ${sh.min_rate}–${sh.max_rate}`).join('  ·  ')}
                   </p>
+                </div>
+
+                {/* Sits directly above the table it acts on, next to the row checkboxes. */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+                  <button className="btn btn-primary" disabled={payrollBusy || payrollPicked.size === 0} onClick={calculateSalary}>
+                    Calculate Salary{payrollPicked.size ? ` (${payrollPicked.size})` : ''}
+                  </button>
                 </div>
 
                 <DataTable columns={payrollColumns} data={payroll.rows} pageSize={20} />
