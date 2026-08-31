@@ -121,6 +121,9 @@ export default function SuperadminPortal() {
   const [payrollPeriod, setPayrollPeriod] = useState(() => new Date().toISOString().slice(0, 7));
   const [payroll, setPayroll] = useState(null);
   const [payrollBusy, setPayrollBusy] = useState(false);
+  // Ad-hoc salary calculation: pick staff by hand, total only those rows.
+  const [payrollPicked, setPayrollPicked] = useState(() => new Set());
+  const [payrollCalc, setPayrollCalc] = useState(null);
   // Staff attendance (admin management)
   const [staffAttPeriod, setStaffAttPeriod] = useState(() => new Date().toISOString().slice(0, 7));
   const [staffAtt, setStaffAtt] = useState([]);
@@ -506,6 +509,9 @@ export default function SuperadminPortal() {
   // Salary / Payroll — recomputes whenever the tab or selected month changes.
   useEffect(() => {
     if (activeTab === 'payroll') api.getPayroll(payrollPeriod).then(setPayroll).catch(() => setPayroll(null));
+    // A selection made against one month means nothing in another.
+    setPayrollPicked(new Set());
+    setPayrollCalc(null);
   }, [activeTab, payrollPeriod]);
 
   // Staff-attendance list (+ staff picker) for the admin management tab.
@@ -1578,7 +1584,48 @@ export default function SuperadminPortal() {
     catch (e) { showMsg(e.message, 'error'); }
   };
 
+  const togglePayrollPick = (userId) => {
+    setPayrollPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId); else next.add(userId);
+      return next;
+    });
+    setPayrollCalc(null);
+  };
+  const payrollRows = payroll?.rows || [];
+  const allPayrollPicked = payrollRows.length > 0 && payrollRows.every((r) => payrollPicked.has(r.user_id));
+  const togglePayrollPickAll = () => {
+    setPayrollPicked(allPayrollPicked ? new Set() : new Set(payrollRows.map((r) => r.user_id)));
+    setPayrollCalc(null);
+  };
+  // Totals the picked rows only, keeping the same shift split the table shows.
+  const calculateSalary = () => {
+    const rows = payrollRows.filter((r) => payrollPicked.has(r.user_id));
+    if (!rows.length) { showMsg('Select at least one staff member', 'error'); return; }
+    const shiftMap = new Map();
+    rows.forEach((r) => (r.shifts || []).forEach((sh) => {
+      if (!sh.hours) return;
+      const cur = shiftMap.get(sh.key) || { key: sh.key, label: sh.label, hours: 0, amount: 0 };
+      cur.hours += Number(sh.hours) || 0;
+      cur.amount += Number(sh.amount) || 0;
+      shiftMap.set(sh.key, cur);
+    }));
+    setPayrollCalc({
+      staff_count: rows.length,
+      hours: rows.reduce((a, r) => a + (Number(r.hours) || 0), 0),
+      gross: rows.reduce((a, r) => a + (Number(r.gross_amount) || 0), 0),
+      pending: rows.filter((r) => !r.paid).reduce((a, r) => a + (Number(r.gross_amount) || 0), 0),
+      shifts: [...shiftMap.values()],
+      rows: rows.map((r) => ({ user_id: r.user_id, name: r.name, hours: Number(r.hours) || 0, gross: Number(r.gross_amount) || 0 })),
+    });
+  };
+
   const payrollColumns = [
+    { key: 'pick', sortable: false, label: (
+      <input type="checkbox" checked={allPayrollPicked} onChange={togglePayrollPickAll} onClick={(e) => e.stopPropagation()} />
+    ), render: (r) => (
+      <input type="checkbox" checked={payrollPicked.has(r.user_id)} onChange={() => togglePayrollPick(r.user_id)} />
+    ) },
     { key: 'name', label: 'Staff', accessor: 'name', render: (r) => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <div className="avatar-sm" style={{ backgroundColor: r.avatar_color }}>{r.name?.[0]}</div>
@@ -3144,6 +3191,9 @@ export default function SuperadminPortal() {
                 <input type="month" value={payrollPeriod} onChange={(e) => setPayrollPeriod(e.target.value)} style={{ maxWidth: 170 }} />
                 <button className="btn btn-secondary" disabled={payrollBusy} onClick={() => setPayrollPeriod(new Date().toISOString().slice(0, 7))}>Reset</button>
                 <button className="btn btn-primary" disabled={payrollBusy} onClick={payAll}>Mark All Paid</button>
+                <button className="btn btn-primary" disabled={payrollBusy || payrollPicked.size === 0} onClick={calculateSalary}>
+                  Calculate Salary{payrollPicked.size ? ` (${payrollPicked.size})` : ''}
+                </button>
               </div>
             </div>
             <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
@@ -3178,6 +3228,45 @@ export default function SuperadminPortal() {
                 </div>
 
                 <DataTable columns={payrollColumns} data={payroll.rows} pageSize={20} />
+
+                {payrollCalc && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                    <div className="card" style={{ minWidth: 320, maxWidth: 460, padding: '1rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                        <h3 style={{ margin: 0 }}>Calculated Salary</h3>
+                        <button className="btn btn-sm btn-ghost" onClick={() => setPayrollCalc(null)}>Clear</button>
+                      </div>
+                      <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '0.25rem 0 0.75rem' }}>
+                        {payrollCalc.staff_count} staff selected · {new Date(payrollPeriod + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+                      </p>
+                      {payrollCalc.rows.map((r) => (
+                        <div key={r.user_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '2px 0' }}>
+                          <span>{r.name} <span style={{ color: 'var(--color-text-secondary)' }}>({r.hours.toFixed(2)} h)</span></span>
+                          <span>{formatMoney(r.gross)}</span>
+                        </div>
+                      ))}
+                      {payrollCalc.shifts.length > 0 && (
+                        <div style={{ borderTop: '1px solid var(--color-border)', marginTop: 8, paddingTop: 8 }}>
+                          {payrollCalc.shifts.map((sh) => (
+                            <div key={sh.key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                              <span>{sh.label}</span>
+                              <span>{sh.hours.toFixed(2)} h · {formatMoney(sh.amount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ borderTop: '1px solid var(--color-border)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                        <span>Total hours</span><span>{payrollCalc.hours.toFixed(2)} h</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                        <span>Unpaid portion</span><span>{formatMoney(payrollCalc.pending)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 18 }}>
+                        <strong>Total salary</strong><strong>{formatMoney(payrollCalc.gross)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>
