@@ -1701,9 +1701,11 @@ export default function SuperadminPortal() {
   ];
 
   // ===== Modal JSX (inline, not component functions — avoids remount/focus-loss) =====
+  // No close on backdrop click: a stray click outside would throw away a
+  // half-filled form. Cancel is the only way out.
   const userFormModal = showUserForm && (
-    <div className="modal-overlay" onClick={() => setShowUserForm(false)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal">
         {/* Titled by the role being created, so the modal matches the button that opened it. */}
         <h3>{editingUser ? `Edit ${roleLabel(userForm.role) || 'User'}` : `Add ${roleLabel(userForm.role) || 'User'}`}</h3>
         <form onSubmit={saveUser}>
