@@ -21,9 +21,28 @@ const HOST_ROLES = ['tutor', 'advisor', 'manager', 'superadmin'];
 // participant subscribes to the few presenters' streams from the server instead
 // of meshing peer-to-peer. Hosts (tutors/admins) publish; students join
 // view-only and can raise a hand to be promoted onto the stage by a host.
+// getUserMedia is unavailable outside a secure context, so the mic can never
+// be published over plain http — worth saying so rather than looking broken.
+const insecureOrigin = () => typeof window !== 'undefined' && !window.isSecureContext;
+
+// LiveKit reports device problems as a failure kind; turn that into something
+// a student can act on.
+const deviceFailureMessage = (failure) => {
+  // LiveKit reports 'PermissionDenied' / 'NotFound' / 'DeviceInUse'; a raw
+  // getUserMedia rejection arrives as 'NotAllowedError' and friends.
+  const kind = String(failure || '');
+  if (/PermissionDenied|NotAllowed|SecurityError/i.test(kind)) return 'Microphone/camera blocked. Allow access in the browser address bar, then press the mic button again.';
+  if (/NotFound|DevicesNotFound|OverconstrainedError/i.test(kind)) return 'No microphone or camera found on this device.';
+  if (/DeviceInUse|NotReadable|TrackStart/i.test(kind)) return 'Your microphone is in use by another app. Close it, then press the mic button again.';
+  return 'Could not start your microphone or camera. Check browser permissions and press the mic button again.';
+};
+
 export default function LiveKitRoom({ session, onLeave }) {
   const [conn, setConn] = useState(null);
   const [error, setError] = useState('');
+  const [deviceError, setDeviceError] = useState(() => (insecureOrigin()
+    ? 'This page is not on a secure (https) connection, so the browser will not allow the microphone or camera.'
+    : ''));
 
   useEffect(() => {
     let mounted = true;
@@ -62,27 +81,54 @@ export default function LiveKitRoom({ session, onLeave }) {
       connect
       video={conn.can_publish}
       audio={conn.can_publish}
+      // The join-time publish is where a denied prompt or busy mic usually
+      // fails; without this the student just sees a mic button that does
+      // nothing.
+      onMediaDeviceFailure={(failure) => setDeviceError(deviceFailureMessage(failure))}
       onDisconnected={handleLeave}
       data-lk-theme="default"
       style={{ height: '100%' }}
     >
-      <Stage session={session} initialCanPublish={conn.can_publish} onLeave={handleLeave} />
+      <Stage
+        session={session}
+        initialCanPublish={conn.can_publish}
+        onLeave={handleLeave}
+        deviceError={deviceError}
+        setDeviceError={setDeviceError}
+      />
       <RoomAudioRenderer />
     </LKRoom>
   );
 }
 
-function Stage({ session, initialCanPublish, onLeave }) {
+function Stage({ session, initialCanPublish, onLeave, deviceError, setDeviceError }) {
   const { user } = useAuth();
   const isHost = HOST_ROLES.includes(user?.role);
   const participants = useParticipants();
-  const { localParticipant } = useLocalParticipant();
+  const { localParticipant, isMicrophoneEnabled, lastMicrophoneError } = useLocalParticipant();
   const room = useRoomContext();
   const stageBodyRef = useRef(null);
 
   // Reactive: a student promoted mid-session gets canPublish flipped by the
   // server, which updates localParticipant.permissions and re-renders this.
   const canPublish = localParticipant?.permissions?.canPublish ?? initialCanPublish;
+
+  // The mic can fail to publish at join time (denied prompt, device busy) and
+  // the toolbar toggle then looks inert. This retries and says what went wrong.
+  const enableMic = async () => {
+    setDeviceError?.('');
+    try {
+      await localParticipant?.setMicrophoneEnabled(true);
+    } catch (e) {
+      setDeviceError?.(deviceFailureMessage(e?.name || e?.message || ''));
+    }
+  };
+
+  // A publish rejected by the browser leaves the error on the hook rather than
+  // throwing where the toolbar can show it.
+  useEffect(() => {
+    if (lastMicrophoneError) setDeviceError?.(deviceFailureMessage(lastMicrophoneError.name || lastMicrophoneError.message || ''));
+  }, [lastMicrophoneError]);
 
   // Published camera + screen-share tracks for everyone in the room (no
   // canPublish filter — the host wants to see every participant). A camera tile
@@ -328,10 +374,15 @@ function Stage({ session, initialCanPublish, onLeave }) {
         {canPublish ? (
           /* Screen share for anyone on stage, students included: a promoted
              student needs to show work, not just talk. */
-          <ControlBar
-            variation="minimal"
-            controls={{ microphone: true, camera: true, screenShare: true, chat: false, leave: false, settings: false }}
-          />
+          <>
+            <ControlBar
+              variation="minimal"
+              controls={{ microphone: true, camera: true, screenShare: true, chat: false, leave: false, settings: false }}
+            />
+            {!isMicrophoneEnabled && (
+              <button className="btn-control" onClick={enableMic} title="Turn on your microphone">🎤 Unmute</button>
+            )}
+          </>
         ) : (
           <button
             className={`btn-control ${handRaised ? 'active' : ''}`}
@@ -340,6 +391,16 @@ function Stage({ session, initialCanPublish, onLeave }) {
           >
             ✋
           </button>
+        )}
+        {deviceError && (
+          <span
+            onClick={() => setDeviceError?.('')}
+            title="Dismiss"
+            style={{ cursor: 'pointer', fontSize: '12px', fontWeight: 600, padding: '4px 10px', borderRadius: '999px',
+              background: '#dc2626', color: '#fff', maxWidth: '420px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {deviceError}
+          </span>
         )}
         {recNotice && (
           <span
