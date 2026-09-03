@@ -326,9 +326,11 @@ function Stage({ session, initialCanPublish, onLeave }) {
 
       <div className="video-controls">
         {canPublish ? (
+          /* Screen share for anyone on stage, students included: a promoted
+             student needs to show work, not just talk. */
           <ControlBar
             variation="minimal"
-            controls={{ microphone: true, camera: true, screenShare: isHost, chat: false, leave: false, settings: false }}
+            controls={{ microphone: true, camera: true, screenShare: true, chat: false, leave: false, settings: false }}
           />
         ) : (
           <button
