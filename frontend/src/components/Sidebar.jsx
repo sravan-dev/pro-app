@@ -249,8 +249,8 @@ export default function Sidebar({ activeTab, onTabChange }) {
       </div>
 
       {showProfile && (
-        <div className="modal-overlay" onClick={() => setShowProfile(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px', width: '90%' }}>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: '400px', width: '90%' }}>
             <h3>Update Profile Picture</h3>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '8px 0' }}>
               <div

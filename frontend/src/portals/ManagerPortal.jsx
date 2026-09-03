@@ -212,8 +212,8 @@ export default function ManagerPortal() {
         )}
 
         {assignFor && (
-          <div className="modal-overlay" onClick={() => !assignBusy && setAssignFor(null)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+          <div className="modal-overlay">
+            <div className="modal" style={{ maxWidth: 460 }}>
               <h3>Assign {assignFor.name}</h3>
               <div className="form-group">
                 <label>Advisor</label>

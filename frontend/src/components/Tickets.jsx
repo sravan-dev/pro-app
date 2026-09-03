@@ -185,8 +185,8 @@ export default function Tickets() {
 
       {/* Create ticket (student) */}
       {creating && (
-        <div className="modal-overlay" onClick={() => !busy && setCreating(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 520 }}>
             <h3>Raise a Ticket</h3>
             <p style={{ color: 'var(--color-text-secondary)', marginTop: -4, fontSize: 13 }}>
               This goes to your assigned advisor.
@@ -229,8 +229,8 @@ export default function Tickets() {
 
       {/* Ticket thread */}
       {openId && (
-        <div className="modal-overlay" onClick={() => !busy && closeThread()}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640, width: '92%' }}>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 640, width: '92%' }}>
             {threadLoading || !t ? <div className="spinner" /> : (
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>

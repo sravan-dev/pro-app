@@ -364,8 +364,8 @@ export default function TutorPortal() {
             </div>
 
             {showSessionForm && (
-              <div className="modal-overlay" onClick={() => setShowSessionForm(false)}>
-                <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-overlay">
+                <div className="modal">
                   <h3>Schedule New Session</h3>
                   <form onSubmit={handleCreateSession}>
                     <div className="form-group">
@@ -406,8 +406,8 @@ export default function TutorPortal() {
             </div>
 
             {showScheduleCalendar && (
-              <div className="modal-overlay" onClick={() => setShowScheduleCalendar(false)}>
-                <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px', width: '95%' }}>
+              <div className="modal-overlay">
+                <div className="modal" style={{ maxWidth: '900px', width: '95%' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                     <h3 style={{ margin: 0 }}>Schedules</h3>
                     <button type="button" className="btn btn-ghost" onClick={() => setShowScheduleCalendar(false)}>✕</button>
@@ -430,8 +430,8 @@ export default function TutorPortal() {
             </p>
 
             {showAvailForm && (
-              <div className="modal-overlay" onClick={() => setShowAvailForm(false)}>
-                <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-overlay">
+                <div className="modal">
                   <h3>Add Availability Slot</h3>
                   <form onSubmit={handleCreateAvailability}>
                     <div className="form-group">
@@ -598,8 +598,8 @@ export default function TutorPortal() {
             )}
 
             {playUrl && (
-              <div className="modal-overlay" onClick={() => setPlayUrl(null)}>
-                <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '860px', width: '100%' }}>
+              <div className="modal-overlay">
+                <div className="modal" style={{ maxWidth: '860px', width: '100%' }}>
                   <div className="page-header" style={{ alignItems: 'center' }}>
                     <h3 style={{ margin: 0 }}>Recording</h3>
                     <button className="btn btn-ghost" onClick={() => setPlayUrl(null)}>✕ Close</button>

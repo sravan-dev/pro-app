@@ -333,8 +333,8 @@ export default function StudentPortal() {
         )}
 
         {viewingCourse && (
-          <div className="modal-overlay" onClick={() => setViewingCourse(null)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '640px', width: '90%' }}>
+          <div className="modal-overlay">
+            <div className="modal" style={{ maxWidth: '640px', width: '90%' }}>
               <h3>{viewingCourse.name} — Course Materials</h3>
               <p style={{ color: '#666', fontSize: '13px', marginTop: '-4px' }}>by {viewingCourse.tutor_name}</p>
               {materialsLoading && <p>Loading...</p>}

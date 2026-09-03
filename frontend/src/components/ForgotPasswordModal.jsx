@@ -25,8 +25,8 @@ export default function ForgotPasswordModal({ onClose }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal auth-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal auth-modal">
         <div className="auth-modal-head">
           <img src="/logo.png" alt="Tiju's Academy" className="auth-modal-logo" />
           <h3>Reset Password</h3>

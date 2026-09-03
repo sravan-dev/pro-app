@@ -1895,8 +1895,8 @@ export default function SuperadminPortal() {
   );
 
   const courseFormModal = showCourseForm && (
-    <div className="modal-overlay" onClick={() => setShowCourseForm(false)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal">
         <h3>{editingCourse ? 'Edit Course' : 'Create Course'}</h3>
         <form onSubmit={saveCourse}>
           <div className="form-group">
@@ -1966,8 +1966,8 @@ export default function SuperadminPortal() {
   // Manage existing courses (add / edit / delete) from within the user form.
   // Reuses the full course form for add/edit and the existing delete handlers.
   const courseMgrModal = showCourseMgr && (
-    <div className="modal-overlay" onClick={() => setShowCourseMgr(false)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0 }}>Manage Courses</h3>
           <button type="button" className="btn btn-primary" onClick={openCreateCourse}>+ Add Course</button>
@@ -2002,8 +2002,8 @@ export default function SuperadminPortal() {
   );
 
   const categoryMgrModal = showCategoryMgr && (
-    <div className="modal-overlay" onClick={() => setShowCategoryMgr(false)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal">
         <h3>Manage Categories</h3>
         <div className="form-group">
           <label>Add New Category</label>
@@ -2058,8 +2058,8 @@ export default function SuperadminPortal() {
   );
 
   const meetingFormModal = showMeetingForm && (
-    <div className="modal-overlay" onClick={() => setShowMeetingForm(false)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal">
         <h3>New Meeting</h3>
         <form onSubmit={submitMeeting}>
           <div className="form-group">
@@ -2090,8 +2090,8 @@ export default function SuperadminPortal() {
     .filter((u) => !materialManagers.some((m) => m.user_id === u.id));
 
   const materialsMgrModal = showMaterialsMgr && materialsCourse && (
-    <div className="modal-overlay" onClick={() => setShowMaterialsMgr(false)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '720px', width: '90%' }}>
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxWidth: '720px', width: '90%' }}>
         <h3>Materials — {materialsCourse.name}</h3>
 
         <div className="form-group">
@@ -2202,8 +2202,8 @@ export default function SuperadminPortal() {
   );
 
   const enrollFormModal = showEnrollForm && (
-    <div className="modal-overlay" onClick={() => setShowEnrollForm(false)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal">
         <h3>{editingEnroll ? 'Edit Enrollment' : 'Enroll Student'}</h3>
         <form onSubmit={saveEnroll}>
           {!editingEnroll && (
@@ -2267,8 +2267,8 @@ export default function SuperadminPortal() {
   // hidden __test_call__ sentinel course (created as a 'draft').
   const assignableCourses = allCourses.filter((c) => c.status === 'active');
   const assignCourseModal = assignCourseStudent && (
-    <div className="modal-overlay" onClick={() => !assignCourseBusy && setAssignCourseStudent(null)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxWidth: 460 }}>
         <h3>Assign Course</h3>
         <form onSubmit={submitAssignCourse}>
           <div className="form-group">
@@ -2299,8 +2299,8 @@ export default function SuperadminPortal() {
   // Only active tutors are assignable. "No tutor" clears the assignment.
   const assignableTutors = allTutors.filter((t) => t.status === 'active');
   const assignTutorModal = assignTutorStudent && (
-    <div className="modal-overlay" onClick={() => !assignTutorBusy && setAssignTutorStudent(null)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxWidth: 460 }}>
         <h3>Assign Tutor</h3>
         <form onSubmit={submitAssignTutor}>
           <div className="form-group">
@@ -2344,8 +2344,8 @@ export default function SuperadminPortal() {
       && String(t.id) !== String(facultyStudent.assigned_tutor_id || '')
       && !facultyRows.some((r) => r.tutor_id === t.id));
     return (
-      <div className="modal-overlay" onClick={() => !facultyBusy && setFacultyStudent(null)}>
-        <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+      <div className="modal-overlay">
+        <div className="modal" style={{ maxWidth: 480 }}>
           <h3>Additional Faculty — {facultyStudent.name}</h3>
           <p style={{ color: 'var(--color-text-secondary)', fontSize: 13, marginTop: 4 }}>
             Primary tutor: {facultyStudent.assigned_tutor_name || 'none'}
@@ -2390,8 +2390,8 @@ export default function SuperadminPortal() {
 
   // "Edit Batch" modal — move the student to another team/batch.
   const editBatchModal = batchStudent && (
-    <div className="modal-overlay" onClick={() => !batchBusy && setBatchStudent(null)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxWidth: 460 }}>
         <h3>Edit Batch</h3>
         <form onSubmit={submitEditBatch}>
           <div className="form-group">
@@ -2420,8 +2420,8 @@ export default function SuperadminPortal() {
   );
 
   const studentCoursesModal = coursesModalStudent && (
-    <div className="modal-overlay" onClick={() => !coursesModalAdding && setCoursesModalStudent(null)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxWidth: 480 }}>
         <h3>Courses — {coursesModalStudent.name}</h3>
         {coursesModalLoading ? (
           <p style={{ color: 'var(--color-text-secondary)' }}>Loading…</p>
@@ -2471,8 +2471,8 @@ export default function SuperadminPortal() {
   );
 
   const enrollContactModal = pendingEnrollContact && (
-    <div className="modal-overlay" onClick={() => !enrollBusy && setPendingEnrollContact(null)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxWidth: 460 }}>
         <h3>Enroll {pendingEnrollContact.name && pendingEnrollContact.name !== '—' ? pendingEnrollContact.name : pendingEnrollContact.email}</h3>
         <p style={{ color: 'var(--color-text-secondary)' }}>
           This contact isn’t a student yet. A student account will be created for{' '}
@@ -2489,8 +2489,8 @@ export default function SuperadminPortal() {
   );
 
   const sessionFormModal = showSessionForm && (
-    <div className="modal-overlay" onClick={() => setShowSessionForm(false)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal">
         <h3>Schedule Session</h3>
         <form onSubmit={saveSession}>
           <div className="form-group">
@@ -2532,8 +2532,8 @@ export default function SuperadminPortal() {
   );
 
   const slotFormModal = editingSlot && (
-    <div className="modal-overlay" onClick={() => setEditingSlot(null)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal">
         <h3>Edit Time Slot{editingSlot.tutor_name ? ` — ${editingSlot.tutor_name}` : ''}</h3>
         <form onSubmit={saveSlot}>
           <div className="form-row">
@@ -2567,8 +2567,8 @@ export default function SuperadminPortal() {
         {userFormModal}
 
         {showTeamForm && (
-          <div className="modal-overlay" onClick={() => setShowTeamForm(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
+          <div className="modal-overlay">
+            <div className="modal" style={{ maxWidth: 440 }}>
               <h3>{editingTeam ? 'Edit Team' : 'Add Team'}</h3>
               <form onSubmit={saveTeam}>
                 <div className="form-group">
@@ -2603,8 +2603,8 @@ export default function SuperadminPortal() {
         )}
 
         {inviteResult && (
-          <div className="modal-overlay" onClick={() => setInviteResult(null)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+          <div className="modal-overlay">
+            <div className="modal" style={{ maxWidth: '440px' }}>
               <h3>Invite {inviteResult.name}</h3>
               <p style={{ color: 'var(--color-text-secondary)' }}>
                 {inviteResult.emailed
@@ -2627,8 +2627,8 @@ export default function SuperadminPortal() {
         )}
 
         {inviteAllResult && (
-          <div className="modal-overlay" onClick={() => setInviteAllResult(null)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+          <div className="modal-overlay">
+            <div className="modal" style={{ maxWidth: '520px' }}>
               <h3>Invite All — Results</h3>
               <p style={{ color: 'var(--color-text-secondary)' }}>
                 {inviteAllResult.total === 0
@@ -3148,8 +3148,8 @@ export default function SuperadminPortal() {
         )}
 
         {showScheduleCalendar && (
-          <div className="modal-overlay" onClick={() => setShowScheduleCalendar(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px', width: '95%' }}>
+          <div className="modal-overlay">
+            <div className="modal" style={{ maxWidth: '900px', width: '95%' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <h3 style={{ margin: 0 }}>Schedules</h3>
                 <button type="button" className="btn btn-ghost" onClick={() => setShowScheduleCalendar(false)}>✕</button>
@@ -3281,8 +3281,8 @@ export default function SuperadminPortal() {
 
         {/* Staff attendance add/edit modal */}
         {showStaffAttForm && (
-          <div className="modal-overlay" onClick={() => setShowStaffAttForm(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, width: '92%' }}>
+          <div className="modal-overlay">
+            <div className="modal" style={{ maxWidth: 460, width: '92%' }}>
               <h3>Staff Attendance</h3>
               <form onSubmit={saveStaffAtt}>
                 <div className="form-group">
@@ -3376,8 +3376,8 @@ export default function SuperadminPortal() {
             )}
 
             {recPlayUrl && (
-              <div className="modal-overlay" onClick={() => setRecPlayUrl(null)}>
-                <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '860px', width: '100%' }}>
+              <div className="modal-overlay">
+                <div className="modal" style={{ maxWidth: '860px', width: '100%' }}>
                   <div className="page-header" style={{ alignItems: 'center' }}>
                     <h3 style={{ margin: 0 }}>Recording</h3>
                     <button className="btn btn-ghost" onClick={() => setRecPlayUrl(null)}>✕ Close</button>
