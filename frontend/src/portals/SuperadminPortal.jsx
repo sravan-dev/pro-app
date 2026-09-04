@@ -480,6 +480,11 @@ export default function SuperadminPortal() {
     if (activeTab === 'tutors' && allTutors.length === 0) api.getTutors().then(setAllTutors).catch(() => {});
     if (activeTab === 'courses' && allCourses.length === 0) api.getCourses().then(setAllCourses).catch(() => {});
     if (activeTab === 'courses' && categories.length === 0) api.getCategories().then(setCategories).catch(() => {});
+    // The categories page counts the courses filed under each one.
+    if (activeTab === 'categories') {
+      if (categories.length === 0) api.getCategories().then(setCategories).catch(() => {});
+      if (allCourses.length === 0) api.getCourses().then(setAllCourses).catch(() => {});
+    }
     if (activeTab === 'enrollments' && allEnrollments.length === 0) api.getEnrollments().then(setAllEnrollments).catch(() => {});
     // Teams list — needed by the Teams tab AND the team selector in the user form.
     if (['teams', 'students', 'tutors', 'users'].includes(activeTab) && teams.length === 0) api.getTeams().then(setTeams).catch(() => {});
@@ -2001,6 +2006,38 @@ export default function SuperadminPortal() {
     </div>
   );
 
+  // Categories page: same add/rename/delete handlers the modal uses, laid out
+  // as a full page so categories are reachable without opening a course first.
+  const courseCountFor = (name) => allCourses.filter((c) => c.category === name).length;
+  const categoryColumns = [
+    { key: 'name', label: 'Category', accessor: 'name', render: (c) => (
+      editingCategoryId === c.id
+        ? <input
+            value={editingCategoryName}
+            onChange={(e) => setEditingCategoryName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveEditCategory(); } if (e.key === 'Escape') cancelEditCategory(); }}
+            autoFocus
+            style={{ maxWidth: 260 }}
+          />
+        : <strong>{c.name}</strong>
+    ) },
+    { key: 'courses', label: 'Courses', accessor: (c) => courseCountFor(c.name), render: (c) => {
+      const n = courseCountFor(c.name);
+      return <span className="status-badge">{n} {n === 1 ? 'course' : 'courses'}</span>;
+    } },
+    { key: 'actions', label: 'Actions', sortable: false, render: (c) => (
+      editingCategoryId === c.id
+        ? <div className="table-actions">
+            <button className="btn btn-sm btn-primary" onClick={saveEditCategory}>Save</button>
+            <button className="btn btn-sm btn-ghost" onClick={cancelEditCategory}>Cancel</button>
+          </div>
+        : <div className="table-actions">
+            <button className="btn btn-sm btn-ghost" onClick={() => startEditCategory(c)}>Rename</button>
+            <button className="btn btn-sm btn-ghost text-danger" onClick={() => removeCategory(c.id)}>Delete</button>
+          </div>
+    ) },
+  ];
+
   const categoryMgrModal = showCategoryMgr && (
     <div className="modal-overlay">
       <div className="modal">
@@ -3010,6 +3047,29 @@ export default function SuperadminPortal() {
               <button className="btn btn-primary" onClick={openCreateCourse}>+ Add Course</button>
             </div>
             <DataTable columns={courseColumns} data={allCourses} pageSize={15} selectable onBulkAction={bulkDeleteCourses} bulkActionLabel="Delete Selected" />
+          </div>
+        )}
+
+        {/* ===== CATEGORIES ===== */}
+        {activeTab === 'categories' && (
+          <div className="portal-page">
+            <div className="page-header">
+              <h2>Course Categories</h2>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCategory(); } }}
+                  placeholder="New category name"
+                  style={{ maxWidth: 220 }}
+                />
+                <button className="btn btn-primary" onClick={addCategory}>+ Add Category</button>
+              </div>
+            </div>
+            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
+              Renaming a category re-files every course under it. A category still holding courses cannot be deleted.
+            </p>
+            <DataTable columns={categoryColumns} data={categories} pageSize={15} />
           </div>
         )}
 
