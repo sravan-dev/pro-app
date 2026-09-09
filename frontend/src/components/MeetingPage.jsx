@@ -8,8 +8,11 @@ import {
   useTracks,
   useParticipants,
   useLocalParticipant,
+  useDataChannel,
+  useRoomContext,
 } from '@livekit/components-react';
-import { Track } from 'livekit-client';
+import { Track, RoomEvent } from 'livekit-client';
+import Whiteboard from './Whiteboard';
 import '@livekit/components-styles';
 import { api } from '../api';
 
@@ -128,6 +131,31 @@ function MeetingStage({ title, onLeave }) {
     if (t.source === Track.Source.Camera) cameraByIdentity[t.participant.identity] = t;
   });
 
+  // Meetings are symmetric, so anyone can open the whiteboard and everyone can
+  // draw on it. Opening it is announced on its own topic, which reaches the
+  // clients that currently have the board hidden.
+  const [wbOpen, setWbOpen] = useState(false);
+  const { send: sendWbCtl } = useDataChannel('wbctl', (msg) => {
+    try { setWbOpen(!!JSON.parse(new TextDecoder().decode(msg.payload)).open); }
+    catch { /* ignore malformed */ }
+  });
+  const toggleWhiteboard = (open) => {
+    setWbOpen(open);
+    try { sendWbCtl(new TextEncoder().encode(JSON.stringify({ open })), { reliable: true }); }
+    catch { /* not connected yet */ }
+  };
+
+  // Someone arriving after the board was opened missed the announcement, so it
+  // is repeated for them.
+  const room = useRoomContext();
+  useEffect(() => {
+    if (!room) return undefined;
+    const onJoin = () => { if (wbOpen) toggleWhiteboard(true); };
+    room.on(RoomEvent.ParticipantConnected, onJoin);
+    return () => room.off(RoomEvent.ParticipantConnected, onJoin);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room, wbOpen]);
+
   return (
     <div className="video-room" style={{ height: '100%' }}>
       <div className="video-room-header">
@@ -136,6 +164,8 @@ function MeetingStage({ title, onLeave }) {
       </div>
 
       <div style={{ flex: 1, minHeight: 0, padding: '8px', overflowY: 'auto' }}>
+        {wbOpen && <Whiteboard onClose={() => toggleWhiteboard(false)} />}
+
         {screenShares.map((t) => (
           <ParticipantTile
             key={`ss-${t.participant.identity}`}
@@ -167,6 +197,13 @@ function MeetingStage({ title, onLeave }) {
           variation="minimal"
           controls={{ microphone: true, camera: true, screenShare: true, chat: false, leave: false, settings: false }}
         />
+        <button
+          className={`btn-control ${wbOpen ? 'active' : ''}`}
+          onClick={() => toggleWhiteboard(!wbOpen)}
+          title={wbOpen ? 'Close whiteboard for everyone' : 'Open whiteboard for everyone'}
+        >
+          🖊
+        </button>
         <button className="btn-control btn-leave" onClick={onLeave} title="Leave meeting">📞</button>
       </div>
     </div>

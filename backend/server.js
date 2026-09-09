@@ -3248,6 +3248,38 @@ app.post('/api/livekit/update-permission', async (req, res) => {
   }
 });
 
+// Force-mute a participant's microphone. LiveKit deliberately does not allow
+// the server to switch someone's mic back ON — that is the participant's own
+// choice — so hosts mute here and ask over the data channel for an unmute.
+app.post('/api/livekit/mute-participant', async (req, res) => {
+  const user = await requireRole(req, res, PUBLISHER_ROLES); if (!user) return;
+  if (!livekitConfigured()) return res.status(503).json({ error: 'LiveKit not configured on the server' });
+  const { session_id, identity } = req.body;
+  if (!session_id || !identity) return res.status(400).json({ error: 'session_id and identity required' });
+  const sess = await db.get("SELECT tutor_id FROM sessions WHERE session_id=?", [session_id]);
+  if (!sess) return res.status(404).json({ error: 'Session not found' });
+  if (user.role === 'tutor' && sess.tutor_id !== user.id) {
+    return res.status(403).json({ error: 'Not your session' });
+  }
+  try {
+    const { RoomServiceClient } = await getLiveKit();
+    const svc = new RoomServiceClient(livekitHttpUrl(), livekit.apiKey, livekit.apiSecret);
+    const room = livekitRoomName(session_id);
+    const p = await svc.getParticipant(room, String(identity));
+    // TrackSource.MICROPHONE is 2; fall back to the AUDIO track type (0) when
+    // the source is unset, and leave screen-share audio alone.
+    const isMic = (t) => t.source === 2 || t.source === 'MICROPHONE'
+      || ((t.source === 0 || t.source === undefined) && (t.type === 0 || t.type === 'AUDIO'));
+    const audio = (p.tracks || []).filter(isMic);
+    if (!audio.length) return res.json({ message: 'Participant has no live microphone', identity: String(identity), muted: true });
+    for (const t of audio) await svc.mutePublishedTrack(room, String(identity), t.sid, true);
+    auditLog(user.id, 'mute_participant', 'session', session_id, `Muted ${identity}`);
+    res.json({ message: 'Participant muted', identity: String(identity), muted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to mute participant' });
+  }
+});
+
 // Live LiveKit connection status — verifies the active credentials by hitting
 // the server (listRooms). Feeds the "existing connection" panel in Settings.
 app.get('/api/livekit/status', async (req, res) => {

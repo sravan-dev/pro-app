@@ -12,6 +12,7 @@ import {
 } from '@livekit/components-react';
 import { Track, RoomEvent } from 'livekit-client';
 import '@livekit/components-styles';
+import Whiteboard from './Whiteboard';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 
@@ -147,6 +148,29 @@ function Stage({ session, initialCanPublish, onLeave, deviceError, setDeviceErro
     if (t.source === Track.Source.Camera) cameraByIdentity[t.participant.identity] = t;
   });
 
+  // The whiteboard is opened for the whole room by a host, on its own topic so
+  // the message still arrives at clients that have the board hidden.
+  const [wbOpen, setWbOpen] = useState(false);
+  const { send: sendWbCtl } = useDataChannel('wbctl', (msg) => {
+    try { setWbOpen(!!JSON.parse(new TextDecoder().decode(msg.payload)).open); }
+    catch { /* ignore malformed */ }
+  });
+  const toggleWhiteboard = (open) => {
+    setWbOpen(open);
+    try { sendWbCtl(new TextEncoder().encode(JSON.stringify({ open })), { reliable: true }); }
+    catch { /* not connected yet */ }
+  };
+
+  // Someone arriving after the board was opened missed the announcement, so a
+  // host repeats it for them.
+  useEffect(() => {
+    if (!room || !isHost) return undefined;
+    const onJoin = () => { if (wbOpen) toggleWhiteboard(true); };
+    room.on(RoomEvent.ParticipantConnected, onJoin);
+    return () => room.off(RoomEvent.ParticipantConnected, onJoin);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room, isHost, wbOpen]);
+
   // Raise-hand signalling over a data channel; hosts collect raised hands.
   const [raisedHands, setRaisedHands] = useState({});
   const [handRaised, setHandRaised] = useState(false);
@@ -177,6 +201,45 @@ function Stage({ session, initialCanPublish, onLeave, deviceError, setDeviceErro
     if (canPublish && handRaised) broadcastHand(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canPublish]);
+
+  // Hosts can switch a participant's mic OFF through the server, but LiveKit
+  // will not switch anyone's mic ON remotely — that stays the participant's
+  // own choice — so an unmute is a request they accept.
+  const [participantBusy, setParticipantBusy] = useState('');
+  const [unmuteAsked, setUnmuteAsked] = useState(false);
+  const { send: sendMicCtl } = useDataChannel('micctl', (msg) => {
+    try {
+      const data = JSON.parse(new TextDecoder().decode(msg.payload));
+      if (data.t === 'ask-unmute' && data.identity === localParticipant?.identity) setUnmuteAsked(true);
+    } catch { /* ignore malformed */ }
+  });
+
+  // useParticipants does not re-render on mute/permission changes, so the
+  // host's panel is nudged when one happens.
+  const [, bumpRoster] = useState(0);
+  useEffect(() => {
+    if (!room) return undefined;
+    const bump = () => bumpRoster((n) => n + 1);
+    const events = [
+      RoomEvent.TrackMuted, RoomEvent.TrackUnmuted,
+      RoomEvent.TrackPublished, RoomEvent.TrackUnpublished,
+      RoomEvent.ParticipantPermissionsChanged,
+    ];
+    events.forEach((e) => room.on(e, bump));
+    return () => events.forEach((e) => room.off(e, bump));
+  }, [room]);
+
+  const muteParticipant = async (identity) => {
+    setParticipantBusy(identity);
+    try { await api.livekitMuteParticipant({ session_id: session.session_id, identity }); }
+    catch (e) { setDeviceError?.(e?.message || 'Could not mute that participant.'); }
+    finally { setParticipantBusy(''); }
+  };
+
+  const askUnmute = (identity) => {
+    try { sendMicCtl(new TextEncoder().encode(JSON.stringify({ t: 'ask-unmute', identity })), { reliable: true }); }
+    catch { /* not connected yet */ }
+  };
 
   const setStageAccess = async (identity, can_publish) => {
     try {
@@ -329,6 +392,14 @@ function Stage({ session, initialCanPublish, onLeave, deviceError, setDeviceErro
       </div>
 
       <div ref={stageBodyRef} style={{ flex: 1, minHeight: 0, padding: '8px', overflowY: 'auto' }}>
+        {wbOpen && (
+          <Whiteboard
+            canDraw={canPublish}
+            canClear={isHost}
+            onClose={isHost ? () => toggleWhiteboard(false) : null}
+          />
+        )}
+
         {/* Screen share gets the prominent (but still capped) slot. */}
         {screenShares.map((t) => (
           <ParticipantTile
@@ -338,7 +409,7 @@ function Stage({ session, initialCanPublish, onLeave, deviceError, setDeviceErro
           />
         ))}
 
-        {/* Small, wrapping gallery — one capped tile per participant. */}
+        {/* Small, wrapping gallery — one c\apped tile per participant. */}
         <div className="meeting-gallery">
           {participants.map((p) => {
             const ref = cameraByIdentity[p.identity] || { participant: p, source: Track.Source.Camera };
@@ -357,6 +428,33 @@ function Stage({ session, initialCanPublish, onLeave, deviceError, setDeviceErro
           })}
         </div>
       </div>
+
+      {isHost && participants.length > 1 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', padding: '6px 12px', background: 'rgba(255,255,255,0.06)' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: '#cbd5e1' }}>Mic & stage:</span>
+          {participants
+            .filter((p) => p.identity !== localParticipant?.identity)
+            .map((p) => {
+              const onStage = p.permissions?.canPublish !== false;
+              return (
+                <span key={p.identity} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#e5e7eb' }}>
+                  <span>{p.name || p.identity}{p.isMicrophoneEnabled ? ' 🎤' : ' 🔇'}</span>
+                  {p.isMicrophoneEnabled ? (
+                    <button className="btn btn-sm btn-ghost" disabled={participantBusy === p.identity} onClick={() => muteParticipant(p.identity)}>Mute</button>
+                  ) : (
+                    <button className="btn btn-sm btn-ghost" disabled={!onStage} onClick={() => askUnmute(p.identity)} title={onStage ? 'Ask them to turn their mic on' : 'Put them on stage first'}>Ask to unmute</button>
+                  )}
+                  <button
+                    className={`btn btn-sm ${onStage ? 'btn-ghost text-danger' : 'btn-primary'}`}
+                    onClick={() => setStageAccess(p.identity, !onStage)}
+                  >
+                    {onStage ? 'Revoke mic' : 'Allow mic'}
+                  </button>
+                </span>
+              );
+            })}
+        </div>
+      )}
 
       {isHost && handCount > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', padding: '6px 12px', background: 'rgba(245,158,11,0.12)' }}>
@@ -392,6 +490,14 @@ function Stage({ session, initialCanPublish, onLeave, deviceError, setDeviceErro
             ✋
           </button>
         )}
+        {unmuteAsked && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, padding: '4px 10px',
+            borderRadius: '999px', background: '#2563eb', color: '#fff' }}>
+            The host asked you to unmute
+            <button className="btn btn-sm btn-primary" onClick={async () => { await enableMic(); setUnmuteAsked(false); }}>Unmute</button>
+            <button className="btn btn-sm btn-ghost" style={{ color: '#fff' }} onClick={() => setUnmuteAsked(false)}>Dismiss</button>
+          </span>
+        )}
         {deviceError && (
           <span
             onClick={() => setDeviceError?.('')}
@@ -412,6 +518,15 @@ function Stage({ session, initialCanPublish, onLeave, deviceError, setDeviceErro
           >
             {recNotice}
           </span>
+        )}
+        {isHost && (
+          <button
+            className={`btn-control ${wbOpen ? 'active' : ''}`}
+            onClick={() => toggleWhiteboard(!wbOpen)}
+            title={wbOpen ? 'Close whiteboard for everyone' : 'Open whiteboard for everyone'}
+          >
+            🖊
+          </button>
         )}
         {isHost && (
           recState === 'uploading' ? (
