@@ -250,6 +250,18 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
   box-shadow: 0 0 0 3px rgba(45, 42, 110, 0.18);
 }
 
+/* Centered card for the join screens (quick meetings, direct calls) */
+.login-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 2.5rem;
+  width: 100%;
+  max-width: 420px;
+}
+.login-header { text-align: center; margin-bottom: 1.5rem; }
+.login-logo { height: 72px; width: auto; max-width: 100%; display: block; margin: 0 auto 0.75rem; }
+
 /* Split auth layout: form on the left, illustration panel on the right */
 .auth-shell {
   display: grid;
