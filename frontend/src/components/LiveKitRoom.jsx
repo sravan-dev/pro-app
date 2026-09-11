@@ -546,6 +546,13 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
           )
         )}
         <button className="btn-control btn-leave" onClick={confirmLeave} title="Leave session">📞</button>
+        <span
+          title={`${participants.length} participant(s) in this session`}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '14px', fontWeight: 600, padding: '6px 14px',
+            borderRadius: '999px', background: '#374151', color: '#e5e7eb' }}
+        >
+          👥 {participants.length}
+        </span>
       </div>
     </div>
   );
