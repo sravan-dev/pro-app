@@ -957,12 +957,35 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
 .session-dock-bar button:hover { background: #4B5563; }
 /* Mini-player shows only the video: header, rosters and controls come back on Open. */
 .session-dock-mini .video-room { min-height: 0; height: 100%; border-radius: 0; }
-.session-dock-mini .video-room > :not(.video-stage):not(.video-grid) { display: none !important; }
+.session-dock-mini .video-room > :not(.video-body):not(.video-grid) { display: none !important; }
+.session-dock-mini .waiting-panel { display: none; }
 .session-dock-mini .lk-room-container { height: 100%; }
 .session-dock-mini .video-stage { padding: 4px !important; }
 .session-dock-mini .meeting-gallery { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 4px; }
 .session-dock-mini .video-grid { padding: 4px; gap: 4px; }
 .session-dock-mini .video-container.local { max-width: 140px; }
+
+/* LiveKit room body: stage on the left, host's waiting room on the right. */
+.video-body { flex: 1; min-height: 0; display: flex; }
+.waiting-panel {
+  width: 260px; flex-shrink: 0; overflow-y: auto;
+  background: #1F2937; border-left: 1px solid rgba(255,255,255,0.08);
+  padding: 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.waiting-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  color: #fff; font-weight: 600; font-size: 0.9rem;
+}
+.waiting-panel-empty { color: #9CA3AF; font-size: 0.85rem; margin: 0; }
+.waiting-row {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,0.06);
+}
+.waiting-name { color: #e5e7eb; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 768px) {
+  .video-body { flex-direction: column; }
+  .waiting-panel { width: auto; max-height: 30vh; border-left: none; border-top: 1px solid rgba(255,255,255,0.08); }
+}
 
 .video-room-header {
   display: flex; align-items: center; justify-content: space-between;

@@ -120,6 +120,20 @@ CREATE TABLE IF NOT EXISTS signaling (
   INDEX idx_signaling_session (session_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- LiveKit waiting room: students knock here and a host admits or declines
+-- them before they are given a room token. One row per student per session.
+CREATE TABLE IF NOT EXISTS session_lobby (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  session_id INT NOT NULL,
+  user_id INT NOT NULL,
+  name VARCHAR(120) DEFAULT '',
+  status VARCHAR(12) NOT NULL DEFAULT 'waiting',
+  requested_at DATETIME NULL,
+  decided_at DATETIME NULL,
+  decided_by INT NULL,
+  UNIQUE KEY uq_lobby_session_user (session_id, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS audit_logs (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT,

@@ -3196,6 +3196,22 @@ app.get('/api/livekit/token', async (req, res) => {
   if (!access.ok) return res.status(access.status).json({ error: access.error });
 
   const isHost = PUBLISHER_ROLES.includes(user.role);
+  // Waiting room: a student gets no token until a host admits them. Test calls
+  // skip it. `fresh=1` marks a new join attempt, which lets a student who was
+  // declined earlier knock again; the waiting screen's polls leave it off.
+  if (!isHost && access.sess.course_name !== '__test_call__') {
+    const row = await db.get("SELECT status FROM session_lobby WHERE session_id=? AND user_id=?", [sessionId, user.id]);
+    const fresh = req.query.fresh === '1';
+    if (!row || (fresh && row.status === 'denied')) {
+      await db.run(
+        `INSERT INTO session_lobby (session_id,user_id,name,status,requested_at) VALUES (?,?,?,'waiting',?)
+         ON DUPLICATE KEY UPDATE status='waiting', name=VALUES(name), requested_at=VALUES(requested_at), decided_at=NULL, decided_by=NULL`,
+        [sessionId, user.id, user.name || '', nowStr()]
+      );
+      return res.json({ lobby: 'waiting' });
+    }
+    if (row.status !== 'admitted') return res.json({ lobby: row.status });
+  }
   const canPublish = true;
   try {
     const { AccessToken, RoomServiceClient } = await getLiveKit();
@@ -3221,6 +3237,42 @@ app.get('/api/livekit/token', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to mint LiveKit token' });
   }
+});
+
+// Waiting room, host side. Tutors may only manage their own sessions.
+async function lobbyHost(req, res, sessionId) {
+  const user = await requireRole(req, res, PUBLISHER_ROLES); if (!user) return null;
+  if (!sessionId) { res.status(400).json({ error: 'session_id required' }); return null; }
+  const sess = await db.get("SELECT tutor_id FROM sessions WHERE session_id=?", [sessionId]);
+  if (!sess) { res.status(404).json({ error: 'Session not found' }); return null; }
+  if (user.role === 'tutor' && sess.tutor_id !== user.id) { res.status(403).json({ error: 'Not your session' }); return null; }
+  return user;
+}
+
+app.get('/api/livekit/lobby', async (req, res) => {
+  const sessionId = parseInt(req.query.session_id);
+  const user = await lobbyHost(req, res, sessionId); if (!user) return;
+  const rows = await db.all(
+    "SELECT user_id, name, requested_at FROM session_lobby WHERE session_id=? AND status='waiting' ORDER BY requested_at, id",
+    [sessionId]
+  );
+  res.json(rows);
+});
+
+// Admit or decline one waiting student, or every waiting student with user_id 'all'.
+app.post('/api/livekit/lobby/decide', async (req, res) => {
+  const sessionId = parseInt(req.body?.session_id);
+  const user = await lobbyHost(req, res, sessionId); if (!user) return;
+  const { user_id, admit } = req.body;
+  if (user_id === undefined || user_id === null || user_id === '') return res.status(400).json({ error: 'user_id required' });
+  const status = admit ? 'admitted' : 'denied';
+  const all = user_id === 'all';
+  const r = await db.run(
+    `UPDATE session_lobby SET status=?, decided_at=?, decided_by=? WHERE session_id=? AND status='waiting'${all ? '' : ' AND user_id=?'}`,
+    all ? [status, nowStr(), user.id, sessionId] : [status, nowStr(), user.id, sessionId, parseInt(user_id)]
+  );
+  auditLog(user.id, admit ? 'lobby_admit' : 'lobby_deny', 'session', sessionId, all ? 'all waiting' : `user ${user_id}`);
+  res.json({ message: admit ? 'Admitted' : 'Declined', count: r.changes || 0 });
 });
 
 // Promote/demote a participant (tutor → student stage access).

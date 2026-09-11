@@ -115,7 +115,9 @@ export const api = {
   getMeetingToken: (code, passcode, name) => request('/meetings/token', { method: 'POST', body: { code, passcode, name } }),
 
   // LiveKit (large webinar sessions)
-  getLiveKitToken: (sessionId) => request(`/livekit/token?session_id=${sessionId}`),
+  getLiveKitToken: (sessionId, fresh = false) => request(`/livekit/token?session_id=${sessionId}${fresh ? '&fresh=1' : ''}`),
+  getLiveKitLobby: (sessionId) => request(`/livekit/lobby?session_id=${sessionId}`),
+  decideLiveKitLobby: (data) => request('/livekit/lobby/decide', { method: 'POST', body: data }),
   livekitUpdatePermission: (data) => request('/livekit/update-permission', { method: 'POST', body: data }),
   livekitMuteParticipant: (data) => request('/livekit/mute-participant', { method: 'POST', body: data }),
   getLiveKitUsage: () => request('/livekit/usage'),

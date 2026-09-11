@@ -45,12 +45,31 @@ export default function LiveKitRoom({ session, onLeave }) {
     ? 'This page is not on a secure (https) connection, so the browser will not allow the microphone or camera.'
     : ''));
 
+  // 'waiting' | 'denied' while a student sits in the waiting room.
+  const [lobby, setLobby] = useState(null);
+
   useEffect(() => {
     let mounted = true;
-    api.getLiveKitToken(session.session_id)
-      .then((c) => { if (mounted) setConn(c); })
-      .catch((e) => { if (mounted) setError(e.message || 'Failed to connect'); });
-    return () => { mounted = false; };
+    let timer = null;
+    setLobby(null);
+    // Students without a host's go-ahead get { lobby } instead of a token; keep
+    // asking until they are admitted. Only the first request knocks afresh.
+    const fetchToken = (fresh) => {
+      api.getLiveKitToken(session.session_id, fresh)
+        .then((c) => {
+          if (!mounted) return;
+          if (c.lobby) {
+            setLobby(c.lobby);
+            if (c.lobby === 'waiting') timer = setTimeout(() => fetchToken(false), 3000);
+            return;
+          }
+          setLobby(null);
+          setConn(c);
+        })
+        .catch((e) => { if (mounted) setError(e.message || 'Failed to connect'); });
+    };
+    fetchToken(true);
+    return () => { mounted = false; clearTimeout(timer); };
   }, [session]);
 
   const handleLeave = async () => {
@@ -63,6 +82,23 @@ export default function LiveKitRoom({ session, onLeave }) {
       <div className="video-room" style={{ padding: '2rem' }}>
         <div className="alert alert-error">{error}</div>
         <button className="btn btn-ghost" onClick={onLeave} style={{ marginTop: '1rem' }}>← Back</button>
+      </div>
+    );
+  }
+  if (lobby) {
+    const waiting = lobby === 'waiting';
+    return (
+      <div className="video-room" style={{ alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '2rem', gap: '0.75rem' }}>
+        {waiting && <div className="spinner" />}
+        <h3 style={{ color: '#fff', margin: 0 }}>{session.course_name || 'Live Session'}</h3>
+        <p style={{ color: '#cbd5e1', margin: 0 }}>
+          {waiting
+            ? 'You are in the waiting room. The host will let you in shortly.'
+            : 'The host did not admit you to this session.'}
+        </p>
+        <button className="btn btn-ghost" style={{ color: '#fff', marginTop: '0.5rem' }} onClick={handleLeave}>
+          {waiting ? 'Leave waiting room' : '← Back'}
+        </button>
       </div>
     );
   }
@@ -148,6 +184,29 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
   trackRefs.forEach((t) => {
     if (t.source === Track.Source.Camera) cameraByIdentity[t.participant.identity] = t;
   });
+
+  // Waiting room: hosts see who is knocking and let them in or turn them away.
+  const [waiting, setWaiting] = useState([]);
+  const [lobbyBusy, setLobbyBusy] = useState(null); // user_id or 'all' being decided
+  const [lobbyError, setLobbyError] = useState('');
+  useEffect(() => {
+    if (!isHost) return undefined;
+    let mounted = true;
+    const load = () => api.getLiveKitLobby(session.session_id)
+      .then((rows) => { if (mounted) { setWaiting(rows); setLobbyError(''); } })
+      .catch((e) => { if (mounted) setLobbyError(e.message || 'Could not load waiting room'); });
+    load();
+    const t = setInterval(load, 3000);
+    return () => { mounted = false; clearInterval(t); };
+  }, [isHost, session.session_id]);
+  const decideLobby = async (userId, admit) => {
+    setLobbyBusy(userId);
+    try {
+      await api.decideLiveKitLobby({ session_id: session.session_id, user_id: userId, admit });
+      setWaiting((list) => (userId === 'all' ? [] : list.filter((w) => w.user_id !== userId)));
+    } catch (e) { setLobbyError(e.message || 'Failed'); }
+    finally { setLobbyBusy(null); }
+  };
 
   // The whiteboard is opened for the whole room by a host, on its own topic so
   // the message still arrives at clients that have the board hidden.
@@ -395,7 +454,8 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
         </div>
       </div>
 
-      <div ref={stageBodyRef} className="video-stage" style={{ flex: 1, minHeight: 0, padding: '8px', overflowY: 'auto' }}>
+      <div className="video-body">
+      <div ref={stageBodyRef} className="video-stage" style={{ flex: 1, minWidth: 0, minHeight: 0, padding: '8px', overflowY: 'auto' }}>
         {wbOpen && (
           <Whiteboard
             canDraw={canPublish}
@@ -431,6 +491,30 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
             );
           })}
         </div>
+      </div>
+
+      {isHost && (
+        <aside className="waiting-panel">
+          <div className="waiting-panel-head">
+            <span>Waiting room{waiting.length ? ` (${waiting.length})` : ''}</span>
+            {waiting.length > 1 && (
+              <button className="btn btn-sm btn-primary" disabled={lobbyBusy !== null} onClick={() => decideLobby('all', true)}>Admit all</button>
+            )}
+          </div>
+          {lobbyError && <p className="waiting-panel-empty" style={{ color: '#fca5a5' }}>{lobbyError}</p>}
+          {waiting.length === 0 ? (
+            <p className="waiting-panel-empty">No one is waiting.</p>
+          ) : waiting.map((w) => (
+            <div key={w.user_id} className="waiting-row">
+              <span className="waiting-name" title={w.name}>{w.name || `User ${w.user_id}`}</span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-sm btn-primary" disabled={lobbyBusy !== null} onClick={() => decideLobby(w.user_id, true)}>Admit</button>
+                <button className="btn btn-sm btn-ghost text-danger" disabled={lobbyBusy !== null} onClick={() => decideLobby(w.user_id, false)}>Deny</button>
+              </div>
+            </div>
+          ))}
+        </aside>
+      )}
       </div>
 
       {isHost && participants.length > 1 && (
