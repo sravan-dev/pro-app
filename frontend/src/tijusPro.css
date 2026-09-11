@@ -965,6 +965,37 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
 .session-dock-mini .video-grid { padding: 4px; gap: 4px; }
 .session-dock-mini .video-container.local { max-width: 140px; }
 
+/* Screen share layout: camera tiles docked in a narrow left strip, the share
+   filling the rest of the stage with a full-screen button. */
+.share-layout { display: flex; gap: 8px; height: 100%; min-height: 360px; }
+.share-strip {
+  width: 180px; flex-shrink: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.share-strip .meeting-tile { flex-shrink: 0; max-height: none; }
+.share-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.share-tile {
+  flex: 1; min-height: 0; position: relative;
+  border-radius: 10px; overflow: hidden; background: #000;
+}
+.share-tile video { object-fit: contain !important; background: #000; }
+.share-tile:fullscreen { border-radius: 0; }
+.share-fullscreen {
+  position: absolute; top: 8px; right: 8px; z-index: 2;
+  width: 36px; height: 36px; border: none; border-radius: 8px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(17,24,39,0.75); color: #fff;
+}
+.share-fullscreen:hover { background: rgba(17,24,39,0.95); }
+@media (max-width: 768px) {
+  .share-layout { flex-direction: column-reverse; min-height: 0; }
+  .share-strip { width: auto; flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+  .share-strip .meeting-tile { width: 140px; }
+  .share-tile { min-height: 40vh; }
+}
+.session-dock-mini .share-strip { display: none; }
+.session-dock-mini .share-layout { min-height: 0; }
+
 /* LiveKit room body: stage on the left, host's waiting room on the right. */
 .video-body { flex: 1; min-height: 0; display: flex; }
 .waiting-panel {

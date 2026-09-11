@@ -439,6 +439,33 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
 
   const handCount = Object.keys(raisedHands).length;
 
+  // One camera tile per participant: live video if they publish, otherwise a
+  // name placeholder. Rendered in the gallery, or the left strip during a share.
+  const cameraTiles = participants.map((p) => {
+    const ref = cameraByIdentity[p.identity] || { participant: p, source: Track.Source.Camera };
+    const isMe = p.identity === localParticipant?.identity;
+    return (
+      <div key={p.identity} className="meeting-tile">
+        <ParticipantTile
+          trackRef={ref}
+          style={{ width: '100%', height: '100%', borderRadius: '10px', overflow: 'hidden', outline: isMe ? '2px solid #6366f1' : '1px solid rgba(255,255,255,0.08)' }}
+        />
+        {isMe && (
+          <span style={{ position: 'absolute', top: 4, left: 4, fontSize: 10, fontWeight: 700, color: '#fff', background: 'rgba(99,102,241,0.9)', borderRadius: 4, padding: '1px 5px' }}>You</span>
+        )}
+      </div>
+    );
+  });
+
+  // Full screen on the shared screen's tile (toggles back out on a second press).
+  const toggleFullscreen = (el) => {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+      return;
+    }
+    (el.requestFullscreen || el.webkitRequestFullscreen)?.call(el);
+  };
+
   return (
     <div className="video-room" style={{ height: '100%' }}>
       <div className="video-room-header">
@@ -464,33 +491,34 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
           />
         )}
 
-        {/* Screen share gets the prominent (but still capped) slot. */}
-        {screenShares.map((t) => (
-          <ParticipantTile
-            key={`ss-${t.participant.identity}`}
-            trackRef={t}
-            style={{ width: '100%', maxHeight: '48vh', borderRadius: '10px', overflow: 'hidden', marginBottom: '8px' }}
-          />
-        ))}
-
-        {/* Small, wrapping gallery — one c\apped tile per participant. */}
-        <div className="meeting-gallery">
-          {participants.map((p) => {
-            const ref = cameraByIdentity[p.identity] || { participant: p, source: Track.Source.Camera };
-            const isMe = p.identity === localParticipant?.identity;
-            return (
-              <div key={p.identity} className="meeting-tile">
-                <ParticipantTile
-                  trackRef={ref}
-                  style={{ width: '100%', height: '100%', borderRadius: '10px', overflow: 'hidden', outline: isMe ? '2px solid #6366f1' : '1px solid rgba(255,255,255,0.08)' }}
-                />
-                {isMe && (
-                  <span style={{ position: 'absolute', top: 4, left: 4, fontSize: 10, fontWeight: 700, color: '#fff', background: 'rgba(99,102,241,0.9)', borderRadius: 4, padding: '1px 5px' }}>You</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        {screenShares.length > 0 ? (
+          /* While someone shares, the share takes the stage and the camera
+             tiles dock to a narrow strip on the left. */
+          <div className="share-layout">
+            <div className="share-strip">{cameraTiles}</div>
+            <div className="share-main">
+              {screenShares.map((t) => (
+                <div key={`ss-${t.participant.identity}`} className="share-tile">
+                  <ParticipantTile trackRef={t} style={{ width: '100%', height: '100%' }} />
+                  <button
+                    type="button"
+                    className="share-fullscreen"
+                    onClick={(e) => toggleFullscreen(e.currentTarget.parentElement)}
+                    title="Full screen"
+                    aria-label="Full screen"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          /* Small, wrapping gallery — one capped tile per participant. */
+          <div className="meeting-gallery">{cameraTiles}</div>
+        )}
       </div>
 
       {isHost && (
