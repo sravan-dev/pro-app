@@ -2752,6 +2752,25 @@ export default function SuperadminPortal() {
               <KPICard variant="small-box" title="Managers" value={stats.total_managers} icon="users" color="#0891B2" onClick={() => setActiveTab('users')} />
             </div>
 
+            {/* Same filter as the Active Sessions card: scheduled or live. Live first. */}
+            {(() => {
+              const active = allSessions
+                .filter((s) => s.status === 'scheduled' || s.status === 'live')
+                .sort((a, b) => (a.status === 'live' ? 0 : 1) - (b.status === 'live' ? 0 : 1)
+                  || new Date(a.start_time) - new Date(b.start_time));
+              return (
+                <div className="section" style={{ marginTop: '1.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                    <h3 style={{ margin: 0 }}>Active Sessions ({active.length})</h3>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setActiveTab('sessions')}>View all sessions →</button>
+                  </div>
+                  {active.length === 0
+                    ? <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>No scheduled or live sessions.</p>
+                    : <DataTable columns={sessionColumns} data={active} pageSize={5} />}
+                </div>
+              );
+            })()}
+
             <div className="section" style={{ marginTop: '1.5rem' }}>
               <h3 style={{ marginBottom: '0.75rem' }}>Revenue (last 12 months)</h3>
               <RevenueChart data={revenueMonthly} />
