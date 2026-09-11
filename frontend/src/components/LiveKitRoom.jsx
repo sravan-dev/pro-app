@@ -395,7 +395,7 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
         </div>
       </div>
 
-      <div ref={stageBodyRef} style={{ flex: 1, minHeight: 0, padding: '8px', overflowY: 'auto' }}>
+      <div ref={stageBodyRef} className="video-stage" style={{ flex: 1, minHeight: 0, padding: '8px', overflowY: 'auto' }}>
         {wbOpen && (
           <Whiteboard
             canDraw={canPublish}

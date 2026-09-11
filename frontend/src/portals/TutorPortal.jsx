@@ -6,7 +6,7 @@ import KPICard from '../components/KPICard';
 import DataTable from '../components/DataTable';
 import Calendar from '../components/Calendar';
 import SessionCard from '../components/SessionCard';
-import SessionRoom from '../components/SessionRoom';
+import SessionDock from '../components/SessionDock';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
 
@@ -16,6 +16,7 @@ export default function TutorPortal() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeSession, setActiveSession] = useState(null);
+  const [sessionMinimized, setSessionMinimized] = useState(false);
   const [showSessionForm, setShowSessionForm] = useState(false);
   const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
   const [sessionForm, setSessionForm] = useState({ course_id: '', student_id: '', start_time: '', end_time: '' });
@@ -113,6 +114,7 @@ export default function TutorPortal() {
     try {
       const result = await api.joinSession(session.session_id);
       setActiveSession({ ...session, ...result });
+      setSessionMinimized(false);
     } catch (err) {
       alert(err.message);
     }
@@ -159,17 +161,6 @@ export default function TutorPortal() {
       <main className="portal-content"><MainSkeleton kpis={4} /></main>
     </div>
   );
-
-  if (activeSession) {
-    return (
-      <div className="portal-layout portal-tutor">
-        <Sidebar activeTab={activeTab} onTabChange={(tab) => { setActiveSession(null); setActiveTab(tab); }} />
-        <main className="portal-content">
-          <SessionRoom session={activeSession} onLeave={() => setActiveSession(null)} />
-        </main>
-      </div>
-    );
-  }
 
   const courses = data?.courses || [];
   const students = data?.students || [];
@@ -227,8 +218,18 @@ export default function TutorPortal() {
 
   return (
     <div className="portal-layout portal-tutor">
-      <Sidebar activeTab={activeTab} onTabChange={(tab) => { setStudentDetail(null); setActiveTab(tab); }} />
+      <Sidebar activeTab={activeTab} onTabChange={(tab) => { setStudentDetail(null); if (activeSession) setSessionMinimized(true); setActiveTab(tab); }} />
       <main className="portal-content">
+        {activeSession && (
+          <SessionDock
+            session={activeSession}
+            minimized={sessionMinimized}
+            onExpand={() => setSessionMinimized(false)}
+            onLeave={() => setActiveSession(null)}
+          />
+        )}
+        {/* Hidden, not unmounted, while the session fills the page. */}
+        <div style={{ display: activeSession && !sessionMinimized ? 'none' : 'contents' }}>
         {message && <div className="alert alert-info" onClick={() => setMessage('')}>{message}</div>}
 
         {activeTab === 'dashboard' && (
@@ -613,6 +614,7 @@ export default function TutorPortal() {
             )}
           </div>
         )}
+        </div>
       </main>
     </div>
   );

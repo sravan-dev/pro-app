@@ -6,7 +6,7 @@ import KPICard from '../components/KPICard';
 import DataTable from '../components/DataTable';
 import Calendar from '../components/Calendar';
 import SessionCard from '../components/SessionCard';
-import SessionRoom from '../components/SessionRoom';
+import SessionDock from '../components/SessionDock';
 import { MainSkeleton } from '../components/Skeleton';
 import RatingsView from '../components/RatingsView';
 import Tickets from '../components/Tickets';
@@ -236,6 +236,7 @@ export default function SuperadminPortal() {
   const [sessionForm, setSessionForm] = useState({ course_id: '', tutor_id: '', student_id: '', start_time: '', end_time: '' });
 
   const [activeSession, setActiveSession] = useState(null);
+  const [sessionMinimized, setSessionMinimized] = useState(false);
 
   // SMTP settings
   const [smtpForm, setSmtpForm] = useState({ host: '', port: 587, user: '', pass: '', from_email: '', provider: 'smtp', resend_api_key: '', resend_monthly_cap: 0, resend_quota_used: '', resend_quota_at: null, gmail_user: '', gmail_app_password: '' });
@@ -1308,6 +1309,7 @@ export default function SuperadminPortal() {
     try {
       const result = await api.joinSession(session.session_id);
       setActiveSession({ ...session, ...result });
+      setSessionMinimized(false);
     } catch (err) { alert(err.message); }
   };
 
@@ -1326,17 +1328,6 @@ export default function SuperadminPortal() {
       <main className="portal-content"><MainSkeleton /></main>
     </div>
   );
-
-  if (activeSession) {
-    return (
-      <div className="portal-layout portal-superadmin">
-        <Sidebar activeTab={activeTab} onTabChange={(tab) => { setActiveSession(null); setActiveTab(tab); }} />
-        <main className="portal-content">
-          <SessionRoom session={activeSession} onLeave={() => setActiveSession(null)} />
-        </main>
-      </div>
-    );
-  }
 
   const stats = data?.stats || {};
   const charts = data?.charts || {};
@@ -2564,8 +2555,18 @@ export default function SuperadminPortal() {
 
   return (
     <div className="portal-layout portal-superadmin">
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      <Sidebar activeTab={activeTab} onTabChange={(tab) => { if (activeSession) setSessionMinimized(true); setActiveTab(tab); }} />
       <main className="portal-content">
+        {activeSession && (
+          <SessionDock
+            session={activeSession}
+            minimized={sessionMinimized}
+            onExpand={() => setSessionMinimized(false)}
+            onLeave={() => setActiveSession(null)}
+          />
+        )}
+        {/* Hidden, not unmounted, while the session fills the page. */}
+        <div style={{ display: activeSession && !sessionMinimized ? 'none' : 'contents' }}>
         {message && <div className={`alert alert-${msgType}`} onClick={() => setMessage('')}>{message}</div>}
         {userFormModal}
 
@@ -4206,6 +4207,7 @@ export default function SuperadminPortal() {
             </div>
           </div>
         )}
+        </div>
       </main>
     </div>
   );

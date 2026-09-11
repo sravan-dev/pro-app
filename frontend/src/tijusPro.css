@@ -930,6 +930,40 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
    ======================================== */
 .video-room { background: #111827; border-radius: var(--radius-lg); overflow: hidden; min-height: 80vh; display: flex; flex-direction: column; }
 
+/* Session dock: the joined room, full size or shrunk to a floating
+   mini-player while the user browses other portal tabs. */
+.session-dock-body { height: 100%; }
+.session-dock-mini {
+  position: fixed; right: 16px; bottom: 16px; z-index: 900;
+  width: 360px; max-width: calc(100vw - 32px); height: 250px;
+  display: flex; flex-direction: column;
+  background: #111827; border-radius: var(--radius-lg); overflow: hidden;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+}
+.session-dock-mini .session-dock-body { flex: 1; min-height: 0; }
+.session-dock-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px 6px 12px; background: #1F2937; color: #fff; font-size: 0.85rem; font-weight: 600;
+}
+.session-dock-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-dock-live {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: #EF4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.25); vertical-align: middle;
+}
+.session-dock-bar button {
+  background: #374151; color: #fff; border: none; border-radius: 6px;
+  padding: 4px 10px; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+}
+.session-dock-bar button:hover { background: #4B5563; }
+/* Mini-player shows only the video: header, rosters and controls come back on Open. */
+.session-dock-mini .video-room { min-height: 0; height: 100%; border-radius: 0; }
+.session-dock-mini .video-room > :not(.video-stage):not(.video-grid) { display: none !important; }
+.session-dock-mini .lk-room-container { height: 100%; }
+.session-dock-mini .video-stage { padding: 4px !important; }
+.session-dock-mini .meeting-gallery { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 4px; }
+.session-dock-mini .video-grid { padding: 4px; gap: 4px; }
+.session-dock-mini .video-container.local { max-width: 140px; }
+
 .video-room-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 1rem 1.5rem; background: #1F2937; color: #fff;
