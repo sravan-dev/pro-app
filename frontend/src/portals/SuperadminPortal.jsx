@@ -677,6 +677,19 @@ export default function SuperadminPortal() {
     } catch (err) { showMsg(err.message || 'Failed to delete recordings', 'error'); }
   };
 
+  const deleteAllRecordings = async () => {
+    const ids = recordings.map((r) => r.record_id);
+    if (!ids.length) return;
+    if (!confirm(`Delete ALL ${ids.length} recording(s)? This permanently removes every recording file. This cannot be undone.`)) return;
+    // allSettled so one failure doesn't hide the ones that were deleted.
+    const results = await Promise.allSettled(ids.map((id) => api.deleteMeetingRecord(id)));
+    const deleted = ids.filter((_, i) => results[i].status === 'fulfilled');
+    setRecordings((list) => list.filter((x) => !deleted.includes(x.record_id)));
+    const failed = ids.length - deleted.length;
+    if (failed) showMsg(`${deleted.length} deleted, ${failed} failed`, 'error');
+    else showMsg(`All ${deleted.length} recording(s) deleted`, 'success');
+  };
+
   // ===== MEETINGS (temporary link + passcode) =====
   const meetingLink = (code) => `${window.location.origin}/m/${code}`;
 
@@ -3357,7 +3370,10 @@ export default function SuperadminPortal() {
           <div className="portal-page">
             <div className="page-header">
               <h2>Recordings</h2>
-              <button className="btn btn-ghost" onClick={() => api.getMeetingRecords().then(setRecordings).catch(() => {})}>↻ Refresh</button>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button className="btn btn-ghost" onClick={() => api.getMeetingRecords().then(setRecordings).catch(() => {})}>↻ Refresh</button>
+                <button className="btn btn-danger" disabled={recordings.length === 0} onClick={deleteAllRecordings}>🗑 Delete All</button>
+              </div>
             </div>
             <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
               All session recordings captured across every tutor and course.
