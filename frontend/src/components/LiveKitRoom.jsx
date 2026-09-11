@@ -4,6 +4,7 @@ import {
   RoomAudioRenderer,
   ParticipantTile,
   ControlBar,
+  TrackToggle,
   useTracks,
   useParticipants,
   useLocalParticipant,
@@ -506,16 +507,26 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
             <div className="share-main">
               {screenShares.map((t) => {
                 const mine = isOwnShare(t);
-                const covered = mine && !showOwnShare;
+                // Sharing the whole monitor always loops (and flickers as each
+                // copy is re-encoded), so only a window or tab share may preview.
+                const surface = mine ? t.publication?.track?.mediaStreamTrack?.getSettings?.().displaySurface : null;
+                const canPreview = surface === 'window' || surface === 'browser';
+                const covered = mine && (!showOwnShare || !canPreview);
                 return (
                   <div key={`ss-${t.participant.identity}`} className="share-tile">
                     <ParticipantTile trackRef={t} style={{ width: '100%', height: '100%' }} />
                     {covered ? (
                       <div className="share-self-cover">
                         <strong>You are sharing your screen</strong>
-                        <span>Everyone in the session can see it. Your own copy is hidden so it doesn't repeat inside itself.</span>
+                        <span>
+                          {canPreview
+                            ? "Everyone in the session can see it. Your own copy is hidden so it doesn't repeat inside itself."
+                            : 'Everyone in the session can see it. A preview of your entire screen would repeat inside itself and flicker, so it stays hidden. Share a single window or tab if you want to preview it.'}
+                        </span>
                         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                          <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#fff' }} onClick={() => setShowOwnShare(true)}>Show preview</button>
+                          {canPreview && (
+                            <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#fff' }} onClick={() => setShowOwnShare(true)}>Show preview</button>
+                          )}
                           <button type="button" className="btn btn-sm btn-danger" onClick={() => localParticipant?.setScreenShareEnabled(false)}>Stop sharing</button>
                         </div>
                       </div>
@@ -618,7 +629,15 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
           <>
             <ControlBar
               variation="minimal"
-              controls={{ microphone: true, camera: true, screenShare: true, chat: false, leave: false, settings: false }}
+              controls={{ microphone: true, camera: true, screenShare: false, chat: false, leave: false, settings: false }}
+            />
+            {/* Our own share button: ControlBar's offers this very tab in the
+                picker, and sharing the class tab only shows it inside itself. */}
+            <TrackToggle
+              source={Track.Source.ScreenShare}
+              captureOptions={{ audio: true, selfBrowserSurface: 'exclude' }}
+              showIcon
+              title="Share screen"
             />
             {!isMicrophoneEnabled && (
               <button className="btn-control" onClick={enableMic} title="Turn on your microphone">🎤 Unmute</button>
