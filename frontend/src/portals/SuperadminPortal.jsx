@@ -36,49 +36,6 @@ function BarChart({ title, rows = [], color = '#4F46E5', emptyLabel = 'No data y
   );
 }
 
-// Revenue (monthly payroll gross) line/area chart. `data` is [{period,gross}]
-// oldest→newest. Pure SVG, no chart lib.
-function RevenueChart({ data = [], color = '#10B981', currency = 'INR' }) {
-  const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n || 0);
-  const total = data.reduce((s, d) => s + (d.gross || 0), 0);
-  const W = 720, H = 220, PAD = 8;
-  const max = Math.max(...data.map((d) => d.gross || 0), 1);
-  const n = data.length;
-  const x = (i) => (n <= 1 ? W / 2 : PAD + (i * (W - PAD * 2)) / (n - 1));
-  const y = (v) => H - PAD - ((v || 0) / max) * (H - PAD * 2);
-  const line = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(d.gross).toFixed(1)}`).join(' ');
-  const area = n ? `${line} L ${x(n - 1).toFixed(1)} ${H - PAD} L ${x(0).toFixed(1)} ${H - PAD} Z` : '';
-  const label = (p) => { const [yy, mm] = p.split('-'); return new Date(yy, mm - 1, 1).toLocaleString('en-US', { month: 'short' }); };
-  return (
-    <div className="card" style={{ padding: '1.25rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
-        <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Total ({n} mo)</span>
-        <strong style={{ fontSize: '1.15rem' }}>{fmt(total)}</strong>
-      </div>
-      {total === 0 ? (
-        <p style={{ color: 'var(--color-text-secondary)' }}>No payroll recorded yet.</p>
-      ) : (
-        <svg viewBox={`0 0 ${W} ${H + 22}`} width="100%" role="img" aria-label="Monthly revenue">
-          <defs>
-            <linearGradient id="revfill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity="0.28" />
-              <stop offset="100%" stopColor={color} stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path d={area} fill="url(#revfill)" />
-          <path d={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-          {data.map((d, i) => (
-            <g key={d.period}>
-              <circle cx={x(i)} cy={y(d.gross)} r="3" fill={color} />
-              <text x={x(i)} y={H + 16} textAnchor="middle" fontSize="11" fill="var(--color-text-secondary)">{label(d.period)}</text>
-            </g>
-          ))}
-        </svg>
-      )}
-    </div>
-  );
-}
-
 export default function SuperadminPortal() {
   const { user } = useAuth();
   const firstName = user?.name?.split(' ')[0] || 'there';
@@ -113,9 +70,6 @@ export default function SuperadminPortal() {
   const [meetingForm, setMeetingForm] = useState({ title: '', name: '', email: '' });
   const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
   const [reports, setReports] = useState(null);
-
-  // Dashboard revenue graph (monthly payroll gross)
-  const [revenueMonthly, setRevenueMonthly] = useState([]);
 
   // Salary / Payroll (salary = hours worked × payout rate)
   const [payrollPeriod, setPayrollPeriod] = useState(() => new Date().toISOString().slice(0, 7));
@@ -357,7 +311,6 @@ export default function SuperadminPortal() {
     api.getTutors().then(setAllTutors).catch(() => {});
     api.getCourses().then(setAllCourses).catch(() => {});
     api.getSessions().then(setAllSessions).catch(() => {});
-    api.getPayrollMonthly(12).then(setRevenueMonthly).catch(() => {});
   }, []);
 
   // Poll the backend/DB health so the dashboard can show a live status badge.
@@ -2771,10 +2724,6 @@ export default function SuperadminPortal() {
               );
             })()}
 
-            <div className="section" style={{ marginTop: '1.5rem' }}>
-              <h3 style={{ marginBottom: '0.75rem' }}>Revenue (last 12 months)</h3>
-              <RevenueChart data={revenueMonthly} />
-            </div>
           </div>
         )}
 
