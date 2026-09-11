@@ -3328,6 +3328,10 @@ app.get('/api/livekit/usage', async (req, res) => {
   // Participant-minutes, computed in JS over the attendance logs (closed logs
   // use leave_time; ongoing ones count up to now).
   const logs = await db.all("SELECT session_id, join_time, leave_time FROM attendance_logs");
+  // A superadmin reset sets a baseline; attendance that began before it no
+  // longer counts toward either window. The logs themselves are untouched.
+  const resetAt = (await db.get("SELECT livekit_usage_reset_at AS r FROM app_settings WHERE id=1"))?.r || null;
+  const resetTs = parseTs(resetAt);
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -3337,6 +3341,7 @@ app.get('/api/livekit/usage', async (req, res) => {
     for (const l of logs) {
       const jt = new Date(l.join_time);
       if (!(jt >= since)) continue;
+      if (resetTs !== null && !(parseTs(l.join_time) >= resetTs)) continue;
       participants++;
       sessions.add(l.session_id);
       const end = l.leave_time ? new Date(l.leave_time) : now;
@@ -3357,9 +3362,20 @@ app.get('/api/livekit/usage', async (req, res) => {
   res.json({
     configured: livekitConfigured(),
     assumed_mbps: EST_MBPS_PER_PARTICIPANT,
+    reset_at: resetAt,
     today: shape(windowStats(startOfDay)),
     month: shape(windowStats(startOfMonth)),
   });
+});
+
+// Zero the data-transfer estimate from now on. Only moves the baseline —
+// attendance logs feed payroll and are never deleted here.
+app.post('/api/livekit/usage/reset', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const resetAt = nowStr();
+  await db.run("UPDATE app_settings SET livekit_usage_reset_at=? WHERE id=1", [resetAt]);
+  auditLog(user.id, 'reset_livekit_usage', 'app_settings', 1);
+  res.json({ message: 'Usage estimate reset', reset_at: resetAt });
 });
 
 // ============================================================

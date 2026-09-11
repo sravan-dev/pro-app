@@ -119,6 +119,7 @@ export const api = {
   livekitUpdatePermission: (data) => request('/livekit/update-permission', { method: 'POST', body: data }),
   livekitMuteParticipant: (data) => request('/livekit/mute-participant', { method: 'POST', body: data }),
   getLiveKitUsage: () => request('/livekit/usage'),
+  resetLiveKitUsage: () => request('/livekit/usage/reset', { method: 'POST' }),
 
   // Session recording — uploads a .webm to backend/uploads/recordings/
   uploadRecording: (sessionId, blob) => {

@@ -3724,14 +3724,25 @@ export default function SuperadminPortal() {
                   <div style={{ marginTop: '1rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                       <h4 style={{ margin: 0 }}>Estimated data transferred</h4>
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => api.getLiveKitUsage().then(setLivekitUsage).catch(() => {})}>↻ Refresh</button>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => api.getLiveKitUsage().then(setLivekitUsage).catch(() => {})}>↻ Refresh</button>
+                        <button type="button" className="btn btn-ghost btn-sm text-danger" onClick={async () => {
+                          if (!confirm('Reset the data transfer estimate to zero? Only sessions joined from now on will be counted. Attendance records are not affected.')) return;
+                          try {
+                            const r = await api.resetLiveKitUsage();
+                            showMsg(r.message || 'Usage reset', 'success');
+                            setLivekitUsage(await api.getLiveKitUsage());
+                          } catch (err) { showMsg(err.message || 'Failed to reset', 'error'); }
+                        }}>⟲ Reset</button>
+                      </div>
                     </div>
                     <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
                       <KPICard title="Today" value={`${livekitUsage.today.est_gb} GB`} subtitle={`${livekitUsage.today.minutes} participant-min · ${livekitUsage.today.sessions} session(s)`} icon="bar-chart" color="#3B82F6" />
                       <KPICard title="This month" value={`${livekitUsage.month.est_gb} GB`} subtitle={`${livekitUsage.month.minutes} participant-min · ${livekitUsage.month.sessions} session(s)`} icon="bar-chart" color="#8B5CF6" />
                     </div>
                     <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '0.5rem' }}>
-                      Rough estimate from session attendance (~{livekitUsage.assumed_mbps} Mbps per participant). For exact billed bandwidth see your{' '}
+                      Rough estimate from session attendance (~{livekitUsage.assumed_mbps} Mbps per participant)
+                      {livekitUsage.reset_at ? `, counted since the reset on ${String(livekitUsage.reset_at).slice(0, 16)}` : ''}. For exact billed bandwidth see your{' '}
                       <a href="https://cloud.livekit.io" target="_blank" rel="noopener noreferrer">LiveKit Cloud dashboard</a>.
                     </p>
                   </div>
