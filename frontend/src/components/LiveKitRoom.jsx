@@ -93,6 +93,7 @@ export default function LiveKitRoom({ session, onLeave }) {
       <Stage
         session={session}
         initialCanPublish={conn.can_publish}
+        serverUrl={conn.url}
         onLeave={handleLeave}
         deviceError={deviceError}
         setDeviceError={setDeviceError}
@@ -102,7 +103,7 @@ export default function LiveKitRoom({ session, onLeave }) {
   );
 }
 
-function Stage({ session, initialCanPublish, onLeave, deviceError, setDeviceError }) {
+function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, setDeviceError }) {
   const { user } = useAuth();
   const isHost = HOST_ROLES.includes(user?.role);
   const participants = useParticipants();
@@ -384,8 +385,11 @@ function Stage({ session, initialCanPublish, onLeave, deviceError, setDeviceErro
       <div className="video-room-header">
         <h3>{session.course_name || 'Live Session'}</h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, padding: '2px 10px', borderRadius: '999px', background: '#F59E0B', color: '#111' }}>
-            LiveKit · Webinar
+          <span
+            title={serverUrl}
+            style={{ fontSize: '12px', fontWeight: 600, padding: '2px 10px', borderRadius: '999px', background: '#F59E0B', color: '#111' }}
+          >
+            LiveKit · Webinar{serverUrl ? ` · ${serverUrl}` : ''}
           </span>
           <span className="participants-count">{participants.length} in room</span>
         </div>
