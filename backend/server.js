@@ -237,6 +237,19 @@ const getDB = () => db;
 // ============================================================
 // Email Helper
 // ============================================================
+// Gmail's own errors are terse ("Invalid login", a bare timeout). Say what to
+// check, since the two real causes look nothing alike.
+function gmailFailureReason(err) {
+  const msg = (err && err.message) || 'Unknown error';
+  if (err && (err.responseCode === 535 || /Invalid login|BadCredentials|Username and Password not accepted/i.test(msg))) {
+    return `Gmail rejected the login (${msg}). Check the address, and that the password is a 16-character App Password from an account with 2-Step Verification on — a normal account password will not work.`;
+  }
+  if (/ETIMEDOUT|ESOCKET|ECONNREFUSED|ENOTFOUND|EDNS|timeout|Greeting never received/i.test(msg)) {
+    return `Could not reach smtp.gmail.com on port 465 or 587 (${msg}). The host is most likely blocking outbound SMTP — ask the hosting provider to open it, or use Resend, which sends over HTTPS instead.`;
+  }
+  return msg;
+}
+
 async function sendEmail(to, subject, html) {
   const cfg = await db.get("SELECT * FROM smtp_settings WHERE id=1");
   const provider = (cfg && cfg.provider) || 'smtp';
@@ -280,27 +293,37 @@ async function sendEmail(to, subject, html) {
       console.log(`[EMAIL] Gmail not configured. Would send to ${to}: ${subject}`);
       return { sent: false, reason: 'Gmail not configured' };
     }
-    try {
-      const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 465,
-        secure: true,
-        auth: { user: cfg.gmail_user, pass: cfg.gmail_app_password },
-      });
-      // Gmail forces the sender to the authenticated account; from_email can
-      // only add a display name (e.g. "Tiju's Academy <acct@gmail.com>").
-      await transporter.sendMail({
-        from: cfg.from_email || cfg.gmail_user,
-        to,
-        subject,
-        html,
-      });
-      console.log(`[EMAIL] Sent via Gmail to ${to}: ${subject}`);
-      return { sent: true };
-    } catch (err) {
-      console.error(`[EMAIL] Gmail error to ${to}:`, err.message);
-      return { sent: false, reason: err.message };
+    // Gmail forces the sender to the authenticated account; from_email can
+    // only add a display name (e.g. "Tiju's Academy <acct@gmail.com>").
+    const mail = { from: cfg.from_email || cfg.gmail_user, to, subject, html };
+    // 465 first, then 587 (STARTTLS): hosts commonly block one of the two
+    // outbound, and a blocked port looks like a hang rather than a refusal.
+    const attempts = [
+      { port: 465, secure: true },
+      { port: 587, secure: false, requireTLS: true },
+    ];
+    let last = null;
+    for (const a of attempts) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: 'smtp.gmail.com',
+          ...a,
+          auth: { user: cfg.gmail_user, pass: cfg.gmail_app_password },
+          connectionTimeout: 15000,
+          greetingTimeout: 15000,
+          socketTimeout: 20000,
+        });
+        await transporter.sendMail(mail);
+        console.log(`[EMAIL] Sent via Gmail (port ${a.port}) to ${to}: ${subject}`);
+        return { sent: true };
+      } catch (err) {
+        last = err;
+        console.error(`[EMAIL] Gmail error on port ${a.port} to ${to}:`, err.message);
+        // Bad credentials fail the same way on every port, so stop there.
+        if (err.responseCode === 535 || /Invalid login|BadCredentials|Username and Password not accepted/i.test(err.message || '')) break;
+      }
     }
+    return { sent: false, reason: gmailFailureReason(last) };
   }
 
   // ---- Hostinger / generic SMTP (nodemailer) -----------------------------

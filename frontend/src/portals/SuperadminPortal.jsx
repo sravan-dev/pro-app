@@ -4046,6 +4046,10 @@ export default function SuperadminPortal() {
                     onClick={async () => {
                       setSmtpTesting(true);
                       try {
+                        // The test sends with the *saved* settings, so save what
+                        // is on screen first — otherwise a freshly typed password
+                        // is tested against the old provider.
+                        await api.saveSmtpSettings(smtpForm);
                         const result = await api.testSmtp(smtpTestEmail);
                         showMsg(result.message, 'success');
                       } catch (err) { showMsg(err.message, 'error'); }
