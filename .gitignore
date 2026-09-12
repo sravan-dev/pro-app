@@ -7,3 +7,8 @@ backend/uploads/recordings/*
 desktop.ini
 *.log
 .env
+
+# Local-only: credentials and database dumps, never commit these
+ftp.txt
+*.sql
+!backend/schema.mysql.sql
