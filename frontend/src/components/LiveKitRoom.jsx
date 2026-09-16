@@ -39,6 +39,58 @@ const deviceFailureMessage = (failure) => {
   return 'Could not start your microphone or camera. Check browser permissions and press the mic button again.';
 };
 
+// Elapsed/remaining time as mm:ss (h:mm:ss once past an hour).
+const formatClock = (ms) => {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const mm = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+  const ss = String(total % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+};
+
+// How far the class is through its scheduled window. start_time/end_time are
+// plain 'YYYY-MM-DDTHH:MM' strings in the academy's local zone — the same way
+// the rest of the app reads them — so `new Date(...)` parses them as local.
+// Turns amber in the last five minutes and red once the class runs over, so a
+// tutor mid-explanation can see the clock without checking the schedule.
+function ClassProgress({ startTime, endTime }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const start = new Date(startTime).getTime();
+  const end = new Date(endTime).getTime();
+  // Ad-hoc rooms carry no schedule; they just don't get a timer.
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+
+  const total = end - start;
+  const elapsed = now - start;
+  const remaining = total - elapsed;
+
+  const state = elapsed < 0 ? 'early'
+    : remaining < 0 ? 'over'
+    : remaining <= 5 * 60 * 1000 ? 'ending'
+    : 'running';
+
+  const label = state === 'early' ? `Starts in ${formatClock(-elapsed)}`
+    : state === 'over' ? `Over by ${formatClock(-remaining)}`
+    : `${formatClock(elapsed)} / ${formatClock(total)}`;
+
+  const pct = Math.min(100, Math.max(0, (elapsed / total) * 100));
+  const clock = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const tooltip = `Scheduled ${clock(start)} – ${clock(end)}`
+    + (state === 'running' || state === 'ending' ? ` · ${formatClock(remaining)} left` : '');
+
+  return (
+    <div className={`class-progress ${state}`} title={tooltip}>
+      <span className="class-progress-bar"><span style={{ width: `${pct}%` }} /></span>
+      <span className="class-progress-label">{label}</span>
+    </div>
+  );
+}
+
 export default function LiveKitRoom({ session, onLeave }) {
   const [conn, setConn] = useState(null);
   const [error, setError] = useState('');
@@ -478,7 +530,8 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
     <div className="video-room" style={{ height: '100%' }}>
       <div className="video-room-header">
         <h3>{session.course_name || 'Live Session'}</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <ClassProgress startTime={session.start_time} endTime={session.end_time} />
           <span
             title={serverUrl}
             style={{ fontSize: '12px', fontWeight: 600, padding: '2px 10px', borderRadius: '999px', background: '#F59E0B', color: '#111' }}
