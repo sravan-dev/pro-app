@@ -162,6 +162,7 @@ async function initSchema() {
   await addColumnIfMissing('users', 'payout_rate', 'payout_rate DOUBLE DEFAULT 0');
   await addColumnIfMissing('users', 'payout_type', "payout_type VARCHAR(20) DEFAULT 'monthly'");
   await addColumnIfMissing('users', 'avatar_url', "avatar_url VARCHAR(512) DEFAULT ''");
+  await addColumnIfMissing('users', 'phone', "phone VARCHAR(30) DEFAULT ''");
   // Teams / assignment hierarchy + gender (manual assignment, ratings).
   await addColumnIfMissing('users', 'gender', "gender VARCHAR(20) DEFAULT ''");
   await addColumnIfMissing('users', 'team_id', 'team_id INT NULL');

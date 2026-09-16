@@ -92,7 +92,7 @@ export default function SuperadminPortal() {
   // Modals
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [userForm, setUserForm] = useState({ name: '', email: '', role: 'student', password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'shift', gender: '', team_id: '', course_id: '', new_course_name: '', shift_rates: null });
+  const [userForm, setUserForm] = useState({ name: '', email: '', phone: '', role: 'student', password: 'password123', specialization: '', avatar_color: '#4F46E5', payout_rate: 0, payout_type: 'shift', gender: '', team_id: '', course_id: '', new_course_name: '', shift_rates: null });
   // Shift bands (hours + rate range) come from the server so the pay scale lives
   // in exactly one place.
   const [shiftBands, setShiftBands] = useState([]);
@@ -534,7 +534,7 @@ export default function SuperadminPortal() {
 
   const openEditUser = (user) => {
     setEditingUser(user);
-    setUserForm({ name: user.name, email: user.email, role: user.role, password: '', specialization: user.specialization || '', avatar_color: user.avatar_color, status: user.status, payout_rate: user.payout_rate || 0, payout_type: user.payout_type || 'shift', gender: user.gender || '', team_id: user.team_id || '', course_id: '', new_course_name: '', shift_rates: null });
+    setUserForm({ name: user.name, email: user.email, phone: user.phone || '', role: user.role, password: '', specialization: user.specialization || '', avatar_color: user.avatar_color, status: user.status, payout_rate: user.payout_rate || 0, payout_type: user.payout_type || 'shift', gender: user.gender || '', team_id: user.team_id || '', course_id: '', new_course_name: '', shift_rates: null });
     loadShiftRates(user.id);
     setCourseDraft('');
     setAddingCourse(false);
@@ -1415,6 +1415,7 @@ export default function SuperadminPortal() {
     { key: 'avatar', label: '', sortable: false, render: avatarCol },
     { key: 'name', label: 'Name', accessor: 'name' },
     { key: 'email', label: 'Email', accessor: 'email' },
+    { key: 'phone', label: 'Phone', accessor: 'phone', render: (r) => r.phone || <span style={{ color: 'var(--color-text-secondary)' }}>—</span> },
     { key: 'team', label: 'Team', accessor: 'team_name', render: (r) => r.team_name || <span style={{ color: 'var(--color-text-secondary)' }}>—</span> },
     { key: 'courses', label: 'Courses', accessor: 'course_count' },
     { key: 'payout', label: 'Payout', accessor: 'payout_rate', render: (r) => (
@@ -1682,6 +1683,10 @@ export default function SuperadminPortal() {
             </div>
           </div>
           <div className="form-row">
+            <div className="form-group">
+              <label>Phone</label>
+              <input value={userForm.phone || ''} onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })} />
+            </div>
             <div className="form-group">
               <label>Role *</label>
               <select value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>

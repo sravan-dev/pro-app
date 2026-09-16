@@ -620,7 +620,7 @@ app.get('/api/students/:id', async (req, res) => {
 // Tutors
 app.get('/api/tutors', async (req, res) => {
   const user = await requireRole(req, res, ['manager','superadmin']); if (!user) return;
-  res.json(await db.all("SELECT u.id,u.name,u.email,u.role,u.status,u.avatar_color,u.specialization,u.payout_rate,u.payout_type,u.team_id, (SELECT name FROM teams WHERE id=u.team_id) AS team_name, COUNT(DISTINCT c.id) as course_count FROM users u LEFT JOIN courses c ON c.tutor_id=u.id WHERE u.role='tutor' GROUP BY u.id ORDER BY u.name"));
+  res.json(await db.all("SELECT u.id,u.name,u.email,u.phone,u.role,u.status,u.avatar_color,u.specialization,u.payout_rate,u.payout_type,u.team_id, (SELECT name FROM teams WHERE id=u.team_id) AS team_name, COUNT(DISTINCT c.id) as course_count FROM users u LEFT JOIN courses c ON c.tutor_id=u.id WHERE u.role='tutor' GROUP BY u.id ORDER BY u.name"));
 });
 
 // Courses
@@ -1959,15 +1959,15 @@ app.get('/api/users', async (req, res) => {
 
 app.post('/api/users', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  const { name, email, role, password, specialization, avatar_color, gender, team_id, payout_rate, payout_type, shift_rates } = req.body;
+  const { name, email, phone, role, password, specialization, avatar_color, gender, team_id, payout_rate, payout_type, shift_rates } = req.body;
   if (!name || !email || !role) return res.status(400).json({ error: 'Name, email, role required' });
   if (!['student','tutor','advisor','manager','superadmin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (await db.get("SELECT 1 FROM users WHERE email=?", [email])) return res.status(400).json({ error: 'Email exists' });
   const plainPassword = password || 'password123';
   const hash = bcrypt.hashSync(plainPassword, 10);
   const r = await db.run(
-    "INSERT INTO users (name,email,portal,role,password_hash,avatar_color,specialization,gender,team_id,payout_rate,payout_type,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)",
-    [name, email, role, role, hash, avatar_color || '#4F46E5', specialization || '', gender || '', team_id || null,
+    "INSERT INTO users (name,email,phone,portal,role,password_hash,avatar_color,specialization,gender,team_id,payout_rate,payout_type,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)",
+    [name, email, phone || '', role, role, hash, avatar_color || '#4F46E5', specialization || '', gender || '', team_id || null,
      Number(payout_rate) || 0, payout_type || (STAFF_ROLES.includes(role) ? 'shift' : 'monthly')]
   );
   await saveShiftRates(r.lastInsertRowid, shift_rates);
@@ -1998,7 +1998,7 @@ app.put('/api/users', async (req, res) => {
   const { id, password, shift_rates, ...fields } = req.body;
   if (!id) return res.status(400).json({ error: 'User ID required' });
   await saveShiftRates(id, shift_rates);
-  const allowed = ['name','email','role','status','specialization','avatar_color','payout_rate','payout_type','gender','team_id','advisor_id','assigned_tutor_id'];
+  const allowed = ['name','email','phone','role','status','specialization','avatar_color','payout_rate','payout_type','gender','team_id','advisor_id','assigned_tutor_id'];
   const nullable = ['team_id','advisor_id','assigned_tutor_id'];
   const sets = []; const vals = [];
   for (const k of allowed) {
