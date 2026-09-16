@@ -652,6 +652,22 @@ app.put('/api/courses', async (req, res) => {
   res.json({ message: 'Course updated' });
 });
 
+// InnoDB resolves a deadlock by rolling one transaction back and asking for a
+// retry — the loser did nothing wrong. The cascading deletes below touch tables
+// that live traffic writes constantly (signaling, attendance_logs), so they can
+// lose that race; retry a couple of times before surfacing the error.
+async function txRetry(fn, attempts = 3) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await db.tx(fn);
+    } catch (err) {
+      const retryable = err.code === 'ER_LOCK_DEADLOCK' || err.code === 'ER_LOCK_WAIT_TIMEOUT';
+      if (!retryable || attempt >= attempts) throw err;
+      await new Promise((r) => setTimeout(r, 100 * attempt));
+    }
+  }
+}
+
 app.delete('/api/courses', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   const id = parseInt(req.query.id);
@@ -659,12 +675,16 @@ app.delete('/api/courses', async (req, res) => {
   const permanent = req.query.permanent === 'true';
   if (permanent) {
     try {
-      await db.tx(async (t) => {
-        const sids = (await t.all("SELECT session_id FROM sessions WHERE course_id=?", [id])).map(s => s.session_id);
-        for (const sid of sids) {
-          await t.run("DELETE FROM attendance_logs WHERE session_id=?", [sid]);
-          await t.run("DELETE FROM meeting_records WHERE session_id=?", [sid]);
-          await t.run("DELETE FROM signaling WHERE session_id=?", [sid]);
+      await txRetry(async (t) => {
+        // One indexed statement per child table instead of a statement per
+        // session. A multi-table DELETE ... JOIN is used rather than
+        // `session_id IN (SELECT ...)`: MySQL cannot flatten that subquery in a
+        // DELETE, so it would scan and lock every row of the child table.
+        for (const child of ['attendance_logs', 'meeting_records', 'signaling']) {
+          await t.run(
+            `DELETE c FROM ${child} c JOIN sessions s ON s.session_id = c.session_id WHERE s.course_id=?`,
+            [id]
+          );
         }
         await t.run("DELETE FROM sessions WHERE course_id=?", [id]);
         await t.run("DELETE FROM enrollments WHERE course_id=?", [id]);
@@ -974,7 +994,7 @@ app.delete('/api/sessions', async (req, res) => {
   const id = parseInt(req.query.id);
   if (!id) return res.status(400).json({ error: 'Session ID required' });
   try {
-    await db.tx(async (t) => {
+    await txRetry(async (t) => {
       await t.run("DELETE FROM attendance_logs WHERE session_id=?", [id]);
       await t.run("DELETE FROM meeting_records WHERE session_id=?", [id]);
       await t.run("DELETE FROM signaling WHERE session_id=?", [id]);
@@ -2103,13 +2123,15 @@ app.delete('/api/users', async (req, res) => {
   const permanent = req.query.permanent === 'true';
   if (permanent) {
     try {
-      await db.tx(async (t) => {
-        // Delete attendance logs for sessions this user tutored
-        const tutorSessionIds = (await t.all("SELECT session_id FROM sessions WHERE tutor_id=?", [id])).map(s => s.session_id);
-        for (const sid of tutorSessionIds) {
-          await t.run("DELETE FROM attendance_logs WHERE session_id=?", [sid]);
-          await t.run("DELETE FROM meeting_records WHERE session_id=?", [sid]);
-          await t.run("DELETE FROM signaling WHERE session_id=?", [sid]);
+      await txRetry(async (t) => {
+        // Children of the sessions this user tutored, one indexed statement
+        // per table rather than one per session — a tutor with a few hundred
+        // sessions used to hold hundreds of locks for the whole transaction.
+        for (const child of ['attendance_logs', 'meeting_records', 'signaling']) {
+          await t.run(
+            `DELETE c FROM ${child} c JOIN sessions s ON s.session_id = c.session_id WHERE s.tutor_id=?`,
+            [id]
+          );
         }
         await t.run("DELETE FROM attendance_logs WHERE student_id=?", [id]);
         await t.run("DELETE FROM enrollments WHERE student_id=?", [id]);

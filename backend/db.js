@@ -116,6 +116,25 @@ async function addColumnIfMissing(table, column, definition) {
   }
 }
 
+// Best-effort index creation. MySQL has no CREATE INDEX IF NOT EXISTS, so check
+// information_schema first. These indexes are not cosmetic: an unindexed
+// `DELETE ... WHERE col=?` makes InnoDB examine — and lock — every row in the
+// table, which deadlocks against ordinary concurrent writes.
+async function addIndexIfMissing(table, indexName, columns) {
+  const row = await get(
+    `SELECT 1 FROM information_schema.statistics
+     WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ? LIMIT 1`,
+    [table, indexName]
+  );
+  if (row) return;
+  try {
+    await exec(`ALTER TABLE \`${table}\` ADD INDEX \`${indexName}\` (${columns})`);
+    console.log(`[migrate] added index ${indexName} on ${table}(${columns})`);
+  } catch (err) {
+    console.warn(`[db] could not add index ${indexName} on ${table} (continuing): ${err.message}`);
+  }
+}
+
 // Best-effort: create the target database if it doesn't exist. On managed hosts
 // (e.g. Hostinger) the DB user often lacks CREATE-DATABASE privilege but the
 // database already exists, so a failure here is non-fatal — we log and continue.
@@ -172,6 +191,15 @@ async function initSchema() {
   await addColumnIfMissing('sessions', 'student_id', 'student_id INT NULL');
   // Payroll: per-row shift breakdown snapshot taken at pay time.
   await addColumnIfMissing('payroll_runs', 'breakdown', 'breakdown TEXT');
+
+  // Indexes the cascading deletes depend on. Without them a delete by
+  // tutor_id / session_id / user_id full-scans its table and takes a lock on
+  // every row it reads — on `signaling`, which is written by every live-session
+  // poll, that reliably deadlocks. (No-ops on a fresh schema.)
+  await addIndexIfMissing('courses', 'idx_courses_tutor', 'tutor_id');
+  await addIndexIfMissing('meeting_records', 'idx_meeting_records_session', 'session_id');
+  await addIndexIfMissing('signaling', 'idx_signaling_from_user', 'from_user_id');
+  await addIndexIfMissing('password_resets', 'idx_password_resets_user', 'user_id');
 
   // Teaching staff are paid per hour at the rate of the shift they worked in
   // (see SHIFTS in server.js), so move anyone still on the old 'monthly'
@@ -272,4 +300,4 @@ async function seedUsers() {
   }
 }
 
-module.exports = { getPool, all, get, run, exec, prepare, tx, initSchema, columnExists, CONFIG };
+module.exports = { getPool, all, get, run, exec, prepare, tx, initSchema, columnExists, addIndexIfMissing, CONFIG };

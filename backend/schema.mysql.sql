@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS courses (
   icon VARCHAR(50) DEFAULT 'book',
   color VARCHAR(20) DEFAULT '#3B82F6',
   status VARCHAR(20) DEFAULT 'active',
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_courses_tutor (tutor_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS enrollments (
@@ -105,7 +106,8 @@ CREATE TABLE IF NOT EXISTS meeting_records (
   file_path VARCHAR(1024) NOT NULL,
   duration_seconds INT DEFAULT 0,
   creation_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-  playback_url VARCHAR(1024) DEFAULT ''
+  playback_url VARCHAR(1024) DEFAULT '',
+  INDEX idx_meeting_records_session (session_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS signaling (
@@ -117,7 +119,8 @@ CREATE TABLE IF NOT EXISTS signaling (
   payload TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   consumed TINYINT DEFAULT 0,
-  INDEX idx_signaling_session (session_id)
+  INDEX idx_signaling_session (session_id),
+  INDEX idx_signaling_from_user (from_user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- LiveKit waiting room: students knock here and a host admits or declines
@@ -152,7 +155,8 @@ CREATE TABLE IF NOT EXISTS password_resets (
   token VARCHAR(255) NOT NULL UNIQUE,
   expires_at VARCHAR(40) NOT NULL,
   used TINYINT DEFAULT 0,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_password_resets_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS smtp_settings (
