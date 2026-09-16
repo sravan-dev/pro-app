@@ -271,33 +271,10 @@ async function seedUsers() {
     );
   }
 
-  // One-time tutor seed (idempotent: only inserts emails that don't exist yet).
-  const seedTutors = [
-    ['Sreelekshmi', 'sreelekshmi@tijusacademy.in'],
-    ['Arya', 'arya.krishnan@tijusacademy.in'],
-    ['Chandana', 'chandana.sekhar@tijusacademy.in'],
-    ['Mereena', 'mereena.james@tijusacademy.in'],
-    ['Alka', 'alka.haridas@tijusacademy.in'],
-    ['Gayathri', 'pr.gayathri@tijusacademy.in'],
-    ['Devi', 'devikrishna@tijusacademy.in'],
-    ['Sonia', 'sonia.william@tijusacademy.in'],
-    ['Mahalekshmi', 'mahalekshmi@tijusacademy.in'],
-    ['Aneesha', 'aneesha.s@tijusacademy.in'],
-  ];
-  const existing = new Set(
-    (await all("SELECT email FROM users WHERE email IN (?)", [seedTutors.map((t) => t[1])])).map((r) => r.email)
-  );
-  const missing = seedTutors.filter(([, email]) => !existing.has(email));
-  if (missing.length) {
-    const hash = bcrypt.hashSync('Tijus@321', 10);
-    for (const [name, email] of missing) {
-      await run(
-        "INSERT INTO users (name,email,portal,role,password_hash,avatar_color) VALUES (?,?,'tutor','tutor',?,?)",
-        [name, email, hash, '#10B981']
-      );
-    }
-    console.log(`[seed] created ${missing.length} tutor account(s)`);
-  }
+  // No tutor seed. A previous one re-inserted a fixed list of tutors on every
+  // startup, so accounts an admin had deliberately deleted came back on the
+  // next restart (and all shared one seeded password). Tutors are created
+  // through the admin UI.
 }
 
 module.exports = { getPool, all, get, run, exec, prepare, tx, initSchema, columnExists, addIndexIfMissing, CONFIG };
