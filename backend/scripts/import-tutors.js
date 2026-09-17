@@ -25,6 +25,7 @@ const AVATAR_COLOR = '#10B981';
 
 // [name, phone, email] — exactly as supplied.
 const TUTORS = [
+  ['ANJALI V BABU', '9846355708', 'anjali@tijusacademy.in'],
   ['MEENU VARGHESE', '7025223157', 'meenuvarghese98@gmail.com'],
   ['SREE GANESHAN', '15878940527', 'sreeganeshganesh19@gmail.com'],
   ['AISWARYA RAJ', '9645578562', 'aiswaryarj@gmail.com'],
@@ -34,14 +35,12 @@ const TUTORS = [
   ['SILJITH U', '9746391752', 'siljithuppenggal30@gmail.com'],
   ['KARTHIKA', '9567330778', 'karthikagbalan@gmail.com'],
   ['MANASA RAMESH', '9048479904', 'manasanair8807@gmail.com'],
-  // NOTE: the domain on this one reads 'tijuscademy.in', not 'tijusacademy.in'.
-  // Imported as given — correct it in Tutor Management if it is a typo, or
-  // password resets and invites will bounce.
-  ['RISSY MARY MATHEW', '9567451358', 'rissy.mathew@tijuscademy.in'],
+  ['RISSY MARY MATHEW', '9567451358', 'rissy.mathew@tijusacademy.in'],
   ['FARZANA S', '9947276109', 'farzana.riswan@tijusacademy.in'],
   ['STAN', '6238006352', 'stan.sunny@tijusacademy.in'],
   ['NIKHIL ELIAS', '9995187206', 'nikhil.elias@tijusacademy.in'],
   ['ANU MARIA JOSE', '9497747230', 'anuribu@gmail.com'],
+  ['TOMCY T KOSHY', '8943086835', 'tomcytkoshy1988@gmail.com'],
 ];
 
 const dryRun = process.argv.includes('--dry-run');
