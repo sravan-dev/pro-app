@@ -12,10 +12,12 @@ const dryRun = process.argv.includes('--dry-run');
 
 async function main() {
   const { created, existing, password } = await seedTutors({ dryRun });
-  for (const t of created) console.log(`  ${dryRun ? 'would create' : 'created'}  ${t.name} <${t.email}>`);
+  for (const t of created) console.log(`  ${dryRun ? 'would create' : 'created'}  ${t.name} <${t.email}>  ₹${t.rate}/hr`);
   console.log('');
   console.log(`${dryRun ? '[dry run] ' : ''}${created.length} tutor(s) ${dryRun ? 'would be created' : 'created'}, ${existing.length} already existed.`);
-  if (existing.length) console.log(`  existing (left untouched): ${existing.join(', ')}`);
+  for (const t of existing) {
+    console.log(`  existing  ${t.email}${t.rate_set ? `  — hourly rate ${dryRun ? 'would be set' : 'set'} to ₹${t.rate}` : ''}`);
+  }
   if (created.length && !dryRun) {
     console.log('');
     console.log(`Shared first-time password: ${password}`);

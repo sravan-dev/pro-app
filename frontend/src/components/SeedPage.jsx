@@ -23,6 +23,7 @@ export default function SeedPage() {
     }
   };
 
+  const rated = result ? result.existing.filter((t) => t.rate_set) : [];
   const cell = { padding: '0.5rem 0.75rem', borderBottom: '1px solid var(--color-border, #e5e7eb)', textAlign: 'left' };
 
   return (
@@ -30,7 +31,8 @@ export default function SeedPage() {
       <div className="portal-page">
         <h2>Seed Tutors</h2>
         <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.75rem' }}>
-          Creates the tutor accounts from the import list. Emails that already exist are skipped and never changed.
+          Creates the tutor accounts from the import list, each paid a flat per-hour rate. Existing accounts keep their
+          password; they only get the hourly rate if no pay was ever set.
         </p>
 
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', margin: '1.25rem 0' }}>
@@ -48,6 +50,7 @@ export default function SeedPage() {
               {result.dryRun
                 ? `Preview: ${result.created.length} tutor(s) would be created, ${result.existing.length} already exist.`
                 : `${result.created.length} tutor(s) created, ${result.existing.length} already existed.`}
+              {rated.length > 0 && ` Hourly rate ${result.dryRun ? 'would be set' : 'set'} on ${rated.length} existing account(s).`}
             </p>
             {!result.dryRun && result.created.length > 0 && (
               <p>
@@ -59,11 +62,11 @@ export default function SeedPage() {
               <div style={{ overflowX: 'auto', margin: '1rem 0' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
-                    <tr><th style={cell}>{result.dryRun ? 'Would create' : 'Created'}</th><th style={cell}>Email</th></tr>
+                    <tr><th style={cell}>{result.dryRun ? 'Would create' : 'Created'}</th><th style={cell}>Email</th><th style={cell}>Per hour</th></tr>
                   </thead>
                   <tbody>
                     {result.created.map((t) => (
-                      <tr key={t.email}><td style={cell}>{t.name}</td><td style={cell}>{t.email}</td></tr>
+                      <tr key={t.email}><td style={cell}>{t.name}</td><td style={cell}>{t.email}</td><td style={cell}>₹{t.rate}</td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -72,7 +75,7 @@ export default function SeedPage() {
 
             {result.existing.length > 0 && (
               <p style={{ color: 'var(--color-text-secondary)' }}>
-                Already exist (left untouched): {result.existing.join(', ')}
+                Already exist: {result.existing.map((t) => (t.rate_set ? `${t.email} (rate ₹${t.rate})` : t.email)).join(', ')}
               </p>
             )}
           </div>

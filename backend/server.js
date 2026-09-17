@@ -399,8 +399,12 @@ app.post('/api/seed/tutors', async (req, res) => {
   const dryRun = req.query.dry_run === '1' || req.body?.dry_run === true;
   try {
     const result = await seedTutors({ dryRun });
-    if (!dryRun && result.created.length) {
-      await auditLog(user.id, 'seed_tutors', 'user', null, `Created ${result.created.length} tutor(s): ${result.created.map((t) => t.email).join(', ')}`);
+    const rated = result.existing.filter((t) => t.rate_set);
+    if (!dryRun && (result.created.length || rated.length)) {
+      const parts = [];
+      if (result.created.length) parts.push(`Created ${result.created.length} tutor(s): ${result.created.map((t) => `${t.email} @${t.rate}/hr`).join(', ')}`);
+      if (rated.length) parts.push(`Set hourly rate on ${rated.length} existing tutor(s): ${rated.map((t) => `${t.email} @${t.rate}/hr`).join(', ')}`);
+      await auditLog(user.id, 'seed_tutors', 'user', null, parts.join('; '));
     }
     res.json(result);
   } catch (err) {

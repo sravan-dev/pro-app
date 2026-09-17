@@ -19,27 +19,30 @@ const db = require('../db');
 const SEED_TUTOR_PASSWORD = (process.env.SEED_TUTOR_PASSWORD || '').trim();
 const AVATAR_COLOR = '#10B981';
 
-// [name, phone, email] — exactly as supplied.
+// [name, phone, email, per-hour rate] — exactly as supplied. Tutors are paid
+// a flat per-hour rate (payout_type='per_hour'), not the shift bands.
 const TUTORS = [
-  ['ANJALI V BABU', '9846355708', 'anjali@tijusacademy.in'],
-  ['MEENU VARGHESE', '7025223157', 'meenuvarghese98@gmail.com'],
-  ['SREE GANESHAN', '15878940527', 'sreeganeshganesh19@gmail.com'],
-  ['AISWARYA RAJ', '9645578562', 'aiswaryarj@gmail.com'],
-  ['XIMIS XAVIER', '9175961214', 'ximis.xavier@gmail.com'],
-  ['ANU DOMINIC', '9971121148', 'anudominic@gmail.com'],
-  ['MEGHA MANOJ', '8137016540', 'meghamanoj2966@gmail.com'],
-  ['SILJITH U', '9746391752', 'siljithuppenggal30@gmail.com'],
-  ['KARTHIKA', '9567330778', 'karthikagbalan@gmail.com'],
-  ['MANASA RAMESH', '9048479904', 'manasanair8807@gmail.com'],
-  ['RISSY MARY MATHEW', '9567451358', 'rissy.mathew@tijusacademy.in'],
-  ['FARZANA S', '9947276109', 'farzana.riswan@tijusacademy.in'],
-  ['STAN', '6238006352', 'stan.sunny@tijusacademy.in'],
-  ['NIKHIL ELIAS', '9995187206', 'nikhil.elias@tijusacademy.in'],
-  ['ANU MARIA JOSE', '9497747230', 'anuribu@gmail.com'],
-  ['TOMCY T KOSHY', '8943086835', 'tomcytkoshy1988@gmail.com'],
+  ['ANJALI V BABU', '9846355708', 'anjali@tijusacademy.in', 140],
+  ['MEENU VARGHESE', '7025223157', 'meenuvarghese98@gmail.com', 160],
+  ['SREE GANESHAN', '15878940527', 'sreeganeshganesh19@gmail.com', 150],
+  ['AISWARYA RAJ', '9645578562', 'aiswaryarj@gmail.com', 144],
+  ['XIMIS XAVIER', '9175961214', 'ximis.xavier@gmail.com', 160],
+  ['ANU DOMINIC', '9971121148', 'anudominic@gmail.com', 164],
+  ['MEGHA MANOJ', '8137016540', 'meghamanoj2966@gmail.com', 150],
+  ['SILJITH U', '9746391752', 'siljithuppenggal30@gmail.com', 150],
+  ['KARTHIKA', '9567330778', 'karthikagbalan@gmail.com', 120],
+  ['MANASA RAMESH', '9048479904', 'manasanair8807@gmail.com', 150],
+  ['RISSY MARY MATHEW', '9567451358', 'rissy.mathew@tijusacademy.in', 130],
+  ['FARZANA S', '9947276109', 'farzana.riswan@tijusacademy.in', 130],
+  ['STAN', '6238006352', 'stan.sunny@tijusacademy.in', 130],
+  ['NIKHIL ELIAS', '9995187206', 'nikhil.elias@tijusacademy.in', 144],
+  ['ANU MARIA JOSE', '9497747230', 'anuribu@gmail.com', 190],
+  ['TOMCY T KOSHY', '8943086835', 'tomcytkoshy1988@gmail.com', 205],
 ];
 
-// Returns { dryRun, password, created: [{name,email}], existing: [email] }.
+// Returns { dryRun, password, created: [{name,email,rate}],
+//           existing: [{name,email,rate,rate_set}] } — rate_set means the
+//           existing account had no pay and gets (or would get) this rate.
 async function seedTutors({ dryRun = false } = {}) {
   if (!(await db.columnExists('users', 'phone'))) {
     throw new Error('users.phone is missing — restart the backend once so the startup migrations run, then try again.');
@@ -59,23 +62,30 @@ async function seedTutors({ dryRun = false } = {}) {
   const created = [];
   const existing = [];
 
-  for (const [rawName, rawPhone, rawEmail] of TUTORS) {
+  for (const [rawName, rawPhone, rawEmail, rate] of TUTORS) {
     const name = rawName.trim();
     const email = rawEmail.trim();
     const phone = rawPhone.trim();
 
     if (taken.has(email.toLowerCase())) {
-      existing.push(email);
+      // Existing account: fill in the hourly rate only if pay was never set, so
+      // a rate an admin has since changed is never overwritten.
+      const row = await db.get("SELECT id, payout_rate FROM users WHERE LOWER(email)=?", [email.toLowerCase()]);
+      const needsRate = row && !(Number(row.payout_rate) > 0);
+      if (needsRate && !dryRun) {
+        await db.run("UPDATE users SET payout_type='per_hour', payout_rate=? WHERE id=?", [rate, row.id]);
+      }
+      existing.push({ name, email, rate, rate_set: needsRate });
       continue;
     }
     if (!dryRun) {
       await db.run(
-        `INSERT INTO users (name,email,phone,portal,role,password_hash,avatar_color,payout_type,must_change_password)
-         VALUES (?,?,?,'tutor','tutor',?,?,'shift',1)`,
-        [name, email, phone, hash, AVATAR_COLOR]
+        `INSERT INTO users (name,email,phone,portal,role,password_hash,avatar_color,payout_type,payout_rate,must_change_password)
+         VALUES (?,?,?,'tutor','tutor',?,?,'per_hour',?,1)`,
+        [name, email, phone, hash, AVATAR_COLOR, rate]
       );
     }
-    created.push({ name, email });
+    created.push({ name, email, rate });
   }
 
   return { dryRun, password: SEED_TUTOR_PASSWORD, created, existing };
