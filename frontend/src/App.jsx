@@ -11,6 +11,7 @@ import TutorPortal from './portals/TutorPortal';
 import AdvisorPortal from './portals/AdvisorPortal';
 import ManagerPortal from './portals/ManagerPortal';
 import SuperadminPortal from './portals/SuperadminPortal';
+import SeedPage from './components/SeedPage';
 
 function AppRoutes() {
   const { user, loading } = useAuth();
@@ -46,6 +47,7 @@ function AppRoutes() {
       <Route path="/tutor/*" element={<ProtectedRoute roles={['tutor']}><TutorPortal /></ProtectedRoute>} />
       <Route path="/advisor/*" element={<ProtectedRoute roles={['advisor']}><AdvisorPortal /></ProtectedRoute>} />
       <Route path="/manager/*" element={<ProtectedRoute roles={['manager']}><ManagerPortal /></ProtectedRoute>} />
+      <Route path="/seed" element={<ProtectedRoute roles={['superadmin']}><SeedPage /></ProtectedRoute>} />
       <Route path="/admin/*" element={<ProtectedRoute roles={['superadmin']}><SuperadminPortal /></ProtectedRoute>} />
 
       <Route path="*" element={<Navigate to={getDefaultRoute()} replace />} />

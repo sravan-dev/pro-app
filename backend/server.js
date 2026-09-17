@@ -9,6 +9,7 @@ const fs = require('fs');
 const multer = require('multer');
 const nodemailer = require('nodemailer');
 const db = require('./db');
+const { seedTutors } = require('./seeds/tutors');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -388,6 +389,23 @@ app.get('/api/health', async (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString(), database: 'connected', users_count: count });
   } catch (err) {
     res.status(503).json({ status: 'error', timestamp: new Date().toISOString(), database: 'disconnected', error: err.message });
+  }
+});
+
+// Tutor seed — the /seed page. Superadmin only. ?dry_run=1 reports what would
+// be created without writing. Existing emails are skipped, so re-running is safe.
+app.post('/api/seed/tutors', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const dryRun = req.query.dry_run === '1' || req.body?.dry_run === true;
+  try {
+    const result = await seedTutors({ dryRun });
+    if (!dryRun && result.created.length) {
+      await auditLog(user.id, 'seed_tutors', 'user', null, `Created ${result.created.length} tutor(s): ${result.created.map((t) => t.email).join(', ')}`);
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[seed] tutors failed:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

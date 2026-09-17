@@ -41,6 +41,9 @@ export const api = {
   reports: () => request('/reports'),
   health: () => request('/health'),
 
+  // Seed
+  seedTutors: (dryRun) => request('/seed/tutors', { method: 'POST', body: { dry_run: !!dryRun } }),
+
   // Users
   getUsers: () => request('/users'),
   createUser: (data) => request('/users', { method: 'POST', body: data }),
