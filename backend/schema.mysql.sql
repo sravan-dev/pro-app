@@ -386,3 +386,47 @@ CREATE TABLE IF NOT EXISTS user_shift_rates (
   PRIMARY KEY (user_id, shift),
   INDEX idx_user_shift_rates_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tutor applications — submitted from the public /register page (the job
+-- application form). No account is created; a superadmin reviews each one.
+-- education / references_json hold JSON arrays of row objects. photo_path and
+-- resume_path are filenames under UPLOADS_ROOT/applications, which is never
+-- served statically — only through the authenticated file endpoint.
+-- status: new → shortlisted / rejected / hired.
+CREATE TABLE IF NOT EXISTS tutor_applications (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  position VARCHAR(160) NOT NULL DEFAULT 'Tutor',
+  full_name VARCHAR(160) NOT NULL,
+  phone VARCHAR(80) NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  blood_group VARCHAR(10) DEFAULT '',
+  emergency_name VARCHAR(160) DEFAULT '',
+  emergency_phone VARCHAR(80) DEFAULT '',
+  emergency_relationship VARCHAR(80) DEFAULT '',
+  job_source VARCHAR(40) DEFAULT '',
+  job_source_detail VARCHAR(160) DEFAULT '',
+  permanent_address TEXT,
+  current_address TEXT,
+  reason TEXT,
+  motivation TEXT,
+  education TEXT,
+  total_experience VARCHAR(40) DEFAULT '',
+  current_employer VARCHAR(160) DEFAULT '',
+  current_designation VARCHAR(160) DEFAULT '',
+  current_ctc VARCHAR(60) DEFAULT '',
+  expected_ctc VARCHAR(60) DEFAULT '',
+  notice_period VARCHAR(60) DEFAULT '',
+  job_description TEXT,
+  references_json TEXT,
+  signature VARCHAR(160) DEFAULT '',
+  place VARCHAR(120) DEFAULT '',
+  photo_path VARCHAR(255) DEFAULT '',
+  resume_path VARCHAR(255) DEFAULT '',
+  status VARCHAR(20) NOT NULL DEFAULT 'new',
+  admin_notes TEXT,
+  ip_address VARCHAR(64) DEFAULT '',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_tutor_app_status (status),
+  INDEX idx_tutor_app_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

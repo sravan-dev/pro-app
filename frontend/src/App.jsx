@@ -12,6 +12,7 @@ import AdvisorPortal from './portals/AdvisorPortal';
 import ManagerPortal from './portals/ManagerPortal';
 import SuperadminPortal from './portals/SuperadminPortal';
 import SeedPage from './components/SeedPage';
+import TutorRegister from './components/TutorRegister';
 
 function AppRoutes() {
   const { user, loading } = useAuth();
@@ -40,6 +41,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to={getDefaultRoute()} replace /> : <Login />} />
       <Route path="/reset-password" element={<PasswordReset />} />
+      <Route path="/register" element={<TutorRegister />} />
       <Route path="/call/:sessionId" element={<CallPage />} />
       <Route path="/m/:code" element={<MeetingPage />} />
 

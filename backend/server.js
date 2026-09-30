@@ -24,6 +24,9 @@ let UPLOADS_ROOT = process.env.UPLOADS_ROOT
 let UPLOAD_DIR = path.join(UPLOADS_ROOT, 'recordings');
 let MATERIALS_DIR = path.join(UPLOADS_ROOT, 'materials');
 let AVATARS_DIR = path.join(UPLOADS_ROOT, 'avatars');
+// Tutor application photos / CVs. Never served statically (see the /uploads
+// guard below) — applicant documents are only readable by a superadmin.
+let APPLICATIONS_DIR = path.join(UPLOADS_ROOT, 'applications');
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist');
 
 // LiveKit (SFU) — used for large webinar-style sessions (50-100+ participants).
@@ -164,7 +167,7 @@ app.use(session({
 // back to the in-app ./uploads so the site stays up (those files won't survive
 // deploys — fix UPLOADS_ROOT to a writable, persistent path you own).
 function ensureUploadDirs(root) {
-  for (const d of [path.join(root, 'recordings'), path.join(root, 'materials'), path.join(root, 'avatars')]) {
+  for (const d of [path.join(root, 'recordings'), path.join(root, 'materials'), path.join(root, 'avatars'), path.join(root, 'applications')]) {
     if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
   }
 }
@@ -179,6 +182,7 @@ try {
   UPLOAD_DIR = path.join(UPLOADS_ROOT, 'recordings');
   MATERIALS_DIR = path.join(UPLOADS_ROOT, 'materials');
   AVATARS_DIR = path.join(UPLOADS_ROOT, 'avatars');
+  APPLICATIONS_DIR = path.join(UPLOADS_ROOT, 'applications');
   ensureUploadDirs(UPLOADS_ROOT);
 }
 console.log(`[uploads] serving /uploads from ${UPLOADS_ROOT}`);
@@ -196,6 +200,7 @@ console.log(`[uploads] serving /uploads from ${UPLOADS_ROOT}`);
       `directory outside the app, e.g. /home/<user>/lms-uploads, and restart Node.`);
   }
 }
+app.use('/uploads/applications', (req, res) => res.status(404).json({ error: 'Not found' }));
 app.use('/uploads', express.static(UPLOADS_ROOT));
 
 // Multer for file uploads
@@ -227,6 +232,43 @@ const avatarUpload = multer({
     cb(null, true);
   },
 });
+
+// Public tutor application uploads: an optional photo and CV. Filenames are
+// random so nothing about the applicant leaks through the name on disk.
+// Allowed MIME types per field, mapped to the extension stored on disk. The
+// extension comes from this map, never from the client's filename, so a file
+// can't be saved (and later served) as .html/.svg.
+const APPLICATION_FILE_TYPES = {
+  photo: { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp' },
+  resume: {
+    'application/pdf': '.pdf',
+    'application/msword': '.doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  },
+};
+const APPLICATION_EXT_TYPES = Object.assign({}, ...Object.values(APPLICATION_FILE_TYPES).map((m) =>
+  Object.fromEntries(Object.entries(m).map(([mime, ext]) => [ext, mime]))));
+const applicationUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, APPLICATIONS_DIR),
+    filename: (req, file, cb) => {
+      const ext = APPLICATION_FILE_TYPES[file.fieldname][file.mimetype];
+      cb(null, `${Date.now()}_${crypto.randomBytes(12).toString('hex')}${ext}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024, files: 2, fields: 60 },
+  fileFilter: (req, file, cb) => {
+    const allowed = APPLICATION_FILE_TYPES[file.fieldname];
+    if (!allowed) return cb(new Error('Unexpected file field'));
+    if (!Object.hasOwn(allowed, file.mimetype)) {
+      req.fileValidationError = file.fieldname === 'photo'
+        ? 'Photo must be a PNG, JPG or WEBP image'
+        : 'CV must be a PDF or Word document';
+      return cb(null, false);
+    }
+    cb(null, true);
+  },
+}).fields([{ name: 'photo', maxCount: 1 }, { name: 'resume', maxCount: 1 }]);
 
 // ============================================================
 // Database handle. getDB() returns the async MySQL data layer; its
@@ -3592,6 +3634,198 @@ app.post('/api/upload-recording', upload.single('recording'), async (req, res) =
   auditLog(user.id, 'upload_recording', 'meeting_record', r.lastInsertRowid);
   console.log(`[recording] saved ${filename} (${(req.file.size / 1048576).toFixed(1)} MB) for session ${sessionId}`);
   res.status(201).json({ message: 'Uploaded', playback_url: `/uploads/recordings/${filename}` });
+});
+
+// ============================================================
+// Tutor applications — public /register form + superadmin review
+// ============================================================
+const APPLICATION_SOURCES = ['indeed_naukri', 'linkedin', 'social_media', 'walk_in', 'referral', 'other'];
+const APPLICATION_STATUSES = ['new', 'shortlisted', 'rejected', 'hired'];
+
+// Soft per-client throttle for the unauthenticated submit endpoint. In-memory
+// is enough: it only has to stop a script hammering the form, not survive
+// restarts. Keyed on the first X-Forwarded-For hop since the host proxies.
+const applicationHits = new Map();
+function applicationRateLimited(req) {
+  const key = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
+  const now = Date.now();
+  const windowMs = 60 * 60 * 1000;
+  const hits = (applicationHits.get(key) || []).filter((t) => now - t < windowMs);
+  const limited = hits.length >= 5;
+  if (!limited) hits.push(now);
+  applicationHits.set(key, hits);
+  if (applicationHits.size > 5000) {
+    for (const [k, v] of applicationHits) if (!v.some((t) => now - t < windowMs)) applicationHits.delete(k);
+  }
+  return { limited, key };
+}
+
+function removeApplicationFiles(files) {
+  for (const list of Object.values(files || {})) {
+    for (const f of list) { try { fs.unlinkSync(f.path); } catch {} }
+  }
+}
+
+// Parse a JSON array of row objects from the form, keeping only the known
+// string fields, dropping blank rows and capping the row count.
+function parseApplicationRows(raw, fields, maxRows) {
+  let rows;
+  try { rows = JSON.parse(raw || '[]'); } catch { return []; }
+  if (!Array.isArray(rows)) return [];
+  return rows.slice(0, maxRows).map((r) => {
+    const out = {};
+    for (const f of fields) out[f] = String((r && r[f]) ?? '').trim().slice(0, 160);
+    return out;
+  }).filter((r) => fields.some((f) => r[f]));
+}
+
+app.post('/api/public/tutor-applications', (req, res) => {
+  const { limited, key } = applicationRateLimited(req);
+  if (limited) return res.status(429).json({ error: 'Too many applications from this connection. Please try again later.' });
+
+  applicationUpload(req, res, async (err) => {
+    const files = req.files || {};
+    const fail = (status, error) => { removeApplicationFiles(files); res.status(status).json({ error }); };
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') return fail(400, 'Each file must be 5 MB or smaller');
+      return fail(400, err.message || 'Upload failed');
+    }
+    if (req.fileValidationError) return fail(400, req.fileValidationError);
+
+    const b = req.body || {};
+    // Honeypot: a hidden field real visitors never fill. Report success so
+    // bots don't learn to skip it.
+    if (b.website) { removeApplicationFiles(files); return res.json({ message: 'Application received' }); }
+
+    const str = (k, max = 160) => String(b[k] ?? '').trim().slice(0, max);
+    const text = (k) => str(k, 4000);
+    const a = {
+      position: str('position') || 'Tutor',
+      full_name: str('full_name'),
+      phone: str('phone', 80),
+      email: str('email', 255).toLowerCase(),
+      blood_group: str('blood_group', 10),
+      emergency_name: str('emergency_name'),
+      emergency_phone: str('emergency_phone', 80),
+      emergency_relationship: str('emergency_relationship', 80),
+      job_source: str('job_source', 40),
+      job_source_detail: str('job_source_detail'),
+      permanent_address: text('permanent_address'),
+      current_address: text('current_address'),
+      reason: text('reason'),
+      motivation: text('motivation'),
+      total_experience: str('total_experience', 40),
+      current_employer: str('current_employer'),
+      current_designation: str('current_designation'),
+      current_ctc: str('current_ctc', 60),
+      expected_ctc: str('expected_ctc', 60),
+      notice_period: str('notice_period', 60),
+      job_description: text('job_description'),
+      signature: str('signature'),
+      place: str('place', 120),
+    };
+    const education = parseApplicationRows(b.education, ['qualification', 'institution', 'year', 'score'], 8);
+    const references = parseApplicationRows(b.references, ['name', 'designation', 'company', 'email', 'phone'], 5);
+
+    const missing = [
+      ['full_name', 'Full name'], ['phone', 'Contact number'], ['email', 'Email'],
+      ['emergency_name', 'Emergency contact name'], ['emergency_phone', 'Emergency contact number'],
+      ['permanent_address', 'Permanent address'], ['current_address', 'Current address'],
+      ['reason', 'Reason for applying'], ['motivation', 'Motivation'],
+      ['signature', 'Signature'], ['place', 'Place'],
+    ].filter(([k]) => !a[k]).map(([, label]) => label);
+    if (missing.length) return fail(400, `Please fill in: ${missing.join(', ')}`);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email)) return fail(400, 'Please enter a valid email address');
+    if (!APPLICATION_SOURCES.includes(a.job_source)) return fail(400, 'Please tell us where you heard about this job');
+    if ((a.job_source === 'referral' || a.job_source === 'other') && !a.job_source_detail) {
+      return fail(400, a.job_source === 'referral' ? "Please enter the referring employee's name" : 'Please specify where you heard about this job');
+    }
+    if (!education.length) return fail(400, 'Please add at least one education qualification');
+    if (b.declaration !== 'true') return fail(400, 'Please accept the declaration');
+
+    try {
+      const photo = files.photo?.[0]?.filename || '';
+      const resume = files.resume?.[0]?.filename || '';
+      const r = await db.run(
+        `INSERT INTO tutor_applications (position, full_name, phone, email, blood_group, emergency_name, emergency_phone,
+          emergency_relationship, job_source, job_source_detail, permanent_address, current_address, reason, motivation,
+          education, total_experience, current_employer, current_designation, current_ctc, expected_ctc, notice_period,
+          job_description, references_json, signature, place, photo_path, resume_path, ip_address)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [a.position, a.full_name, a.phone, a.email, a.blood_group, a.emergency_name, a.emergency_phone,
+          a.emergency_relationship, a.job_source, a.job_source_detail, a.permanent_address, a.current_address, a.reason, a.motivation,
+          JSON.stringify(education), a.total_experience, a.current_employer, a.current_designation, a.current_ctc, a.expected_ctc, a.notice_period,
+          a.job_description, JSON.stringify(references), a.signature, a.place, photo, resume, key.slice(0, 64)]
+      );
+      res.json({ message: 'Application received', id: r.lastInsertRowid });
+    } catch (e) {
+      console.error('[applications] insert failed:', e.message);
+      fail(500, 'Could not save your application. Please try again.');
+    }
+  });
+});
+
+const parseJsonArray = (s) => { try { const v = JSON.parse(s || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
+
+app.get('/api/tutor-applications', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const rows = await db.all("SELECT * FROM tutor_applications ORDER BY created_at DESC, id DESC");
+  res.json(rows.map(({ references_json, ip_address, photo_path, resume_path, education, ...r }) => ({
+    ...r,
+    education: parseJsonArray(education),
+    references: parseJsonArray(references_json),
+    has_photo: !!photo_path,
+    has_resume: !!resume_path,
+  })));
+});
+
+// Stream an applicant's photo or CV. Superadmin only — these files sit outside
+// the static /uploads mount on purpose.
+app.get('/api/tutor-applications/:id/file/:kind', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const col = { photo: 'photo_path', resume: 'resume_path' }[req.params.kind];
+  if (!col) return res.status(404).json({ error: 'Not found' });
+  const row = await db.get(`SELECT full_name, ${col} AS f FROM tutor_applications WHERE id=?`, [req.params.id]);
+  if (!row || !row.f) return res.status(404).json({ error: 'No file' });
+  const abs = path.join(APPLICATIONS_DIR, path.basename(row.f));
+  const ext = path.extname(abs).toLowerCase();
+  const mime = Object.hasOwn(APPLICATION_FILE_TYPES[req.params.kind], APPLICATION_EXT_TYPES[ext]) ? APPLICATION_EXT_TYPES[ext] : null;
+  if (!mime) return res.status(404).json({ error: 'Not found' });
+  if (!fs.existsSync(abs)) return res.status(404).json({ error: 'File missing on server' });
+  const base = row.full_name.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 60) || 'applicant';
+  // Only images and PDFs render inline; Word files download. The type comes
+  // from the server-chosen extension (plus nosniff), never from the upload.
+  const disposition = mime.startsWith('image/') || mime === 'application/pdf' ? 'inline' : 'attachment';
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Content-Disposition', `${disposition}; filename="${base}_${req.params.kind}${ext}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.sendFile(abs, { headers: { 'Content-Type': mime } });
+});
+
+app.put('/api/tutor-applications/:id', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const { status, admin_notes } = req.body || {};
+  if (status !== undefined && !APPLICATION_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  const row = await db.get("SELECT id, full_name, status FROM tutor_applications WHERE id=?", [req.params.id]);
+  if (!row) return res.status(404).json({ error: 'Application not found' });
+  await db.run(
+    "UPDATE tutor_applications SET status=COALESCE(?, status), admin_notes=COALESCE(?, admin_notes) WHERE id=?",
+    [status ?? null, admin_notes === undefined ? null : String(admin_notes).slice(0, 4000), row.id]
+  );
+  if (status && status !== row.status) await auditLog(user.id, 'update_tutor_application', 'tutor_application', row.id, `${row.full_name}: ${row.status} → ${status}`);
+  res.json({ message: 'Application updated' });
+});
+
+app.delete('/api/tutor-applications/:id', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const row = await db.get("SELECT id, full_name, photo_path, resume_path FROM tutor_applications WHERE id=?", [req.params.id]);
+  if (!row) return res.status(404).json({ error: 'Application not found' });
+  await db.run("DELETE FROM tutor_applications WHERE id=?", [row.id]);
+  for (const f of [row.photo_path, row.resume_path]) {
+    if (f) { try { fs.unlinkSync(path.join(APPLICATIONS_DIR, path.basename(f))); } catch {} }
+  }
+  await auditLog(user.id, 'delete_tutor_application', 'tutor_application', row.id, row.full_name);
+  res.json({ message: 'Application deleted' });
 });
 
 // Any unmatched /api or /uploads request must return JSON, never the SPA's HTML

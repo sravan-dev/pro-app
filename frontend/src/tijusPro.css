@@ -1228,3 +1228,74 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
   .sidebar { width: 82vw; max-width: 300px; }
   .calendar-cell { min-height: 50px; }
 }
+
+/* ========================================
+   Public tutor application (/register)
+   ======================================== */
+.register-page {
+  /* Same indigo brand palette as the login page (from the logo). */
+  --color-primary: #2D2A6E;
+  --color-primary-dark: #1F1C4E;
+  --color-primary-light: #4A47A3;
+  min-height: 100vh;
+  background: #E5E7EB;
+  padding: 2rem 1rem;
+}
+.register-page input:focus,
+.register-page select:focus,
+.register-page textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(45, 42, 110, 0.18);
+}
+.register-card {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--color-surface);
+  border-radius: 20px;
+  box-shadow: var(--shadow-lg);
+  padding: clamp(1.25rem, 4vw, 2.75rem);
+}
+.register-head { display: flex; align-items: center; gap: 1.25rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); }
+.register-logo { height: 64px; width: auto; flex-shrink: 0; }
+.register-head h1 { margin: 0; font-size: clamp(1.4rem, 3vw, 1.9rem); font-weight: 800; letter-spacing: -0.01em; color: var(--color-text); }
+.register-head p { margin: 0.35rem 0 0; color: var(--color-text-secondary); }
+.register-section { padding: 1.5rem 0 0.25rem; display: flex; flex-direction: column; gap: 1rem; }
+.register-section h2 { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-primary); }
+.register-sub { font-size: 0.8rem; font-weight: 500; color: var(--color-text-secondary); margin-left: 0.35rem; }
+.register-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
+.register-field { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.register-field input, .register-field select, .register-field textarea { width: 100%; font-family: inherit; }
+.register-field textarea { resize: vertical; }
+.register-label { font-size: 0.85rem; font-weight: 600; color: var(--color-text); }
+.register-hint { font-size: 0.75rem; color: var(--color-text-secondary); }
+.req { color: var(--color-danger); }
+.register-radios { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.register-radio {
+  display: inline-flex; align-items: center; gap: 0.45rem;
+  padding: 0.5rem 0.85rem; border: 1px solid var(--color-border); border-radius: 999px;
+  font-size: 0.875rem; cursor: pointer; transition: border-color var(--transition), background var(--transition);
+}
+.register-radio input { accent-color: var(--color-primary); margin: 0; }
+.register-radio.active { border-color: var(--color-primary); background: rgba(45, 42, 110, 0.06); }
+.register-check { display: flex; align-items: flex-start; gap: 0.55rem; font-size: 0.9rem; cursor: pointer; line-height: 1.45; }
+.register-check input { width: 18px; height: 18px; margin-top: 1px; flex-shrink: 0; accent-color: var(--color-primary); }
+.register-rows { display: flex; flex-direction: column; gap: 0.75rem; }
+.register-row {
+  display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)) auto; gap: 0.75rem; align-items: end;
+  padding: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: #FAFAFB;
+}
+.register-row-remove { align-self: end; }
+.register-add { align-self: flex-start; color: var(--color-primary); font-weight: 600; }
+.register-signature { font-family: 'Segoe Script', 'Brush Script MT', cursive; font-size: 1.1rem; }
+.register-hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
+.register-actions { display: flex; justify-content: space-between; gap: 0.75rem; padding-top: 1.5rem; margin-top: 1rem; border-top: 1px solid var(--color-border); }
+.register-done { max-width: 520px; text-align: center; margin-top: 8vh; }
+.register-done .register-logo { margin: 0 auto 1rem; display: block; }
+.register-done h1 { font-size: 1.6rem; margin: 0 0 0.75rem; }
+.register-done p { color: var(--color-text-secondary); margin: 0 0 1.5rem; line-height: 1.55; }
+@media (max-width: 760px) {
+  .register-row { grid-template-columns: 1fr; }
+  .register-head { flex-direction: column; align-items: flex-start; }
+  .register-actions { flex-direction: column-reverse; }
+  .register-actions .btn { width: 100%; }
+}

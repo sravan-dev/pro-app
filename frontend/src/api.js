@@ -228,6 +228,13 @@ export const api = {
   createContactEnrollment: (contact) => request('/contact-enrollments', { method: 'POST', body: contact }),
   getContactEnrollments: () => request('/contact-enrollments'),
 
+  // Tutor applications (public /register form + superadmin review)
+  submitTutorApplication: (formData) => request('/public/tutor-applications', { method: 'POST', body: formData }),
+  getTutorApplications: () => request('/tutor-applications'),
+  updateTutorApplication: (id, data) => request(`/tutor-applications/${id}`, { method: 'PUT', body: data }),
+  deleteTutorApplication: (id) => request(`/tutor-applications/${id}`, { method: 'DELETE' }),
+  tutorApplicationFileUrl: (id, kind) => `${API}/tutor-applications/${id}/file/${kind}`,
+
   // Support tickets (student → advisor → manager → superadmin)
   getTickets: () => request('/tickets'),
   getTicketCount: () => request('/tickets/count'),

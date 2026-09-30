@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ForgotPasswordModal from './ForgotPasswordModal';
 
@@ -113,6 +113,8 @@ export default function Login() {
 
           <p className="auth-footer">
             Don&apos;t have an account? <span className="auth-footer-muted">Contact your administrator</span>
+            <br />
+            Want to teach with us? <Link to="/register" className="auth-footer-muted">Apply as a tutor</Link>
           </p>
         </div>
 

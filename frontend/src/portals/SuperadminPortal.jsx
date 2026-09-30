@@ -10,6 +10,7 @@ import SessionDock from '../components/SessionDock';
 import { MainSkeleton } from '../components/Skeleton';
 import RatingsView from '../components/RatingsView';
 import Tickets from '../components/Tickets';
+import TutorApplications from '../components/TutorApplications';
 import usePersistedTab from '../hooks/usePersistedTab';
 
 // Simple horizontal bar chart built from the existing .stats-bars styles
@@ -3072,6 +3073,8 @@ export default function SuperadminPortal() {
         )}
 
         {activeTab === 'tickets' && <Tickets />}
+
+        {activeTab === 'applications' && <TutorApplications />}
 
         {/* ===== TEAMS ===== */}
         {activeTab === 'teams' && (
