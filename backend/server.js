@@ -402,6 +402,8 @@ async function requireAuth(req, res) {
   if (!req.session.userId) { res.status(401).json({ error: 'Not authenticated' }); return null; }
   const user = await db.get("SELECT id,name,email,portal,role,specialization,status,avatar_color,avatar_url,must_change_password FROM users WHERE id=?", [req.session.userId]);
   if (!user) { req.session.destroy(() => {}); res.status(401).json({ error: 'User not found' }); return null; }
+  // A blacklisted user is signed out on their next request, not just blocked at login.
+  if (user.status === 'blacklisted') { req.session.destroy(() => {}); res.status(401).json({ error: 'Account suspended' }); return null; }
   return user;
 }
 
@@ -466,6 +468,7 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
   if (user.status === 'inactive') return res.status(403).json({ error: 'Account deactivated' });
+  if (user.status === 'blacklisted') return res.status(403).json({ error: 'Your account has been suspended. Please contact the academy.' });
 
   req.session.userId = user.id;
   req.session.role = user.role;
@@ -485,7 +488,10 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/auth/session', async (req, res) => {
   if (!req.session.userId) return res.json({ authenticated: false });
   const user = await db.get("SELECT id,name,email,portal,role,specialization,status,avatar_color,avatar_url,must_change_password FROM users WHERE id=?", [req.session.userId]);
-  if (!user) return res.json({ authenticated: false });
+  if (!user || user.status === 'blacklisted') {
+    if (user) req.session.destroy(() => {});
+    return res.json({ authenticated: false });
+  }
   res.json({ authenticated: true, user });
 });
 
@@ -684,7 +690,7 @@ app.get('/api/students/:id', async (req, res) => {
 // Tutors
 app.get('/api/tutors', async (req, res) => {
   const user = await requireRole(req, res, ['manager','superadmin']); if (!user) return;
-  res.json(await db.all("SELECT u.id,u.name,u.email,u.phone,u.role,u.status,u.avatar_color,u.specialization,u.payout_rate,u.payout_type,u.team_id, (SELECT name FROM teams WHERE id=u.team_id) AS team_name, COUNT(DISTINCT c.id) as course_count FROM users u LEFT JOIN courses c ON c.tutor_id=u.id WHERE u.role='tutor' GROUP BY u.id ORDER BY u.name"));
+  res.json(await db.all("SELECT u.id,u.name,u.email,u.phone,u.role,u.status,u.blacklist_reason,u.blacklisted_at,u.avatar_color,u.specialization,u.payout_rate,u.payout_type,u.team_id, (SELECT name FROM teams WHERE id=u.team_id) AS team_name, COUNT(DISTINCT c.id) as course_count FROM users u LEFT JOIN courses c ON c.tutor_id=u.id WHERE u.role='tutor' GROUP BY u.id ORDER BY u.name"));
 });
 
 // Courses
@@ -2061,7 +2067,18 @@ app.put('/api/users', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   const { id, password, shift_rates, ...fields } = req.body;
   if (!id) return res.status(400).json({ error: 'User ID required' });
+  // 'blacklisted' is only entered through the Blacklist action (it needs a
+  // reason). Re-saving an already-blacklisted user's form keeps it as is;
+  // moving them to another status via Edit clears the stored reason.
+  if (fields.status === 'blacklisted') {
+    const cur = await db.get("SELECT status FROM users WHERE id=?", [id]);
+    if (!cur || cur.status !== 'blacklisted') return res.status(400).json({ error: 'Use the Blacklist action to blacklist a user (a reason is required)' });
+    delete fields.status;
+  }
   await saveShiftRates(id, shift_rates);
+  if (fields.status !== undefined) {
+    await db.run("UPDATE users SET blacklist_reason=NULL, blacklisted_at=NULL, blacklisted_by=NULL WHERE id=? AND status='blacklisted'", [id]);
+  }
   const allowed = ['name','email','phone','role','status','specialization','avatar_color','payout_rate','payout_type','gender','team_id','advisor_id','assigned_tutor_id'];
   const nullable = ['team_id','advisor_id','assigned_tutor_id'];
   const sets = []; const vals = [];
@@ -2133,7 +2150,7 @@ app.post('/api/users/invite-all', async (req, res) => {
   const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
   if (inviteAllJob && inviteAllJob.running) return res.status(409).json({ error: 'A bulk invite is already running' });
   const role = req.body?.role === 'tutor' ? 'tutor' : 'student';
-  const users = await db.all("SELECT id,name,email FROM users WHERE role=? AND status!='inactive' AND email IS NOT NULL AND email!=''", [role]);
+  const users = await db.all("SELECT id,name,email FROM users WHERE role=? AND status NOT IN ('inactive','blacklisted') AND email IS NOT NULL AND email!=''", [role]);
   const loginUrl = `${req.protocol}://${req.get('host')}/login`;
   const job = { running: true, role, total: users.length, processed: 0, emailed: 0, failed: [], login_url: loginUrl, startedAt: new Date().toISOString(), finishedAt: null, error: null };
   inviteAllJob = job;
@@ -2177,6 +2194,33 @@ app.post('/api/users/invite-all', async (req, res) => {
 app.get('/api/users/invite-all/status', async (req, res) => {
   const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
   res.json(inviteAllJob || { running: false, total: null });
+});
+
+// Blacklist: temporarily block sign-in, with a required reason. Active
+// sessions end on the user's next request (see requireAuth).
+app.post('/api/users/:id/blacklist', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const id = parseInt(req.params.id, 10);
+  const reason = String(req.body?.reason ?? '').trim().slice(0, 2000);
+  if (!reason) return res.status(400).json({ error: 'A reason is required' });
+  if (id === admin.id) return res.status(400).json({ error: 'You cannot blacklist yourself' });
+  const u = await db.get("SELECT id, name, role FROM users WHERE id=?", [id]);
+  if (!u) return res.status(404).json({ error: 'User not found' });
+  if (u.role === 'superadmin') return res.status(400).json({ error: 'A superadmin cannot be blacklisted' });
+  await db.run("UPDATE users SET status='blacklisted', blacklist_reason=?, blacklisted_at=?, blacklisted_by=? WHERE id=?", [reason, nowStr(), admin.id, id]);
+  await auditLog(admin.id, 'blacklist_user', 'user', id, `${u.name}: ${reason}`);
+  res.json({ message: 'Blacklisted' });
+});
+
+app.post('/api/users/:id/unblacklist', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const id = parseInt(req.params.id, 10);
+  const u = await db.get("SELECT id, name, status FROM users WHERE id=?", [id]);
+  if (!u) return res.status(404).json({ error: 'User not found' });
+  if (u.status !== 'blacklisted') return res.status(400).json({ error: 'User is not blacklisted' });
+  await db.run("UPDATE users SET status='active', blacklist_reason=NULL, blacklisted_at=NULL, blacklisted_by=NULL WHERE id=?", [id]);
+  await auditLog(admin.id, 'unblacklist_user', 'user', id, u.name);
+  res.json({ message: 'Removed from blacklist' });
 });
 
 app.delete('/api/users', async (req, res) => {

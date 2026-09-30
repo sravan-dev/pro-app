@@ -53,6 +53,8 @@ export const api = {
   inviteAllStatus: () => request('/users/invite-all/status'),
   deleteUser: (id) => request(`/users?id=${id}`, { method: 'DELETE' }),
   permanentDeleteUser: (id) => request(`/users?id=${id}&permanent=true`, { method: 'DELETE' }),
+  blacklistUser: (id, reason) => request(`/users/${id}/blacklist`, { method: 'POST', body: { reason } }),
+  unblacklistUser: (id) => request(`/users/${id}/unblacklist`, { method: 'POST' }),
 
   // Courses
   getCourses: () => request('/courses'),

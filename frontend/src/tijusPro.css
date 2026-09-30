@@ -842,6 +842,8 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
 
 .status-active::before { background: var(--color-success); }
 .status-inactive::before { background: #9CA3AF; }
+.status-blacklisted { color: #111827; font-weight: 600; }
+.status-blacklisted::before { background: #111827; }
 .status-at-risk::before { background: var(--color-danger); }
 .status-completed::before { background: var(--color-success); }
 .status-dropped::before { background: var(--color-danger); }

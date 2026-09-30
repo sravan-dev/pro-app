@@ -11,6 +11,7 @@ import { MainSkeleton } from '../components/Skeleton';
 import RatingsView from '../components/RatingsView';
 import Tickets from '../components/Tickets';
 import TutorApplications from '../components/TutorApplications';
+import BlacklistModal from '../components/BlacklistModal';
 import usePersistedTab from '../hooks/usePersistedTab';
 
 // Simple horizontal bar chart built from the existing .stats-bars styles
@@ -651,6 +652,22 @@ export default function SuperadminPortal() {
       fetchData();
       api.getStudents().then(setAllStudents);
       api.getTutors().then(setAllTutors);
+    } catch (err) { showMsg(err.message, 'error'); }
+  };
+
+  // Blacklist = temporary block with a reason (see BlacklistModal).
+  const [blacklistTarget, setBlacklistTarget] = useState(null);
+  const refreshUserLists = () => {
+    fetchData();
+    api.getStudents().then(setAllStudents);
+    api.getTutors().then(setAllTutors);
+  };
+  const unblacklistUser = async (r) => {
+    if (!confirm(`Remove ${r.name} from the blacklist? They will be able to sign in again.`)) return;
+    try {
+      await api.unblacklistUser(r.id);
+      showMsg(`${r.name} removed from the blacklist`, 'success');
+      refreshUserLists();
     } catch (err) { showMsg(err.message, 'error'); }
   };
 
@@ -1381,16 +1398,17 @@ export default function SuperadminPortal() {
     finally { setInviteAllBusy(false); }
   };
 
-  const actionBtns = (onEdit, onDelete, deleteLabel = 'Deactivate', onPermanentDelete = null, extra = null) => (r) => (
+  const actionBtns = (onEdit, onDelete, deleteLabel = 'Deactivate', onPermanentDelete = null, extra = null, beforeDelete = null) => (r) => (
     <div className="table-actions">
       {r.id && r.email && (
         <button className="btn btn-sm btn-ghost" style={{ color: '#10B981' }} onClick={(e) => { e.stopPropagation(); handleInvite(r); }}>Invite</button>
       )}
       {extra && extra(r)}
       <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); onEdit(r); }}>Edit</button>
-      {onDelete && r.status !== 'inactive' && r.status !== 'archived' && r.status !== 'dropped' && (
+      {onDelete && r.status !== 'inactive' && r.status !== 'archived' && r.status !== 'dropped' && r.status !== 'blacklisted' && (
         <button className="btn btn-sm btn-ghost text-danger" onClick={(e) => { e.stopPropagation(); onDelete(r.id || r.enrollment_id); }}>{deleteLabel}</button>
       )}
+      {beforeDelete && beforeDelete(r)}
       {onPermanentDelete && (
         <button className="btn btn-sm btn-ghost text-danger" onClick={(e) => { e.stopPropagation(); onPermanentDelete(r.id); }}>Delete</button>
       )}
@@ -1428,8 +1446,21 @@ export default function SuperadminPortal() {
     { key: 'payout', label: 'Payout', accessor: 'payout_rate', render: (r) => (
       <span>{formatMoney(r.payout_rate)} <span style={{ color: '#888', fontSize: '12px' }}>/ {r.payout_type || 'monthly'}</span></span>
     ) },
-    { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
-    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser) },
+    { key: 'status', label: 'Status', accessor: 'status', render: (r) => (
+      <div>
+        {statusCol(r)}
+        {r.status === 'blacklisted' && r.blacklist_reason && (
+          <div title={r.blacklist_reason} style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {r.blacklist_reason}
+          </div>
+        )}
+      </div>
+    ) },
+    { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser, null, (r) => (
+      r.status === 'blacklisted'
+        ? <button className="btn btn-sm btn-ghost" style={{ color: '#111827', fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); unblacklistUser(r); }}>Remove blacklist</button>
+        : <button className="btn btn-sm btn-ghost" style={{ color: '#111827', fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); setBlacklistTarget(r); }}>Blacklist</button>
+    )) },
   ];
 
   const userColumns = [
@@ -1856,6 +1887,8 @@ export default function SuperadminPortal() {
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
                 <option value="at-risk">At Risk</option>
+                {/* Set only through the Blacklist action, which records a reason. */}
+                <option value="blacklisted" disabled>Blacklisted</option>
               </select>
             </div>
           )}
@@ -3026,6 +3059,14 @@ export default function SuperadminPortal() {
               ? <TutorApplications embedded />
               : <DataTable columns={tutorColumns} data={allTutors} pageSize={15} selectable onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />}
           </div>
+        )}
+
+        {blacklistTarget && (
+          <BlacklistModal
+            user={blacklistTarget}
+            onClose={() => setBlacklistTarget(null)}
+            onDone={(msg) => { setBlacklistTarget(null); showMsg(msg, 'success'); refreshUserLists(); }}
+          />
         )}
 
         {/* ===== ALL USERS ===== */}
