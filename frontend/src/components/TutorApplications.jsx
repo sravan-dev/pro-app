@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import DataTable from './DataTable';
 
-// Superadmin "Applications" tab — tutor applications submitted from the public
-// /register page. Review, set a status, keep notes, or delete.
+// Tutor Management → Applications — tutor applications submitted from the public
+// /register page. `embedded` drops the page wrapper/heading when shown inside
+// the Tutor Management page. Review, set a status, keep notes, or delete.
 const STATUSES = ['new', 'shortlisted', 'rejected', 'hired'];
 const STATUS_STYLE = {
   new: { background: '#DBEAFE', color: '#1E40AF' },
@@ -21,7 +22,7 @@ function StatusBadge({ status }) {
   return <span className="status-badge" style={STATUS_STYLE[status] || STATUS_STYLE.new}>{status}</span>;
 }
 
-export default function TutorApplications() {
+export default function TutorApplications({ embedded = false }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -50,10 +51,10 @@ export default function TutorApplications() {
   const newCount = rows.filter((r) => r.status === 'new').length;
 
   return (
-    <div className="portal-page">
-      <div className="page-header">
+    <div className={embedded ? '' : 'portal-page'}>
+      <div className="page-header" style={embedded ? { marginBottom: '1rem' } : undefined}>
         <div>
-          <h2 style={{ marginBottom: 4 }}>Tutor Applications</h2>
+          {!embedded && <h2 style={{ marginBottom: 4 }}>Tutor Applications</h2>}
           <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>
             Submitted from the public form at <a href="/register" target="_blank" rel="noreferrer">/register</a>
             {newCount > 0 && ` · ${newCount} new`}

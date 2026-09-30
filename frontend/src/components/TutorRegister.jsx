@@ -102,7 +102,7 @@ export default function TutorRegister() {
         <header className="register-head">
           <img src="/logo.png" alt="Tiju's Academy" className="register-logo" />
           <div>
-            <h1>Tutor Application Form</h1>
+            <h1>Tijus Academy Tutor Application Form</h1>
             <p>Join Tiju&apos;s Academy as a tutor. Fields marked <span className="req">*</span> are required.</p>
           </div>
         </header>

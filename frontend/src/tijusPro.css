@@ -1299,3 +1299,9 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
   .register-actions { flex-direction: column-reverse; }
   .register-actions .btn { width: 100%; }
 }
+
+/* Two-way view switch inside a page (e.g. Tutor Management: Tutors / Applications) */
+.view-toggle { display: inline-flex; gap: 0.25rem; padding: 0.25rem; margin-bottom: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 999px; }
+.view-toggle button { border: none; background: transparent; padding: 0.45rem 1.1rem; border-radius: 999px; font-size: 0.875rem; font-weight: 500; color: var(--color-text-secondary); cursor: pointer; transition: all var(--transition); }
+.view-toggle button:hover { color: var(--color-text); }
+.view-toggle button.active { background: var(--color-primary); color: #fff; }

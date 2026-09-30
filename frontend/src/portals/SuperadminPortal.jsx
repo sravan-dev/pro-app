@@ -41,6 +41,12 @@ export default function SuperadminPortal() {
   const { user } = useAuth();
   const firstName = user?.name?.split(' ')[0] || 'there';
   const [activeTab, setActiveTab] = usePersistedTab('tab:superadmin');
+  // Tutor Management shows either the tutor list or the /register applications.
+  const [tutorView, setTutorView] = usePersistedTab('tab:superadmin:tutors', 'list');
+  // Applications used to be its own sidebar tab; send a remembered one there.
+  useEffect(() => {
+    if (activeTab === 'applications') { setActiveTab('tutors'); setTutorView('applications'); }
+  }, [activeTab, setActiveTab, setTutorView]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
@@ -3010,9 +3016,15 @@ export default function SuperadminPortal() {
           <div className="portal-page">
             <div className="page-header">
               <h2>Tutor Management</h2>
-              <button className="btn btn-primary" onClick={() => openCreateUser('tutor')}>+ Add Tutor</button>
+              {tutorView === 'list' && <button className="btn btn-primary" onClick={() => openCreateUser('tutor')}>+ Add Tutor</button>}
             </div>
-            <DataTable columns={tutorColumns} data={allTutors} pageSize={15} selectable onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />
+            <div className="view-toggle" role="tablist">
+              <button role="tab" aria-selected={tutorView === 'list'} className={tutorView === 'list' ? 'active' : ''} onClick={() => setTutorView('list')}>Tutors</button>
+              <button role="tab" aria-selected={tutorView === 'applications'} className={tutorView === 'applications' ? 'active' : ''} onClick={() => setTutorView('applications')}>Applications</button>
+            </div>
+            {tutorView === 'applications'
+              ? <TutorApplications embedded />
+              : <DataTable columns={tutorColumns} data={allTutors} pageSize={15} selectable onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />}
           </div>
         )}
 
@@ -3074,7 +3086,6 @@ export default function SuperadminPortal() {
 
         {activeTab === 'tickets' && <Tickets />}
 
-        {activeTab === 'applications' && <TutorApplications />}
 
         {/* ===== TEAMS ===== */}
         {activeTab === 'teams' && (
