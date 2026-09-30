@@ -3860,6 +3860,43 @@ app.put('/api/tutor-applications/:id', async (req, res) => {
   res.json({ message: 'Application updated' });
 });
 
+// Make as Tutor: create a tutor account from an application (name, email,
+// phone), mark the application hired and link it to the account. Like Invite,
+// the account gets a fresh temp password that is emailed and also returned so
+// the admin can share it if email is off.
+app.post('/api/tutor-applications/:id/make-tutor', async (req, res) => {
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const a = await db.get("SELECT id, full_name, email, phone, tutor_user_id FROM tutor_applications WHERE id=?", [req.params.id]);
+  if (!a) return res.status(404).json({ error: 'Application not found' });
+  if (a.tutor_user_id && await db.get("SELECT 1 FROM users WHERE id=?", [a.tutor_user_id])) {
+    return res.status(400).json({ error: 'A tutor account was already created from this application' });
+  }
+  const existing = await db.get("SELECT id, role FROM users WHERE email=?", [a.email]);
+  if (existing) return res.status(400).json({ error: `An account with ${a.email} already exists (${existing.role})` });
+
+  const tempPassword = makeTempPassword();
+  let userId;
+  try {
+    const r = await db.run(
+      "INSERT INTO users (name,email,phone,portal,role,password_hash,avatar_color,payout_rate,payout_type,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,1)",
+      [a.full_name, a.email, a.phone.slice(0, 30), 'tutor', 'tutor', bcrypt.hashSync(tempPassword, 10), '#4F46E5', 0, 'shift']
+    );
+    userId = r.lastInsertRowid;
+  } catch (err) {
+    if (isDup(err)) return res.status(400).json({ error: `An account with ${a.email} already exists` });
+    throw err;
+  }
+  await db.run("UPDATE tutor_applications SET status='hired', tutor_user_id=? WHERE id=?", [userId, a.id]);
+  await auditLog(admin.id, 'make_tutor_from_application', 'user', userId, `${a.full_name} <${a.email}> from application #${a.id}`);
+
+  const loginUrl = `${req.protocol}://${req.get('host')}/login`;
+  let emailed = false;
+  try {
+    emailed = (await sendEmail(a.email, "Your Tiju's Academy login", inviteEmailHtml(a.full_name, a.email, tempPassword, loginUrl))).sent;
+  } catch { /* reported via emailed=false; the admin gets the password below */ }
+  res.status(201).json({ message: 'Tutor created', user_id: userId, email: a.email, password: tempPassword, login_url: loginUrl, emailed });
+});
+
 app.delete('/api/tutor-applications/:id', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   const row = await db.get("SELECT id, full_name, photo_path, resume_path FROM tutor_applications WHERE id=?", [req.params.id]);

@@ -392,7 +392,8 @@ CREATE TABLE IF NOT EXISTS user_shift_rates (
 -- education / references_json hold JSON arrays of row objects. photo_path and
 -- resume_path are filenames under UPLOADS_ROOT/applications, which is never
 -- served statically — only through the authenticated file endpoint.
--- status: new → shortlisted / rejected / hired.
+-- status: new → shortlisted / rejected / hired. tutor_user_id is the account
+-- created by "Make as Tutor".
 CREATE TABLE IF NOT EXISTS tutor_applications (
   id INT AUTO_INCREMENT PRIMARY KEY,
   position VARCHAR(160) NOT NULL DEFAULT 'Tutor',
@@ -424,6 +425,7 @@ CREATE TABLE IF NOT EXISTS tutor_applications (
   resume_path VARCHAR(255) DEFAULT '',
   status VARCHAR(20) NOT NULL DEFAULT 'new',
   admin_notes TEXT,
+  tutor_user_id INT NULL,
   ip_address VARCHAR(64) DEFAULT '',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

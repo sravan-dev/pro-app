@@ -3056,7 +3056,7 @@ export default function SuperadminPortal() {
               <button role="tab" aria-selected={tutorView === 'applications'} className={tutorView === 'applications' ? 'active' : ''} onClick={() => setTutorView('applications')}>Applications</button>
             </div>
             {tutorView === 'applications'
-              ? <TutorApplications embedded />
+              ? <TutorApplications embedded onTutorCreated={() => api.getTutors().then(setAllTutors).catch(() => {})} />
               : <DataTable columns={tutorColumns} data={allTutors} pageSize={15} selectable onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />}
           </div>
         )}

@@ -172,6 +172,7 @@ async function initSchema() {
   await addColumnIfMissing('users', 'blacklist_reason', 'blacklist_reason TEXT NULL');
   await addColumnIfMissing('users', 'blacklisted_at', 'blacklisted_at DATETIME NULL');
   await addColumnIfMissing('users', 'blacklisted_by', 'blacklisted_by INT NULL');
+  await addColumnIfMissing('tutor_applications', 'tutor_user_id', 'tutor_user_id INT NULL');
   await addColumnIfMissing('app_settings', 'video_provider', "video_provider VARCHAR(20) DEFAULT 'livekit'");
   await addColumnIfMissing('app_settings', 'zoom_account_id', "zoom_account_id VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('app_settings', 'zoom_client_id', "zoom_client_id VARCHAR(255) DEFAULT ''");

@@ -22,8 +22,9 @@ function StatusBadge({ status }) {
   return <span className="status-badge" style={STATUS_STYLE[status] || STATUS_STYLE.new}>{status}</span>;
 }
 
-export default function TutorApplications({ embedded = false }) {
+export default function TutorApplications({ embedded = false, onTutorCreated }) {
   const [rows, setRows] = useState([]);
+  const [created, setCreated] = useState(null); // result of Make as Tutor, shown once
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState(null);
@@ -38,6 +39,21 @@ export default function TutorApplications({ embedded = false }) {
 
   useEffect(() => { load(); }, []);
 
+  // Create a tutor account from the application. Returns true on success.
+  const makeTutor = async (app) => {
+    if (!window.confirm(`Create a tutor account for ${app.full_name} (${app.email})? They'll be emailed a login with a temporary password.`)) return false;
+    try {
+      const r = await api.makeTutorFromApplication(app.id);
+      setCreated({ name: app.full_name, ...r });
+      await load();
+      onTutorCreated?.();
+      return true;
+    } catch (err) {
+      window.alert(err.message);
+      return false;
+    }
+  };
+
   const columns = [
     { key: 'name', label: 'Applicant', accessor: 'full_name', render: (r) => <strong>{r.full_name}</strong> },
     { key: 'position', label: 'Position', accessor: 'position' },
@@ -46,6 +62,11 @@ export default function TutorApplications({ embedded = false }) {
     { key: 'exp', label: 'Experience', accessor: 'total_experience', render: (r) => r.total_experience || '—' },
     { key: 'status', label: 'Status', accessor: 'status', render: (r) => <StatusBadge status={r.status} /> },
     { key: 'date', label: 'Submitted', accessor: 'created_at', render: (r) => fmtDate(r.created_at) },
+    { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
+      r.tutor_user_id
+        ? <span style={{ color: 'var(--color-success)', fontWeight: 600, fontSize: '0.85rem' }}>✓ Tutor</span>
+        : <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); makeTutor(r); }}>Make as Tutor</button>
+    ) },
   ];
 
   const newCount = rows.filter((r) => r.status === 'new').length;
@@ -63,6 +84,16 @@ export default function TutorApplications({ embedded = false }) {
         <button className="btn btn-ghost" onClick={load} disabled={loading}>↻ Refresh</button>
       </div>
       {error && <div style={{ color: '#dc2626', margin: '8px 0' }}>{error}</div>}
+      {created && (
+        <div className={`alert ${created.emailed ? 'alert-success' : 'alert-info'}`} style={{ cursor: 'default' }}>
+          <strong>{created.name}</strong> is now a tutor.{' '}
+          {created.emailed
+            ? `Login details were emailed to ${created.email}.`
+            : <>The email could not be sent — share these details: <strong>{created.email}</strong> / temporary password <code>{created.password}</code> ({created.login_url}).</>}
+          {' '}Set their pay under Tutors → Edit.
+          <button className="btn btn-sm btn-ghost" style={{ marginLeft: 8 }} onClick={() => setCreated(null)}>Dismiss</button>
+        </div>
+      )}
       {loading && !rows.length ? <div className="spinner" /> : (
         <DataTable columns={columns} data={rows} pageSize={15} onRowClick={setSelected} />
       )}
@@ -70,6 +101,7 @@ export default function TutorApplications({ embedded = false }) {
       {selected && (
         <ApplicationModal
           app={selected}
+          onMakeTutor={async () => { if (await makeTutor(selected)) setSelected(null); }}
           onClose={() => setSelected(null)}
           onChanged={async (deleted) => {
             const fresh = await load();
@@ -82,7 +114,7 @@ export default function TutorApplications({ embedded = false }) {
   );
 }
 
-function ApplicationModal({ app, onClose, onChanged }) {
+function ApplicationModal({ app, onClose, onChanged, onMakeTutor }) {
   const [notes, setNotes] = useState(app.admin_notes || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -204,6 +236,7 @@ function ApplicationModal({ app, onClose, onChanged }) {
           <button className="btn btn-ghost text-danger" disabled={busy} onClick={remove}>Delete</button>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-ghost" onClick={onClose}>Close</button>
+            {!app.tutor_user_id && <button className="btn btn-ghost" style={{ color: 'var(--color-primary)', fontWeight: 600 }} disabled={busy} onClick={onMakeTutor}>Make as Tutor</button>}
             <button className="btn btn-primary" disabled={busy || notes === (app.admin_notes || '')} onClick={() => save({ admin_notes: notes })}>Save notes</button>
           </div>
         </div>

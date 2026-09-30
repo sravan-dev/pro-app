@@ -235,6 +235,7 @@ export const api = {
   getTutorApplications: () => request('/tutor-applications'),
   updateTutorApplication: (id, data) => request(`/tutor-applications/${id}`, { method: 'PUT', body: data }),
   deleteTutorApplication: (id) => request(`/tutor-applications/${id}`, { method: 'DELETE' }),
+  makeTutorFromApplication: (id) => request(`/tutor-applications/${id}/make-tutor`, { method: 'POST' }),
   tutorApplicationFileUrl: (id, kind) => `${API}/tutor-applications/${id}/file/${kind}`,
 
   // Support tickets (student → advisor → manager → superadmin)
