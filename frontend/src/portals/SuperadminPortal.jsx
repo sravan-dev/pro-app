@@ -12,6 +12,7 @@ import RatingsView from '../components/RatingsView';
 import Tickets from '../components/Tickets';
 import TutorApplications from '../components/TutorApplications';
 import BlacklistModal from '../components/BlacklistModal';
+import TutorProfile from '../components/TutorProfile';
 import usePersistedTab from '../hooks/usePersistedTab';
 
 // Simple horizontal bar chart built from the existing .stats-bars styles
@@ -614,6 +615,7 @@ export default function SuperadminPortal() {
       fetchData();
       api.getStudents().then(setAllStudents);
       api.getTutors().then(setAllTutors);
+      setTutorProfileKey((k) => k + 1);
       api.getCourses().then(setAllCourses).catch(() => {});
     } catch (err) { showMsg(err.message, 'error'); }
   };
@@ -657,10 +659,13 @@ export default function SuperadminPortal() {
 
   // Blacklist = temporary block with a reason (see BlacklistModal).
   const [blacklistTarget, setBlacklistTarget] = useState(null);
+  const [tutorProfileId, setTutorProfileId] = useState(null); // Tutors → click a row
+  const [tutorProfileKey, setTutorProfileKey] = useState(0); // bump to reload the open profile
   const refreshUserLists = () => {
     fetchData();
     api.getStudents().then(setAllStudents);
     api.getTutors().then(setAllTutors);
+    setTutorProfileKey((k) => k + 1);
   };
   const unblacklistUser = async (r) => {
     if (!confirm(`Remove ${r.name} from the blacklist? They will be able to sign in again.`)) return;
@@ -3045,7 +3050,19 @@ export default function SuperadminPortal() {
         )}
 
         {/* ===== TUTORS ===== */}
-        {activeTab === 'tutors' && (
+        {activeTab === 'tutors' && tutorProfileId && (
+          <TutorProfile
+            key={`${tutorProfileId}-${tutorProfileKey}`}
+            tutorId={tutorProfileId}
+            onBack={() => setTutorProfileId(null)}
+            onEdit={openEditUser}
+            onInvite={handleInvite}
+            onBlacklist={setBlacklistTarget}
+            onUnblacklist={unblacklistUser}
+          />
+        )}
+
+        {activeTab === 'tutors' && !tutorProfileId && (
           <div className="portal-page">
             <div className="page-header">
               <h2>Tutor Management</h2>
@@ -3057,7 +3074,14 @@ export default function SuperadminPortal() {
             </div>
             {tutorView === 'applications'
               ? <TutorApplications embedded onTutorCreated={() => api.getTutors().then(setAllTutors).catch(() => {})} />
-              : <DataTable columns={tutorColumns} data={allTutors} pageSize={15} selectable onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />}
+              : (
+                <>
+                  <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+                    Click a tutor to view their full profile.
+                  </p>
+                  <DataTable columns={tutorColumns} data={allTutors} pageSize={15} selectable onRowClick={(r) => setTutorProfileId(r.id)} onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />
+                </>
+              )}
           </div>
         )}
 

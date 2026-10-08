@@ -693,6 +693,64 @@ app.get('/api/tutors', async (req, res) => {
   res.json(await db.all("SELECT u.id,u.name,u.email,u.phone,u.role,u.status,u.blacklist_reason,u.blacklisted_at,u.avatar_color,u.specialization,u.payout_rate,u.payout_type,u.team_id, (SELECT name FROM teams WHERE id=u.team_id) AS team_name, COUNT(DISTINCT c.id) as course_count FROM users u LEFT JOIN courses c ON c.tutor_id=u.id WHERE u.role='tutor' GROUP BY u.id ORDER BY u.name"));
 });
 
+// Parse a stored JSON array column, tolerating junk.
+function parseJsonArray(s) { try { const v = JSON.parse(s || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } }
+
+// Tutor profile (admin) — everything the Tutors → profile page shows.
+app.get('/api/tutors/:id', async (req, res) => {
+  const user = await requireRole(req, res, ['manager','superadmin']); if (!user) return;
+  const id = parseInt(req.params.id, 10);
+  const profile = await db.get(
+    `SELECT u.id,u.name,u.email,u.phone,u.status,u.avatar_color,u.avatar_url,u.specialization,u.gender,u.team_id,
+            u.payout_rate,u.payout_type,u.blacklist_reason,u.blacklisted_at,u.created_at,
+            t.name AS team_name, b.name AS blacklisted_by_name
+     FROM users u LEFT JOIN teams t ON t.id=u.team_id LEFT JOIN users b ON b.id=u.blacklisted_by
+     WHERE u.id=? AND u.role='tutor'`, [id]);
+  if (!profile) return res.status(404).json({ error: 'Tutor not found' });
+
+  const courses = await db.all(
+    `SELECT c.id,c.name,c.category,c.status,
+            (SELECT COUNT(*) FROM enrollments e WHERE e.course_id=c.id) AS student_count
+     FROM courses c WHERE c.tutor_id=? ORDER BY c.name`, [id]);
+
+  // Students: primary tutor (users.assigned_tutor_id) plus additional faculty.
+  const students = await db.all(
+    `SELECT s.id,s.name,s.email,s.status,'Primary' AS relation FROM users s WHERE s.role='student' AND s.assigned_tutor_id=?
+     UNION
+     SELECT s.id,s.name,s.email,s.status,'Additional' AS relation FROM student_tutors st JOIN users s ON s.id=st.student_id
+       WHERE st.tutor_id=? AND (s.assigned_tutor_id IS NULL OR s.assigned_tutor_id<>?)
+     ORDER BY name`, [id, id, id]);
+
+  const sessions = await db.all(
+    `SELECT s.session_id,s.start_time,s.end_time,s.status,c.name AS course_name,st.name AS student_name
+     FROM sessions s LEFT JOIN courses c ON c.id=s.course_id LEFT JOIN users st ON st.id=s.student_id
+     WHERE s.tutor_id=? ORDER BY s.start_time DESC LIMIT 50`, [id]);
+  const sessionCounts = await db.get(
+    "SELECT COUNT(*) AS total, SUM(status='completed') AS completed FROM sessions WHERE tutor_id=?", [id]);
+
+  const rating = await db.get("SELECT ROUND(AVG(stars),1) AS avg, COUNT(*) AS n FROM ratings WHERE ratee_id=?", [id]);
+
+  // The application they were hired from (Make as Tutor), else one with the same email.
+  const app = await db.get(
+    `SELECT id,position,total_experience,current_employer,current_designation,expected_ctc,notice_period,education,
+            photo_path<>'' AS has_photo, resume_path<>'' AS has_resume, created_at
+     FROM tutor_applications WHERE tutor_user_id=? OR email=? ORDER BY (tutor_user_id=?) DESC, created_at DESC LIMIT 1`,
+    [id, profile.email, id]);
+  const application = app ? { ...app, education: parseJsonArray(app.education), has_photo: !!app.has_photo, has_resume: !!app.has_resume } : null;
+
+  res.json({
+    profile, courses, students, sessions, application,
+    stats: {
+      courses: courses.length,
+      students: students.length,
+      sessions: sessionCounts.total || 0,
+      completed_sessions: Number(sessionCounts.completed) || 0,
+      rating: rating.n ? rating.avg : null,
+      rating_count: rating.n,
+    },
+  });
+});
+
 // Courses
 app.get('/api/courses', async (req, res) => {
   const user = await requireAuth(req, res); if (!user) return;
@@ -3808,8 +3866,6 @@ app.post('/api/public/tutor-applications', (req, res) => {
     }
   });
 });
-
-const parseJsonArray = (s) => { try { const v = JSON.parse(s || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
 
 app.get('/api/tutor-applications', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
