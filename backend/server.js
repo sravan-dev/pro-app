@@ -3834,7 +3834,7 @@ app.post('/api/public/tutor-applications', (req, res) => {
       ['emergency_name', 'Emergency contact name'], ['emergency_phone', 'Emergency contact number'],
       ['permanent_address', 'Permanent address'], ['current_address', 'Current address'],
       ['reason', 'Reason for applying'], ['motivation', 'Motivation'],
-      ['signature', 'Signature'], ['place', 'Place'],
+      ['signature', 'Signature'],
     ].filter(([k]) => !a[k]).map(([, label]) => label);
     if (missing.length) return fail(400, `Please fill in: ${missing.join(', ')}`);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email)) return fail(400, 'Please enter a valid email address');

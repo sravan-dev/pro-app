@@ -269,8 +269,8 @@ export default function TutorRegister() {
             <Field label="Date">
               <input value={today} readOnly disabled />
             </Field>
-            <Field label="Place" required>
-              <input value={form.place} onChange={set('place')} required maxLength={120} />
+            <Field label="Place">
+              <input value={form.place} onChange={set('place')} maxLength={120} />
             </Field>
           </div>
         </section>

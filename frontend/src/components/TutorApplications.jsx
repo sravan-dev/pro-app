@@ -220,7 +220,7 @@ function ApplicationModal({ app, onClose, onChanged, onMakeTutor }) {
         )}
 
         <div style={sectionTitle}>Declaration</div>
-        <p style={{ margin: 0 }}>Signed <strong>{app.signature}</strong> at {app.place} on {fmtDate(app.created_at).split(',')[0]}.</p>
+        <p style={{ margin: 0 }}>Signed <strong>{app.signature}</strong>{app.place ? ` at ${app.place}` : ''} on {fmtDate(app.created_at).split(',')[0]}.</p>
 
         <div style={sectionTitle}>Review</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
