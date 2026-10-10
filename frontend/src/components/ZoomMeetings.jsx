@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
+import DataTable from './DataTable';
 
 // Admin → Zoom: create, edit and delete real Zoom meetings through the Zoom
 // app saved in Settings → Video provider. Meetings belong to a Zoom user (the
@@ -160,6 +161,30 @@ export default function ZoomMeetings() {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
 
+  const columns = [
+    { key: 'topic', label: 'Topic', accessor: 'topic', render: (m) => (
+      <>
+        <strong>{m.topic}</strong>
+        {m.type !== 2 && <div style={{ ...muted, fontSize: 12 }}>Recurring / instant — edit in Zoom</div>}
+      </>
+    )},
+    { key: 'when', label: 'When', accessor: 'start_time', render: (m) => <span style={{ fontSize: 13 }}>{fmtWhen(m.start_time)}</span> },
+    { key: 'duration', label: 'Duration', accessor: 'duration', render: (m) => <span style={{ fontSize: 13 }}>{m.duration ? `${m.duration} min` : '—'}</span> },
+    { key: 'id', label: 'Meeting ID', accessor: 'id', render: (m) => <span style={{ fontFamily: 'monospace' }}>{fmtId(m.id)}</span> },
+    { key: 'actions', label: 'Actions', sortable: false, render: (m) => {
+      const busy = busyId === m.id;
+      const upcoming = view === 'upcoming';
+      return (
+        <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+          {upcoming && <button className="btn btn-sm btn-primary" onClick={() => start(m)} disabled={busy}>Start</button>}
+          {upcoming && <button className="btn btn-sm btn-ghost" onClick={() => copyInvite(m)} disabled={busy}>Copy invite</button>}
+          {upcoming && m.type === 2 && <button className="btn btn-sm btn-ghost" onClick={() => openEdit(m)} disabled={busy}>Edit</button>}
+          <button className="btn btn-sm btn-ghost text-danger" onClick={() => remove(m)} disabled={busy}>Delete</button>
+        </div>
+      );
+    }},
+  ];
+
   if (!status) return <div className="portal-page"><div className="spinner" /></div>;
 
   if (!status.connected) {
@@ -216,42 +241,7 @@ export default function ZoomMeetings() {
           {view === 'upcoming' ? 'No upcoming Zoom meetings. Click “New Zoom Meeting” to schedule one.' : 'No past meetings.'}
         </div>
       ) : (
-        <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
-          <table className="data-table" style={{ width: '100%' }}>
-            <thead>
-              <tr>
-                <th>Topic</th>
-                <th>When</th>
-                <th>Duration</th>
-                <th>Meeting ID</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {meetings.map((m) => {
-                const busy = busyId === m.id;
-                const upcoming = view === 'upcoming';
-                return (
-                  <tr key={`${m.id}-${m.start_time || ''}`}>
-                    <td>
-                      <strong>{m.topic}</strong>
-                      {m.type !== 2 && <div style={{ ...muted, fontSize: 12 }}>Recurring / instant — edit in Zoom</div>}
-                    </td>
-                    <td style={{ fontSize: 13 }}>{fmtWhen(m.start_time)}</td>
-                    <td style={{ fontSize: 13 }}>{m.duration ? `${m.duration} min` : '—'}</td>
-                    <td style={{ fontFamily: 'monospace' }}>{fmtId(m.id)}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {upcoming && <button className="btn btn-sm btn-primary" onClick={() => start(m)} disabled={busy}>Start</button>}
-                      {upcoming && <button className="btn btn-sm btn-ghost" onClick={() => copyInvite(m)} disabled={busy}>Copy invite</button>}
-                      {upcoming && m.type === 2 && <button className="btn btn-sm btn-ghost" onClick={() => openEdit(m)} disabled={busy}>Edit</button>}
-                      <button className="btn btn-sm btn-ghost text-danger" onClick={() => remove(m)} disabled={busy}>Delete</button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable columns={columns} data={meetings} pageSize={10} rowId={(m) => `${m.id}-${m.start_time || ''}`} />
       )}
 
       {hostForm && (
