@@ -2103,7 +2103,9 @@ app.post('/api/users', async (req, res) => {
   if (user.role === 'manager' && role !== 'tutor') return res.status(403).json({ error: 'Managers can only create tutor accounts' });
   if (!['student','tutor','advisor','manager','superadmin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (await db.get("SELECT 1 FROM users WHERE email=?", [email])) return res.status(400).json({ error: 'Email exists' });
-  const plainPassword = password || 'password123';
+  // No password given: generate a random one (it goes out in the welcome email
+  // and must be changed on first login) rather than a guessable default.
+  const plainPassword = password || makeTempPassword();
   const hash = bcrypt.hashSync(plainPassword, 10);
   const r = await db.run(
     "INSERT INTO users (name,email,phone,portal,role,password_hash,avatar_color,specialization,gender,team_id,payout_rate,payout_type,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)",
@@ -2203,9 +2205,9 @@ app.post('/api/users/invite', async (req, res) => {
   if (!user_id) return res.status(400).json({ error: 'User ID required' });
   const u = await db.get("SELECT id,name,email,role FROM users WHERE id=?", [user_id]);
   if (!u) return res.status(404).json({ error: 'User not found' });
-  // An invite resets the password and hands it back, so a manager inviting an
-  // admin or another manager would be an account takeover.
-  if (admin.role === 'manager' && ['superadmin', 'manager'].includes(u.role)) return res.status(403).json({ error: 'Managers cannot invite admin or manager accounts' });
+  // An invite resets the password and hands it back, so letting a manager
+  // invite anyone but a tutor would let them take that account over.
+  if (admin.role === 'manager' && u.role !== 'tutor') return res.status(403).json({ error: 'Managers can only invite tutor accounts' });
   const tempPassword = makeTempPassword();
   await db.run("UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?", [bcrypt.hashSync(tempPassword, 10), u.id]);
   const loginUrl = `${req.protocol}://${req.get('host')}/login`;
@@ -2221,8 +2223,10 @@ app.post('/api/users/invite', async (req, res) => {
 // for students whose email failed (the passwords are already reset by then).
 let inviteAllJob = null; // latest bulk-invite job; kept after finish so results survive a dropped connection
 
+// Superadmin only: it resets every student's password, and the job's results
+// (shared by the status endpoint) include temp passwords for failed emails.
 app.post('/api/users/invite-all', async (req, res) => {
-  const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
   if (inviteAllJob && inviteAllJob.running) return res.status(409).json({ error: 'A bulk invite is already running' });
   const role = req.body?.role === 'tutor' ? 'tutor' : 'student';
   const users = await db.all("SELECT id,name,email FROM users WHERE role=? AND status NOT IN ('inactive','blacklisted') AND email IS NOT NULL AND email!=''", [role]);
@@ -2267,7 +2271,7 @@ app.post('/api/users/invite-all', async (req, res) => {
 
 // Poll the bulk invite job: progress while running, full results when done.
 app.get('/api/users/invite-all/status', async (req, res) => {
-  const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
+  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
   res.json(inviteAllJob || { running: false, total: null });
 });
 

@@ -12,7 +12,7 @@ const muted = { color: 'var(--color-text-secondary)' };
 const avatarCol = (r) => <div className="avatar-sm" style={{ backgroundColor: r.avatar_color }}>{r.name?.[0]}</div>;
 const statusCol = (r) => <span className={`status-dot status-${r.status}`}>{r.status}</span>;
 const emptyForm = () => ({
-  name: '', email: '', phone: '', role: 'tutor', password: 'password123', avatar_color: '#4F46E5', gender: '',
+  name: '', email: '', phone: '', role: 'tutor', password: '', avatar_color: '#4F46E5', gender: '',
   team_id: '', payout_type: 'shift', payout_rate: 0, shift_rates: null, course_id: '', new_course_name: '',
 });
 
@@ -193,10 +193,11 @@ export default function TutorManagement({ showMsg }) {
                   <input value={form.phone} onChange={set('phone')} />
                 </div>
                 <div className="form-group">
-                  <label>{editing ? 'New Password (blank = keep)' : 'Password *'}</label>
+                  <label>{editing ? 'New Password (blank = keep)' : 'Password'}</label>
                   <div style={{ position: 'relative' }}>
                     <input type={showPassword ? 'text' : 'password'} value={form.password} onChange={set('password')}
-                      style={{ paddingRight: '4rem', width: '100%' }} required={!editing} />
+                      style={{ paddingRight: '4rem', width: '100%' }}
+                      placeholder={editing ? '' : 'Blank = random, emailed to them'} />
                     <button type="button" onClick={() => setShowPassword((v) => !v)} aria-label={showPassword ? 'Hide password' : 'Show password'}
                       style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary, #4F46E5)', fontSize: '13px', fontWeight: 600, padding: 0 }}>
                       {showPassword ? 'Hide' : 'Show'}
