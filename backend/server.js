@@ -414,6 +414,16 @@ async function requireRole(req, res, roles) {
   return user;
 }
 
+// Managers run Tutor Management: they may create, edit, invite, blacklist and
+// delete tutor accounts only — never students, other staff or admins. Returns
+// false (and answers 403) when a manager targets anyone else.
+async function managerTutorOnly(actor, res, targetId) {
+  if (actor.role !== 'manager') return true;
+  const t = await db.get("SELECT role FROM users WHERE id=?", [targetId]);
+  if (t && t.role !== 'tutor') { res.status(403).json({ error: 'Managers can only manage tutor accounts' }); return false; }
+  return true;
+}
+
 async function auditLog(userId, action, targetType, targetId, details) {
   try {
     await db.run("INSERT INTO audit_logs (user_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)", [userId, action, targetType || null, targetId || null, details || null, '']);
@@ -1904,8 +1914,9 @@ app.delete('/api/staff-attendance', async (req, res) => {
 // The shift bands themselves, plus (optionally) one staff member's stored rates.
 // The admin form uses this to render the rate inputs with the right limits.
 app.get('/api/shift-rates', async (req, res) => {
-  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
   const userId = parseInt(req.query.user_id);
+  if (userId && !(await managerTutorOnly(admin, res, userId))) return;
   const rates = userId
     ? resolveShiftRates(await db.all("SELECT shift, rate FROM user_shift_rates WHERE user_id=?", [userId]))
     : resolveShiftRates([]);
@@ -2086,9 +2097,10 @@ app.get('/api/users', async (req, res) => {
 });
 
 app.post('/api/users', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
   const { name, email, phone, role, password, specialization, avatar_color, gender, team_id, payout_rate, payout_type, shift_rates } = req.body;
   if (!name || !email || !role) return res.status(400).json({ error: 'Name, email, role required' });
+  if (user.role === 'manager' && role !== 'tutor') return res.status(403).json({ error: 'Managers can only create tutor accounts' });
   if (!['student','tutor','advisor','manager','superadmin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (await db.get("SELECT 1 FROM users WHERE email=?", [email])) return res.status(400).json({ error: 'Email exists' });
   const plainPassword = password || 'password123';
@@ -2122,9 +2134,11 @@ app.post('/api/users', async (req, res) => {
 });
 
 app.put('/api/users', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
   const { id, password, shift_rates, ...fields } = req.body;
   if (!id) return res.status(400).json({ error: 'User ID required' });
+  if (!(await managerTutorOnly(user, res, id))) return;
+  if (user.role === 'manager' && fields.role !== undefined && fields.role !== 'tutor') return res.status(403).json({ error: 'Managers cannot change roles' });
   // 'blacklisted' is only entered through the Blacklist action (it needs a
   // reason). Re-saving an already-blacklisted user's form keeps it as is;
   // moving them to another status via Edit clears the stored reason.
@@ -2189,6 +2203,9 @@ app.post('/api/users/invite', async (req, res) => {
   if (!user_id) return res.status(400).json({ error: 'User ID required' });
   const u = await db.get("SELECT id,name,email,role FROM users WHERE id=?", [user_id]);
   if (!u) return res.status(404).json({ error: 'User not found' });
+  // An invite resets the password and hands it back, so a manager inviting an
+  // admin or another manager would be an account takeover.
+  if (admin.role === 'manager' && ['superadmin', 'manager'].includes(u.role)) return res.status(403).json({ error: 'Managers cannot invite admin or manager accounts' });
   const tempPassword = makeTempPassword();
   await db.run("UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?", [bcrypt.hashSync(tempPassword, 10), u.id]);
   const loginUrl = `${req.protocol}://${req.get('host')}/login`;
@@ -2257,8 +2274,9 @@ app.get('/api/users/invite-all/status', async (req, res) => {
 // Blacklist: temporarily block sign-in, with a required reason. Active
 // sessions end on the user's next request (see requireAuth).
 app.post('/api/users/:id/blacklist', async (req, res) => {
-  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
   const id = parseInt(req.params.id, 10);
+  if (!(await managerTutorOnly(admin, res, id))) return;
   const reason = String(req.body?.reason ?? '').trim().slice(0, 2000);
   if (!reason) return res.status(400).json({ error: 'A reason is required' });
   if (id === admin.id) return res.status(400).json({ error: 'You cannot blacklist yourself' });
@@ -2271,8 +2289,9 @@ app.post('/api/users/:id/blacklist', async (req, res) => {
 });
 
 app.post('/api/users/:id/unblacklist', async (req, res) => {
-  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
   const id = parseInt(req.params.id, 10);
+  if (!(await managerTutorOnly(admin, res, id))) return;
   const u = await db.get("SELECT id, name, status FROM users WHERE id=?", [id]);
   if (!u) return res.status(404).json({ error: 'User not found' });
   if (u.status !== 'blacklisted') return res.status(400).json({ error: 'User is not blacklisted' });
@@ -2282,9 +2301,10 @@ app.post('/api/users/:id/unblacklist', async (req, res) => {
 });
 
 app.delete('/api/users', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
   const id = parseInt(req.query.id);
   if (!id) return res.status(400).json({ error: 'ID required' });
+  if (!(await managerTutorOnly(user, res, id))) return;
   if (id === user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
   const permanent = req.query.permanent === 'true';
   if (permanent) {
@@ -4081,7 +4101,7 @@ app.post('/api/public/tutor-applications', (req, res) => {
 });
 
 app.get('/api/tutor-applications', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
   const rows = await db.all("SELECT * FROM tutor_applications ORDER BY created_at DESC, id DESC");
   res.json(rows.map(({ references_json, ip_address, photo_path, resume_path, education, ...r }) => ({
     ...r,
@@ -4095,7 +4115,7 @@ app.get('/api/tutor-applications', async (req, res) => {
 // Stream an applicant's photo or CV. Superadmin only — these files sit outside
 // the static /uploads mount on purpose.
 app.get('/api/tutor-applications/:id/file/:kind', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
   const col = { photo: 'photo_path', resume: 'resume_path' }[req.params.kind];
   if (!col) return res.status(404).json({ error: 'Not found' });
   const row = await db.get(`SELECT full_name, ${col} AS f FROM tutor_applications WHERE id=?`, [req.params.id]);
@@ -4116,7 +4136,7 @@ app.get('/api/tutor-applications/:id/file/:kind', async (req, res) => {
 });
 
 app.put('/api/tutor-applications/:id', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
   const { status, admin_notes } = req.body || {};
   if (status !== undefined && !APPLICATION_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
   const row = await db.get("SELECT id, full_name, status FROM tutor_applications WHERE id=?", [req.params.id]);
@@ -4134,7 +4154,7 @@ app.put('/api/tutor-applications/:id', async (req, res) => {
 // the account gets a fresh temp password that is emailed and also returned so
 // the admin can share it if email is off.
 app.post('/api/tutor-applications/:id/make-tutor', async (req, res) => {
-  const admin = await requireRole(req, res, ['superadmin']); if (!admin) return;
+  const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
   const a = await db.get("SELECT id, full_name, email, phone, tutor_user_id FROM tutor_applications WHERE id=?", [req.params.id]);
   if (!a) return res.status(404).json({ error: 'Application not found' });
   if (a.tutor_user_id && await db.get("SELECT 1 FROM users WHERE id=?", [a.tutor_user_id])) {
@@ -4167,7 +4187,7 @@ app.post('/api/tutor-applications/:id/make-tutor', async (req, res) => {
 });
 
 app.delete('/api/tutor-applications/:id', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
   const row = await db.get("SELECT id, full_name, photo_path, resume_path FROM tutor_applications WHERE id=?", [req.params.id]);
   if (!row) return res.status(404).json({ error: 'Application not found' });
   await db.run("DELETE FROM tutor_applications WHERE id=?", [row.id]);

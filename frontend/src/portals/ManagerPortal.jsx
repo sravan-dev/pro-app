@@ -8,6 +8,7 @@ import ContactEnrollments from '../components/ContactEnrollments';
 import Tickets from '../components/Tickets';
 import RatingsView from '../components/RatingsView';
 import StaffAttendanceSelf from '../components/StaffAttendanceSelf';
+import TutorManagement from '../components/TutorManagement';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
 
@@ -166,6 +167,8 @@ export default function ManagerPortal() {
             )}
           </div>
         )}
+
+        {activeTab === 'tutors' && <TutorManagement showMsg={showMsg} />}
 
         {activeTab === 'ratings' && <RatingsView />}
 

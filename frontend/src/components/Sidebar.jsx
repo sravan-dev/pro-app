@@ -34,6 +34,7 @@ const menuItems = {
     { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
     { key: 'teams', label: 'Team Performance', icon: 'users' },
     { key: 'myteam', label: 'My Team', icon: 'users' },
+    { key: 'tutors', label: 'Tutor Management', icon: 'tutor' },
     { key: 'ratings', label: 'Ratings', icon: 'star' },
     { key: 'enrolls', label: 'Enrolls', icon: 'layers' },
     { key: 'attendance', label: 'My Attendance', icon: 'check-square' },
