@@ -18,6 +18,21 @@ const SOURCE_LABELS = {
 };
 const fmtDate = (s) => (s ? new Date(s.replace(' ', 'T')).toLocaleString() : '—');
 
+// Fields the Edit form changes: [key, label, multi-line?]
+const EDIT_FIELDS = [
+  ['full_name', 'Full name *'], ['position', 'Position'], ['email', 'Email *'], ['phone', 'Contact number(s) *'],
+  ['blood_group', 'Blood group'], ['emergency_name', 'Emergency contact name'],
+  ['emergency_relationship', 'Emergency contact relationship'], ['emergency_phone', 'Emergency contact number'],
+  ['permanent_address', 'Permanent address', true], ['current_address', 'Current address', true],
+  ['total_experience', 'Total experience'], ['current_employer', 'Current / last employer'],
+  ['current_designation', 'Current / last designation'], ['current_ctc', 'Current / last CTC'],
+  ['expected_ctc', 'Expected CTC'], ['notice_period', 'Notice period'],
+  ['job_description', 'Job description', true], ['reason', 'Reason for applying', true],
+  ['motivation', 'Motivation', true], ['place', 'Place'],
+];
+const PHOTO_TYPES = 'image/png,image/jpeg,image/webp';
+const CV_TYPES = '.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
 function StatusBadge({ status }) {
   return <span className="status-badge" style={STATUS_STYLE[status] || STATUS_STYLE.new}>{status}</span>;
 }
@@ -118,6 +133,48 @@ function ApplicationModal({ app, onClose, onChanged, onMakeTutor }) {
   const [notes, setNotes] = useState(app.admin_notes || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [editForm, setEditForm] = useState(null); // field values while editing
+  const [fileVer, setFileVer] = useState(0); // bumps after a photo upload so the <img> reloads
+  const [fileError, setFileError] = useState('');
+
+  const startEdit = () => {
+    setError('');
+    setEditForm(Object.fromEntries(EDIT_FIELDS.map(([k]) => [k, app[k] || ''])));
+  };
+
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await api.updateTutorApplication(app.id, editForm);
+      setEditForm(null);
+      await onChanged(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Add or replace the photo / CV straight from the file picker.
+  const upload = (kind) => async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { setFileError(`${file.name} is larger than 5 MB`); return; }
+    setBusy(true);
+    setFileError('');
+    try {
+      await api.uploadTutorApplicationFile(app.id, kind, file);
+      if (kind === 'photo') setFileVer(Date.now());
+      await onChanged(false);
+    } catch (err) {
+      setFileError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const save = async (changes) => {
     setBusy(true);
@@ -152,9 +209,17 @@ function ApplicationModal({ app, onClose, onChanged, onMakeTutor }) {
     <div className="modal-overlay">
       <div className="modal" style={{ maxWidth: 820 }}>
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-          {app.has_photo && (
-            <img src={api.tutorApplicationFileUrl(app.id, 'photo')} alt="" style={{ width: 84, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--color-border)' }} />
-          )}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+            {app.has_photo ? (
+              <img src={`${api.tutorApplicationFileUrl(app.id, 'photo')}${fileVer ? `?v=${fileVer}` : ''}`} alt="" style={{ width: 84, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--color-border)' }} />
+            ) : (
+              <div style={{ width: 84, height: 100, borderRadius: 8, border: '1px dashed var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--color-text-secondary)' }}>No photo</div>
+            )}
+            <label className="btn btn-sm btn-ghost" style={{ cursor: busy ? 'default' : 'pointer', fontSize: 12, padding: '2px 8px' }}>
+              {app.has_photo ? 'Replace photo' : 'Add photo'}
+              <input type="file" accept={PHOTO_TYPES} onChange={upload('photo')} disabled={busy} hidden />
+            </label>
+          </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h3 style={{ marginBottom: 4 }}>{app.full_name}</h3>
             <div style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem' }}>
@@ -165,10 +230,40 @@ function ApplicationModal({ app, onClose, onChanged, onMakeTutor }) {
               {app.has_resume && (
                 <a className="btn btn-sm btn-ghost" href={api.tutorApplicationFileUrl(app.id, 'resume')} target="_blank" rel="noreferrer">Open CV</a>
               )}
+              <label className="btn btn-sm btn-ghost" style={{ cursor: busy ? 'default' : 'pointer' }}>
+                {app.has_resume ? 'Replace CV' : 'Add CV'}
+                <input type="file" accept={CV_TYPES} onChange={upload('resume')} disabled={busy} hidden />
+              </label>
+              {!editForm && <button className="btn btn-sm btn-primary" onClick={startEdit} disabled={busy}>Edit</button>}
             </div>
           </div>
           <button className="btn btn-sm btn-ghost" onClick={onClose} aria-label="Close">✕</button>
         </div>
+        {fileError && <div className="alert alert-error" style={{ marginTop: 8 }}>{fileError}</div>}
+
+        {editForm && (
+          <form onSubmit={saveEdit} style={{ marginTop: '1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.25rem 1rem' }}>
+              {EDIT_FIELDS.map(([k, label, multi]) => (
+                <div key={k} className="form-group" style={multi ? { gridColumn: '1 / -1' } : undefined}>
+                  <label htmlFor={`app-edit-${k}`}>{label}</label>
+                  {multi ? (
+                    <textarea id={`app-edit-${k}`} rows={2} value={editForm[k]} onChange={(e) => setEditForm((f) => ({ ...f, [k]: e.target.value }))} maxLength={4000} />
+                  ) : (
+                    <input id={`app-edit-${k}`} type={k === 'email' ? 'email' : 'text'} value={editForm[k]}
+                      onChange={(e) => setEditForm((f) => ({ ...f, [k]: e.target.value }))}
+                      required={['full_name', 'email', 'phone'].includes(k)} maxLength={k === 'email' ? 255 : 160} />
+                  )}
+                </div>
+              ))}
+            </div>
+            {error && <div className="alert alert-error">{error}</div>}
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => { setEditForm(null); setError(''); }} disabled={busy}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+            </div>
+          </form>
+        )}
 
         <div style={sectionTitle}>Personal details</div>
         <Info rows={[
@@ -231,7 +326,7 @@ function ApplicationModal({ app, onClose, onChanged, onMakeTutor }) {
           ))}
         </div>
         <textarea rows={3} style={{ width: '100%' }} placeholder="Internal notes (not visible to the applicant)" value={notes} onChange={(e) => setNotes(e.target.value)} />
-        {error && <div className="alert alert-error" style={{ marginTop: 8 }}>{error}</div>}
+        {error && !editForm && <div className="alert alert-error" style={{ marginTop: 8 }}>{error}</div>}
         <div className="form-actions" style={{ justifyContent: 'space-between' }}>
           <button className="btn btn-ghost text-danger" disabled={busy} onClick={remove}>Delete</button>
           <div style={{ display: 'flex', gap: 8 }}>

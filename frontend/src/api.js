@@ -248,6 +248,11 @@ export const api = {
   submitTutorApplication: (formData) => request('/public/tutor-applications', { method: 'POST', body: formData }),
   getTutorApplications: () => request('/tutor-applications'),
   updateTutorApplication: (id, data) => request(`/tutor-applications/${id}`, { method: 'PUT', body: data }),
+  uploadTutorApplicationFile: (id, kind, file) => {
+    const fd = new FormData();
+    fd.append(kind, file);
+    return request(`/tutor-applications/${id}/files`, { method: 'POST', body: fd });
+  },
   deleteTutorApplication: (id) => request(`/tutor-applications/${id}`, { method: 'DELETE' }),
   makeTutorFromApplication: (id) => request(`/tutor-applications/${id}/make-tutor`, { method: 'POST' }),
   getTutorDetail: (id) => request(`/tutors/${id}`),

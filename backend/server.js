@@ -4314,18 +4314,78 @@ app.get('/api/tutor-applications/:id/file/:kind', async (req, res) => {
   res.sendFile(abs, { headers: { 'Content-Type': mime } });
 });
 
+// Applicant details an admin may correct, with the same length caps as the
+// public form.
+const APPLICATION_EDITABLE = {
+  position: 160, full_name: 160, phone: 80, email: 255, blood_group: 10,
+  emergency_name: 160, emergency_phone: 80, emergency_relationship: 80,
+  permanent_address: 4000, current_address: 4000, reason: 4000, motivation: 4000,
+  total_experience: 40, current_employer: 160, current_designation: 160,
+  current_ctc: 60, expected_ctc: 60, notice_period: 60, job_description: 4000, place: 120,
+};
+
 app.put('/api/tutor-applications/:id', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
   const { status, admin_notes } = req.body || {};
   if (status !== undefined && !APPLICATION_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
   const row = await db.get("SELECT id, full_name, status FROM tutor_applications WHERE id=?", [req.params.id]);
   if (!row) return res.status(404).json({ error: 'Application not found' });
-  await db.run(
-    "UPDATE tutor_applications SET status=COALESCE(?, status), admin_notes=COALESCE(?, admin_notes) WHERE id=?",
-    [status ?? null, admin_notes === undefined ? null : String(admin_notes).slice(0, 4000), row.id]
-  );
+
+  // Edited applicant details (Edit in the application popup).
+  const sets = []; const vals = []; const changed = [];
+  for (const [k, max] of Object.entries(APPLICATION_EDITABLE)) {
+    if (req.body?.[k] === undefined) continue;
+    let v = String(req.body[k] ?? '').trim().slice(0, max);
+    if (k === 'email') v = v.toLowerCase();
+    sets.push(`${k}=?`); vals.push(v); changed.push(k);
+  }
+  if (changed.includes('full_name') && !vals[changed.indexOf('full_name')]) return res.status(400).json({ error: 'Full name is required' });
+  if (changed.includes('email') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(vals[changed.indexOf('email')])) return res.status(400).json({ error: 'Please enter a valid email address' });
+  if (changed.includes('phone') && !vals[changed.indexOf('phone')]) return res.status(400).json({ error: 'Contact number is required' });
+
+  if (status !== undefined) { sets.push('status=?'); vals.push(status); }
+  if (admin_notes !== undefined) { sets.push('admin_notes=?'); vals.push(String(admin_notes).slice(0, 4000)); }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+  await db.run(`UPDATE tutor_applications SET ${sets.join(', ')} WHERE id=?`, [...vals, row.id]);
+
   if (status && status !== row.status) await auditLog(user.id, 'update_tutor_application', 'tutor_application', row.id, `${row.full_name}: ${row.status} → ${status}`);
+  if (changed.length) await auditLog(user.id, 'edit_tutor_application', 'tutor_application', row.id, `${row.full_name}: ${changed.join(', ')}`);
   res.json({ message: 'Application updated' });
+});
+
+// Add or replace an application's photo and/or CV (fields "photo", "resume"),
+// with the same type and 5 MB checks as the public form. The old file is
+// deleted once the new one is saved.
+app.post('/api/tutor-applications/:id/files', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
+  const row = await db.get("SELECT id, full_name, photo_path, resume_path FROM tutor_applications WHERE id=?", [req.params.id]);
+  if (!row) return res.status(404).json({ error: 'Application not found' });
+
+  applicationUpload(req, res, async (err) => {
+    const files = req.files || {};
+    const fail = (status, error) => { removeApplicationFiles(files); res.status(status).json({ error }); };
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') return fail(400, 'Each file must be 5 MB or smaller');
+      return fail(400, err.message || 'Upload failed');
+    }
+    if (req.fileValidationError) return fail(400, req.fileValidationError);
+    const photo = files.photo?.[0]?.filename;
+    const resume = files.resume?.[0]?.filename;
+    if (!photo && !resume) return fail(400, 'Choose a photo or CV to upload');
+    try {
+      const sets = []; const vals = [];
+      if (photo) { sets.push('photo_path=?'); vals.push(photo); }
+      if (resume) { sets.push('resume_path=?'); vals.push(resume); }
+      await db.run(`UPDATE tutor_applications SET ${sets.join(', ')} WHERE id=?`, [...vals, row.id]);
+    } catch (e) {
+      return fail(500, e.message || 'Could not save the file');
+    }
+    for (const old of [photo && row.photo_path, resume && row.resume_path]) {
+      if (old) { try { fs.unlinkSync(path.join(APPLICATIONS_DIR, path.basename(old))); } catch {} }
+    }
+    await auditLog(user.id, 'replace_tutor_application_file', 'tutor_application', row.id, `${row.full_name}: ${[photo && 'photo', resume && 'CV'].filter(Boolean).join(' + ')}`);
+    res.json({ message: 'File saved', has_photo: !!(photo || row.photo_path), has_resume: !!(resume || row.resume_path) });
+  });
 });
 
 // Make as Tutor: create a tutor account from an application (name, email,
