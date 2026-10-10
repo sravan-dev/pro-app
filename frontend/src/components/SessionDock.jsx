@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import SessionRoom from './SessionRoom';
+import { api } from '../api';
 
 // Keeps a joined session mounted while the user moves around the portal.
 // Unmounting the room disconnects it, so instead of dropping it on a sidebar
@@ -24,6 +25,14 @@ export default function SessionDock({ session, minimized, onExpand, onLeave }) {
     catch (e) { alert(e.message || 'Picture-in-picture is not available in this browser.'); }
   };
 
+  // Same as the red hang-up button inside the room: unmounting the room stops
+  // the camera/mic and disconnects, so we only need to record the leave.
+  const end = async () => {
+    if (!window.confirm('Leave this session?')) return;
+    try { await api.leaveSession(session.session_id); } catch {}
+    onLeave?.();
+  };
+
   return (
     <div className={`session-dock${minimized ? ' session-dock-mini' : ''}`}>
       {minimized && (
@@ -33,6 +42,7 @@ export default function SessionDock({ session, minimized, onExpand, onLeave }) {
           </span>
           <button type="button" onClick={popOut} title="Pop out video (picture-in-picture)">⧉</button>
           <button type="button" onClick={onExpand} title="Back to the session">⤢ Open</button>
+          <button type="button" className="session-dock-end" onClick={end} title="Leave the session">End</button>
         </div>
       )}
       <div className="session-dock-body" ref={bodyRef}>

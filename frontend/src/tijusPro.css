@@ -957,6 +957,8 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
   padding: 4px 10px; font-size: 0.8rem; font-weight: 600; cursor: pointer;
 }
 .session-dock-bar button:hover { background: #4B5563; }
+.session-dock-bar .session-dock-end { background: #DC2626; }
+.session-dock-bar .session-dock-end:hover { background: #B91C1C; }
 /* Mini-player shows only the video: header, rosters and controls come back on Open. */
 .session-dock-mini .video-room { min-height: 0; height: 100%; border-radius: 0; }
 .session-dock-mini .video-room > :not(.video-body):not(.video-grid) { display: none !important; }
