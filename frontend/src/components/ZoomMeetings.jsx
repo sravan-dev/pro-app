@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import DataTable from './DataTable';
+import ZoomMeetingSummary from './ZoomMeetingSummary';
 
 // Admin → Zoom: create, edit and delete real Zoom meetings through the Zoom
 // app saved in Settings → Video provider. Meetings belong to a Zoom user (the
@@ -40,6 +41,7 @@ export default function ZoomMeetings() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const [summaryFor, setSummaryFor] = useState(null); // meeting row whose summary popup is open
   const [hostForm, setHostForm] = useState(null); // Create Host modal fields while open
 
   const flash = (msg) => { setNotice(msg); setTimeout(() => setNotice(''), 3000); };
@@ -175,7 +177,7 @@ export default function ZoomMeetings() {
       const busy = busyId === m.id;
       const upcoming = view === 'upcoming';
       return (
-        <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+        <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
           {upcoming && <button className="btn btn-sm btn-primary" onClick={() => start(m)} disabled={busy}>Start</button>}
           {upcoming && <button className="btn btn-sm btn-ghost" onClick={() => copyInvite(m)} disabled={busy}>Copy invite</button>}
           {upcoming && m.type === 2 && <button className="btn btn-sm btn-ghost" onClick={() => openEdit(m)} disabled={busy}>Edit</button>}
@@ -208,7 +210,7 @@ export default function ZoomMeetings() {
       <div className="page-header">
         <div>
           <h2 style={{ marginBottom: 4 }}>Zoom</h2>
-          <p style={{ ...muted, margin: 0 }}>Create and manage Zoom meetings. Times are shown in your timezone ({browserTz}).</p>
+          <p style={{ ...muted, margin: 0 }}>Create and manage Zoom meetings. Click a meeting to see its summary. Times are shown in your timezone ({browserTz}).</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={() => { setFormError(''); setHostForm({ first_name: '', last_name: '', email: '', type: '1' }); }}>+ Create Host</button>
@@ -241,7 +243,17 @@ export default function ZoomMeetings() {
           {view === 'upcoming' ? 'No upcoming Zoom meetings. Click “New Zoom Meeting” to schedule one.' : 'No past meetings.'}
         </div>
       ) : (
-        <DataTable columns={columns} data={meetings} pageSize={10} rowId={(m) => `${m.id}-${m.start_time || ''}`} />
+        <DataTable columns={columns} data={meetings} pageSize={10} rowId={(m) => `${m.id}-${m.start_time || ''}`} onRowClick={setSummaryFor} />
+      )}
+
+      {summaryFor && (
+        <ZoomMeetingSummary
+          meeting={summaryFor}
+          past={view === 'previous'}
+          onClose={() => setSummaryFor(null)}
+          onStart={start}
+          onCopy={copyInvite}
+        />
       )}
 
       {hostForm && (

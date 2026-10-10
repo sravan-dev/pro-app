@@ -205,6 +205,7 @@ export const api = {
   createZoomUser: (data) => request('/zoom/users', { method: 'POST', body: data }),
   getZoomMeetings: (user, type) => request(`/zoom/meetings?user=${encodeURIComponent(user)}&type=${type}`),
   getZoomMeeting: (id) => request(`/zoom/meetings/${id}`),
+  getZoomMeetingSummary: (id, uuid) => request(`/zoom/meetings/${id}/summary${uuid ? `?uuid=${encodeURIComponent(uuid)}` : ''}`),
   createZoomMeeting: (data) => request('/zoom/meetings', { method: 'POST', body: data }),
   updateZoomMeeting: (id, data) => request(`/zoom/meetings/${id}`, { method: 'PATCH', body: data }),
   deleteZoomMeeting: (id) => request(`/zoom/meetings/${id}`, { method: 'DELETE' }),

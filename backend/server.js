@@ -2649,6 +2649,34 @@ app.get('/api/zoom/meetings/:id', async (req, res) => {
   } catch (err) { zoomFail(res, err); }
 });
 
+// Session summary for the Zoom page. Upcoming: the meeting's details. Past
+// (uuid given): also the actual times, attendance and the AI Companion summary.
+// Each part may be missing (deleted meeting, no AI summary), so they load
+// independently and report their own error instead of failing the request.
+app.get('/api/zoom/meetings/:id/summary', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  if (!isZoomMeetingId(req.params.id)) return res.status(400).json({ error: 'Invalid meeting id' });
+  const uuid = String(req.query.uuid || '');
+  if (uuid && !/^[A-Za-z0-9+/=]{1,64}$/.test(uuid)) return res.status(400).json({ error: 'Invalid meeting uuid' });
+  // Zoom wants a UUID that starts with "/" or contains "//" double-encoded.
+  const encUuid = uuid.startsWith('/') || uuid.includes('//') ? encodeURIComponent(encodeURIComponent(uuid)) : encodeURIComponent(uuid);
+  const part = (p) => p.then((data) => ({ data }), (err) => ({ error: err.message }));
+  try {
+    const [meeting, past, participants, ai] = await Promise.all([
+      part(zoomApi('GET', `/meetings/${req.params.id}`)),
+      uuid ? part(zoomApi('GET', `/past_meetings/${encUuid}`)) : null,
+      uuid ? part(zoomApi('GET', `/past_meetings/${encUuid}/participants?page_size=300`)) : null,
+      uuid ? part(zoomApi('GET', `/meetings/${encUuid}/meeting_summary`)) : null,
+    ]);
+    res.json({
+      meeting: meeting.data || null, meeting_error: meeting.error || null,
+      past: past?.data || null, past_error: past?.error || null,
+      participants: participants?.data?.participants || [], participants_error: participants?.error || null,
+      ai_summary: ai?.data || null, ai_summary_error: ai?.error || null,
+    });
+  } catch (err) { zoomFail(res, err); }
+});
+
 app.post('/api/zoom/meetings', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   const host = String(req.body.user || '');
