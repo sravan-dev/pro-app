@@ -2684,6 +2684,21 @@ const isZoomUuid = (v) => /^[A-Za-z0-9+/=]{1,64}$/.test(v);
 // Zoom wants a UUID that starts with "/" or contains "//" double-encoded.
 const encZoomUuid = (u) => (u.startsWith('/') || u.includes('//') ? encodeURIComponent(encodeURIComponent(u)) : encodeURIComponent(u));
 
+// Everyone who joined one past session. Zoom pages 300 rows at a time; follow
+// the pages (capped) for big classes.
+async function zoomPastParticipants(uuid) {
+  const enc = encZoomUuid(uuid);
+  const rows = [];
+  let token = '';
+  for (let i = 0; i < 10; i++) {
+    const page = await zoomApi('GET', `/past_meetings/${enc}/participants?page_size=300${token ? `&next_page_token=${encodeURIComponent(token)}` : ''}`);
+    rows.push(...(page.participants || []));
+    token = page.next_page_token;
+    if (!token) break;
+  }
+  return rows;
+}
+
 app.get('/api/zoom/meetings/:id/summary', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   if (!isZoomMeetingId(req.params.id)) return res.status(400).json({ error: 'Invalid meeting id' });
@@ -2707,21 +2722,9 @@ app.get('/api/zoom/meetings/:id/summary', async (req, res) => {
     let details = null; let participants = null; let ai = null;
     if (chosen) {
       const enc = encZoomUuid(chosen);
-      // Attendance comes 300 rows a page; follow the pages (capped) for big classes.
-      const allParticipants = async () => {
-        const rows = [];
-        let token = '';
-        for (let i = 0; i < 10; i++) {
-          const page = await zoomApi('GET', `/past_meetings/${enc}/participants?page_size=300${token ? `&next_page_token=${encodeURIComponent(token)}` : ''}`);
-          rows.push(...(page.participants || []));
-          token = page.next_page_token;
-          if (!token) break;
-        }
-        return rows;
-      };
       [details, participants, ai] = await Promise.all([
         part(zoomApi('GET', `/past_meetings/${enc}`)),
-        part(allParticipants()),
+        part(zoomPastParticipants(chosen)),
         part(zoomApi('GET', `/meetings/${enc}/meeting_summary`)),
       ]);
     }
@@ -2735,6 +2738,125 @@ app.get('/api/zoom/meetings/:id/summary', async (req, res) => {
       ai_summary: ai?.data || null, ai_summary_error: ai?.error || null,
     });
   } catch (err) { zoomFail(res, err); }
+});
+
+// ============================================================
+// Zoom Contacts — everyone who has joined the account's Zoom meetings.
+// A background sync walks every host's past meetings → their sessions
+// (instances) → participants and stores them in zoom_attendance. Sessions
+// already stored are skipped, so later syncs only fetch what's new. The client
+// polls the status endpoint, like the bulk invite.
+// ============================================================
+let zoomContactsJob = null;
+
+// "2026-09-05T08:30:00Z" → "2026-09-05 08:30:00" (UTC) for a DATETIME column.
+const zoomUtc = (iso) => (iso && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(iso) ? iso.slice(0, 19).replace('T', ' ') : null);
+const zoomPersonKey = (p) => {
+  const email = String(p.user_email || '').trim().toLowerCase();
+  return (email ? email : `name:${String(p.name || '').trim().toLowerCase()}`).slice(0, 255);
+};
+
+async function syncZoomSession(meetingId, topic, inst) {
+  const rows = await zoomPastParticipants(inst.uuid);
+  // One row per person: merge rejoins and sum their time.
+  const people = new Map();
+  for (const r of rows) {
+    const key = zoomPersonKey(r);
+    if (key === 'name:') continue;
+    const p = people.get(key) || { name: r.name || '', email: String(r.user_email || '').trim().toLowerCase(), seconds: 0 };
+    p.seconds += Number(r.duration) || 0;
+    people.set(key, p);
+  }
+  for (const [key, p] of people) {
+    await db.run(
+      `INSERT INTO zoom_attendance (instance_uuid, meeting_id, topic, start_time_utc, person_key, name, email, seconds)
+       VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name), email=VALUES(email), seconds=VALUES(seconds)`,
+      [inst.uuid, meetingId, String(topic).slice(0, 300), zoomUtc(inst.start_time), key, p.name.slice(0, 255), p.email.slice(0, 255), p.seconds]
+    );
+  }
+  await db.run("INSERT IGNORE INTO zoom_synced_instances (instance_uuid, meeting_id, synced_at) VALUES (?,?,UTC_TIMESTAMP())", [inst.uuid, meetingId]);
+  return people.size;
+}
+
+async function runZoomContactsSync(job) {
+  const users = (await zoomApi('GET', '/users?status=active&page_size=300')).users || [];
+  const meetings = new Map(); // meeting id → topic
+  for (const u of users) {
+    let token = '';
+    do {
+      const page = await zoomApi('GET', `/users/${encodeURIComponent(u.id)}/meetings?type=previous_meetings&page_size=300${token ? `&next_page_token=${encodeURIComponent(token)}` : ''}`);
+      for (const m of page.meetings || []) if (m.id) meetings.set(String(m.id), m.topic || '');
+      token = page.next_page_token;
+    } while (token);
+  }
+  job.meetings = meetings.size;
+  const done = new Set((await db.all("SELECT instance_uuid FROM zoom_synced_instances")).map((r) => r.instance_uuid));
+
+  // A few meetings at a time: quick enough, and well inside Zoom's rate limits.
+  const queue = [...meetings];
+  const worker = async () => {
+    while (queue.length) {
+      const [id, topic] = queue.shift();
+      try {
+        const inst = await zoomApi('GET', `/past_meetings/${id}/instances`);
+        for (const i of inst.meetings || []) {
+          if (!i.uuid || !isZoomUuid(i.uuid) || done.has(i.uuid)) continue;
+          try {
+            job.people_rows += await syncZoomSession(id, topic, i);
+            job.new_sessions++;
+          } catch { job.errors++; }
+        }
+      } catch { job.errors++; }
+      job.processed++;
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+}
+
+app.post('/api/zoom/contacts/sync', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  if (zoomContactsJob?.running) return res.status(409).json({ error: 'A Zoom sync is already running' });
+  const job = { running: true, meetings: null, processed: 0, new_sessions: 0, people_rows: 0, errors: 0, error: null, startedAt: new Date().toISOString(), finishedAt: null };
+  zoomContactsJob = job;
+  res.status(202).json({ message: 'Zoom sync started' });
+  runZoomContactsSync(job)
+    .catch((err) => { job.error = err.message || 'Zoom sync failed'; })
+    .finally(() => {
+      job.running = false;
+      job.finishedAt = new Date().toISOString();
+      auditLog(user.id, 'zoom_contacts_sync', 'zoom', null, `${job.new_sessions} new session(s), ${job.errors} error(s)${job.error ? `: ${job.error}` : ''}`);
+    });
+});
+
+app.get('/api/zoom/contacts/sync', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  res.json(zoomContactsJob || { running: false });
+});
+
+app.get('/api/zoom/contacts', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const contacts = await db.all(
+    `SELECT person_key AS id, MAX(name) AS name, MAX(email) AS email, COUNT(*) AS sessions, SUM(seconds) AS seconds,
+            MIN(start_time_utc) AS first_seen, MAX(start_time_utc) AS last_seen
+     FROM zoom_attendance GROUP BY person_key ORDER BY last_seen DESC`);
+  const last = await db.get("SELECT MAX(synced_at) AS at FROM zoom_synced_instances");
+  res.json({ contacts, last_synced: last?.at || null });
+});
+
+app.get('/api/zoom/contacts/count', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const r = await db.get("SELECT COUNT(DISTINCT person_key) AS n FROM zoom_attendance");
+  res.json({ count: Number(r?.n) || 0 });
+});
+
+// The sessions one contact attended (Zoom Contacts → click a person).
+app.get('/api/zoom/contacts/sessions', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const key = String(req.query.key || '').slice(0, 255);
+  if (!key) return res.status(400).json({ error: 'Contact required' });
+  res.json(await db.all(
+    "SELECT meeting_id, topic, start_time_utc, seconds FROM zoom_attendance WHERE person_key=? ORDER BY start_time_utc DESC",
+    [key]));
 });
 
 app.post('/api/zoom/meetings', async (req, res) => {

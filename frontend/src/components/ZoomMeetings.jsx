@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import DataTable from './DataTable';
 import ZoomMeetingSummary from './ZoomMeetingSummary';
+import ZoomContacts from './ZoomContacts';
 
 // Admin → Zoom: create, edit and delete real Zoom meetings through the Zoom
 // app saved in Settings → Video provider. Meetings belong to a Zoom user (the
@@ -28,11 +29,15 @@ const emptyForm = () => {
   };
 };
 
-export default function ZoomMeetings() {
+// view (upcoming | previous | contacts) can be controlled by the portal so the
+// dashboard's Zoom Contacts card can open the Contacts tab directly.
+export default function ZoomMeetings({ view: viewProp, onViewChange, onContactsCount }) {
   const [status, setStatus] = useState(null);
   const [users, setUsers] = useState([]);
   const [host, setHost] = useState(() => { try { return localStorage.getItem(HOST_KEY) || ''; } catch { return ''; } });
-  const [view, setView] = useState('upcoming');
+  const [localView, setLocalView] = useState('upcoming');
+  const view = viewProp || localView;
+  const setView = onViewChange || setLocalView;
   const [meetings, setMeetings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -60,7 +65,7 @@ export default function ZoomMeetings() {
   useEffect(() => { try { if (host) localStorage.setItem(HOST_KEY, host); } catch {} }, [host]);
 
   const load = useCallback(() => {
-    if (!host) return;
+    if (!host || view === 'contacts') return;
     setLoading(true);
     api.getZoomMeetings(host, view)
       .then((list) => { setMeetings(list); setError(''); })
@@ -222,8 +227,9 @@ export default function ZoomMeetings() {
         <div className="view-toggle" role="tablist" style={{ marginBottom: 0 }}>
           <button role="tab" aria-selected={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} onClick={() => setView('upcoming')}>Upcoming</button>
           <button role="tab" aria-selected={view === 'previous'} className={view === 'previous' ? 'active' : ''} onClick={() => setView('previous')}>Past</button>
+          <button role="tab" aria-selected={view === 'contacts'} className={view === 'contacts' ? 'active' : ''} onClick={() => setView('contacts')}>Contacts</button>
         </div>
-        {users.length > 1 && (
+        {view !== 'contacts' && users.length > 1 && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
             <span style={muted}>Host</span>
             <select value={host} onChange={(e) => setHost(e.target.value)}>
@@ -231,14 +237,14 @@ export default function ZoomMeetings() {
             </select>
           </label>
         )}
-        {users.length === 1 && <span style={{ ...muted, fontSize: 14 }}>Host: {users[0].name}</span>}
-        <button className="btn btn-ghost" onClick={load} disabled={loading} style={{ marginLeft: 'auto' }}>↻ Refresh</button>
+        {view !== 'contacts' && users.length === 1 && <span style={{ ...muted, fontSize: 14 }}>Host: {users[0].name}</span>}
+        {view !== 'contacts' && <button className="btn btn-ghost" onClick={load} disabled={loading} style={{ marginLeft: 'auto' }}>↻ Refresh</button>}
       </div>
 
       {notice && <div className="alert alert-success">{notice}</div>}
       {error && <div className="alert alert-error">{error}</div>}
 
-      {loading ? <div className="spinner" /> : meetings.length === 0 ? (
+      {view === 'contacts' ? <ZoomContacts onCountChange={onContactsCount} /> : loading ? <div className="spinner" /> : meetings.length === 0 ? (
         <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>
           {view === 'upcoming' ? 'No upcoming Zoom meetings. Click “New Zoom Meeting” to schedule one.' : 'No past meetings.'}
         </div>

@@ -432,3 +432,28 @@ CREATE TABLE IF NOT EXISTS tutor_applications (
   INDEX idx_tutor_app_status (status),
   INDEX idx_tutor_app_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Zoom Contacts: everyone who joined a Zoom meeting, filled by the sync on the
+-- Zoom page. One row per person per session (rejoins merged); person_key is
+-- the lower-cased email, or "name:<name>" for guests without one.
+-- zoom_synced_instances marks sessions already fetched so a re-sync only asks
+-- Zoom for new ones. Times are UTC.
+CREATE TABLE IF NOT EXISTS zoom_attendance (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  instance_uuid VARCHAR(64) NOT NULL,
+  meeting_id VARCHAR(20) NOT NULL,
+  topic VARCHAR(300) DEFAULT '',
+  start_time_utc DATETIME NULL,
+  person_key VARCHAR(255) NOT NULL,
+  name VARCHAR(255) DEFAULT '',
+  email VARCHAR(255) DEFAULT '',
+  seconds INT DEFAULT 0,
+  UNIQUE KEY uq_zoom_att (instance_uuid, person_key),
+  INDEX idx_zoom_att_person (person_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS zoom_synced_instances (
+  instance_uuid VARCHAR(64) PRIMARY KEY,
+  meeting_id VARCHAR(20) NOT NULL,
+  synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

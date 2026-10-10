@@ -149,6 +149,8 @@ export default function SuperadminPortal() {
 
   // Kajabi integration + contacts list (mirrors the HubSpot setup; 1-based pages)
   const [kajabiCount, setKajabiCount] = useState(null); // total Kajabi contacts
+  const [zoomContactsCount, setZoomContactsCount] = useState(null); // people who joined our Zoom meetings
+  const [zoomView, setZoomView] = usePersistedTab('tab:superadmin:zoom', 'upcoming');
   const [kajabi, setKajabi] = useState({ kajabi_client_id: '', kajabi_client_secret: '', kajabi_connected: false });
   const [kajabiSaving, setKajabiSaving] = useState(false);
   const [kajabiContacts, setKajabiContacts] = useState([]);
@@ -338,6 +340,11 @@ export default function SuperadminPortal() {
     api.getHubspotStatus()
       .then((s) => { if (s?.connected && typeof s.count === 'number') setHubspotCount(s.count); })
       .catch(() => {});
+  }, []);
+
+  // Zoom Contacts count for the dashboard card (from the last Zoom sync).
+  useEffect(() => {
+    api.getZoomContactsCount().then((r) => setZoomContactsCount(r.count)).catch(() => {});
   }, []);
 
   // Kajabi connection status for the dashboard card.
@@ -2762,7 +2769,7 @@ export default function SuperadminPortal() {
               <KPICard variant="small-box" title="Kajabi Contacts" value={kajabiCount == null ? '—' : kajabiCount} icon="contact" color="#1A6DFF" onClick={() => setActiveTab('kajabi')} />
               <KPICard variant="small-box" title="Total Students" value={stats.total_students} icon="users" color="#3B82F6" onClick={() => setActiveTab('students')} />
               <KPICard variant="small-box" title="Total Tutors" value={stats.total_tutors} icon="users" color="#10B981" onClick={() => setActiveTab('tutors')} />
-              <KPICard variant="small-box" title="Active Courses" value={stats.total_courses} icon="book" color="#8B5CF6" onClick={() => setActiveTab('courses')} />
+              <KPICard variant="small-box" title="Zoom Contacts" value={zoomContactsCount == null ? '—' : zoomContactsCount} icon="contact" color="#2D8CFF" onClick={() => { setZoomView('contacts'); setActiveTab('zoom'); }} />
               <KPICard variant="small-box" title="Enrollments" value={stats.total_enrollments} icon="layers" color="#F59E0B" onClick={() => setActiveTab('enrollments')} />
               <KPICard variant="small-box" title="Active Sessions" value={stats.active_sessions} icon="video" color="#EF4444" onClick={() => setActiveTab('sessions')} />
               <KPICard variant="small-box" title="Total Users" value={stats.total_users} icon="users" color="#06B6D4" onClick={() => setActiveTab('users')} />
@@ -3187,7 +3194,7 @@ export default function SuperadminPortal() {
         {/* ===== RATINGS ===== */}
         {activeTab === 'ratings' && <RatingsView />}
 
-        {activeTab === 'zoom' && <ZoomMeetings />}
+        {activeTab === 'zoom' && <ZoomMeetings view={zoomView} onViewChange={setZoomView} onContactsCount={setZoomContactsCount} />}
 
         {/* ===== MEETINGS ===== */}
         {activeTab === 'meetings' && (
