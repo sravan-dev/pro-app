@@ -201,6 +201,12 @@ export const api = {
   saveAppSettings: (data) => request('/app-settings', { method: 'PUT', body: data }),
   saveVideoSettings: (data) => request('/video-settings', { method: 'PUT', body: data }),
   getZoomStatus: () => request('/zoom-status'),
+  getZoomUsers: () => request('/zoom/users'),
+  getZoomMeetings: (user, type) => request(`/zoom/meetings?user=${encodeURIComponent(user)}&type=${type}`),
+  getZoomMeeting: (id) => request(`/zoom/meetings/${id}`),
+  createZoomMeeting: (data) => request('/zoom/meetings', { method: 'POST', body: data }),
+  updateZoomMeeting: (id, data) => request(`/zoom/meetings/${id}`, { method: 'PATCH', body: data }),
+  deleteZoomMeeting: (id) => request(`/zoom/meetings/${id}`, { method: 'DELETE' }),
   getLiveKitStatus: () => request('/livekit/status'),
   removeLiveKitServer: () => request('/livekit/server', { method: 'DELETE' }),
 

@@ -2536,6 +2536,138 @@ app.get('/api/zoom-status', async (req, res) => {
 });
 
 // ============================================================
+// Zoom meetings (superadmin) — create / list / edit / delete real Zoom
+// meetings through the Server-to-Server OAuth app saved in Settings.
+// ============================================================
+// Tokens last an hour; reuse one for 50 minutes. The cache key includes the
+// credentials so saving new ones in Settings takes effect straight away.
+let zoomTokenCache = null;
+async function zoomApi(method, path, body) {
+  const s = (await db.get("SELECT zoom_account_id, zoom_client_id, zoom_client_secret FROM app_settings WHERE id=1")) || {};
+  const key = `${s.zoom_account_id}:${s.zoom_client_id}:${s.zoom_client_secret}`;
+  if (!zoomTokenCache || zoomTokenCache.key !== key || Date.now() > zoomTokenCache.expires) {
+    zoomTokenCache = { key, token: await getZoomAccessToken(), expires: Date.now() + 50 * 60 * 1000 };
+  }
+  const resp = await fetch(`https://api.zoom.us/v2${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${zoomTokenCache.token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (resp.status === 401) zoomTokenCache = null;
+  if (resp.status === 204) return null;
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    const e = new Error(data.message || `Zoom request failed (HTTP ${resp.status})`);
+    e.status = resp.status;
+    throw e;
+  }
+  return data;
+}
+
+const zoomFail = (res, err) => res.status(err.code === 'NOT_CONFIGURED' ? 400 : 502).json({ error: err.message });
+const isZoomUserId = (v) => typeof v === 'string' && /^[\w.@+-]{1,128}$/.test(v);
+const isZoomMeetingId = (v) => /^\d{1,20}$/.test(String(v));
+
+// Turn the admin form into a Zoom meeting body. Returns { error } or { body }.
+function zoomMeetingBody(b) {
+  const topic = String(b.topic || '').trim();
+  if (!topic) return { error: 'Topic is required' };
+  if (topic.length > 200) return { error: 'Topic must be 200 characters or fewer' };
+  const start = String(b.start_time || '');
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(start)) return { error: 'Please pick a start date and time' };
+  const duration = parseInt(b.duration, 10);
+  if (!(duration >= 1 && duration <= 1440)) return { error: 'Duration must be between 1 and 1440 minutes' };
+  const timezone = String(b.timezone || 'Asia/Kolkata');
+  if (!/^[\w/+-]{1,64}$/.test(timezone)) return { error: 'Invalid timezone' };
+  const passcode = String(b.passcode || '').trim();
+  if (passcode && !/^[A-Za-z0-9@\-_*]{1,10}$/.test(passcode)) return { error: 'Passcode: up to 10 letters, numbers or @ - _ *' };
+  const recording = ['none', 'local', 'cloud'].includes(b.auto_recording) ? b.auto_recording : 'none';
+  return {
+    body: {
+      topic,
+      start_time: `${start}:00`,
+      timezone,
+      duration,
+      agenda: String(b.agenda || '').slice(0, 2000),
+      ...(passcode ? { password: passcode } : {}),
+      settings: {
+        waiting_room: !!b.waiting_room,
+        join_before_host: !!b.join_before_host,
+        mute_upon_entry: !!b.mute_upon_entry,
+        auto_recording: recording,
+      },
+    },
+  };
+}
+
+// Zoom users on the account — meetings are hosted by one of them.
+app.get('/api/zoom/users', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  try {
+    const data = await zoomApi('GET', '/users?status=active&page_size=300');
+    res.json((data.users || []).map((u) => ({
+      id: u.id, email: u.email,
+      name: u.display_name || [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email,
+    })));
+  } catch (err) { zoomFail(res, err); }
+});
+
+app.get('/api/zoom/meetings', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const host = String(req.query.user || '');
+  if (!isZoomUserId(host)) return res.status(400).json({ error: 'Pick a Zoom host' });
+  const type = req.query.type === 'previous' ? 'previous_meetings' : 'upcoming';
+  try {
+    const data = await zoomApi('GET', `/users/${encodeURIComponent(host)}/meetings?type=${type}&page_size=300`);
+    res.json(data.meetings || []);
+  } catch (err) { zoomFail(res, err); }
+});
+
+// One meeting with passcode + start link (for Start / Copy invite / Edit).
+app.get('/api/zoom/meetings/:id', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  if (!isZoomMeetingId(req.params.id)) return res.status(400).json({ error: 'Invalid meeting id' });
+  try {
+    res.json(await zoomApi('GET', `/meetings/${req.params.id}`));
+  } catch (err) { zoomFail(res, err); }
+});
+
+app.post('/api/zoom/meetings', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const host = String(req.body.user || '');
+  if (!isZoomUserId(host)) return res.status(400).json({ error: 'Pick a Zoom host' });
+  const { error, body } = zoomMeetingBody(req.body);
+  if (error) return res.status(400).json({ error });
+  try {
+    const m = await zoomApi('POST', `/users/${encodeURIComponent(host)}/meetings`, { ...body, type: 2 });
+    await auditLog(user.id, 'zoom_meeting_create', 'zoom_meeting', null, `${m.id} ${body.topic}`);
+    res.json(m);
+  } catch (err) { zoomFail(res, err); }
+});
+
+app.patch('/api/zoom/meetings/:id', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  if (!isZoomMeetingId(req.params.id)) return res.status(400).json({ error: 'Invalid meeting id' });
+  const { error, body } = zoomMeetingBody(req.body);
+  if (error) return res.status(400).json({ error });
+  try {
+    await zoomApi('PATCH', `/meetings/${req.params.id}`, body);
+    await auditLog(user.id, 'zoom_meeting_update', 'zoom_meeting', null, `${req.params.id} ${body.topic}`);
+    res.json({ message: 'Meeting updated' });
+  } catch (err) { zoomFail(res, err); }
+});
+
+app.delete('/api/zoom/meetings/:id', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  if (!isZoomMeetingId(req.params.id)) return res.status(400).json({ error: 'Invalid meeting id' });
+  try {
+    await zoomApi('DELETE', `/meetings/${req.params.id}`);
+    await auditLog(user.id, 'zoom_meeting_delete', 'zoom_meeting', null, String(req.params.id));
+    res.json({ message: 'Meeting deleted' });
+  } catch (err) { zoomFail(res, err); }
+});
+
+// ============================================================
 // HubSpot CRM — pull the contact list into the admin Contacts page
 // ============================================================
 // A token saved in Settings always wins; otherwise fall back to the default

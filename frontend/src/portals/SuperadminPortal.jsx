@@ -13,6 +13,7 @@ import Tickets from '../components/Tickets';
 import TutorApplications from '../components/TutorApplications';
 import BlacklistModal from '../components/BlacklistModal';
 import TutorProfile from '../components/TutorProfile';
+import ZoomMeetings from '../components/ZoomMeetings';
 import usePersistedTab from '../hooks/usePersistedTab';
 
 // Simple horizontal bar chart built from the existing .stats-bars styles
@@ -3185,6 +3186,8 @@ export default function SuperadminPortal() {
 
         {/* ===== RATINGS ===== */}
         {activeTab === 'ratings' && <RatingsView />}
+
+        {activeTab === 'zoom' && <ZoomMeetings />}
 
         {/* ===== MEETINGS ===== */}
         {activeTab === 'meetings' && (
