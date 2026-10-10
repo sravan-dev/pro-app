@@ -2767,9 +2767,9 @@ export default function SuperadminPortal() {
             <div className="kpi-grid">
               <KPICard variant="small-box" title="Contacts" value={hubspotCount == null ? '—' : hubspotCount} icon="users" color="#FF7A59" onClick={() => setActiveTab('contacts')} />
               <KPICard variant="small-box" title="Kajabi Contacts" value={kajabiCount == null ? '—' : kajabiCount} icon="contact" color="#1A6DFF" onClick={() => setActiveTab('kajabi')} />
+              <KPICard variant="small-box" title="Zoom Contacts" value={zoomContactsCount == null ? '—' : zoomContactsCount} icon="contact" color="#2D8CFF" onClick={() => { setZoomView('contacts'); setActiveTab('zoom'); }} />
               <KPICard variant="small-box" title="Total Students" value={stats.total_students} icon="users" color="#3B82F6" onClick={() => setActiveTab('students')} />
               <KPICard variant="small-box" title="Total Tutors" value={stats.total_tutors} icon="users" color="#10B981" onClick={() => setActiveTab('tutors')} />
-              <KPICard variant="small-box" title="Zoom Contacts" value={zoomContactsCount == null ? '—' : zoomContactsCount} icon="contact" color="#2D8CFF" onClick={() => { setZoomView('contacts'); setActiveTab('zoom'); }} />
               <KPICard variant="small-box" title="Enrollments" value={stats.total_enrollments} icon="layers" color="#F59E0B" onClick={() => setActiveTab('enrollments')} />
               <KPICard variant="small-box" title="Active Sessions" value={stats.active_sessions} icon="video" color="#EF4444" onClick={() => setActiveTab('sessions')} />
               <KPICard variant="small-box" title="Total Users" value={stats.total_users} icon="users" color="#06B6D4" onClick={() => setActiveTab('users')} />
