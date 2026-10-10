@@ -2612,6 +2612,23 @@ app.get('/api/zoom/users', async (req, res) => {
   } catch (err) { zoomFail(res, err); }
 });
 
+// Add a Zoom user (host) to the account. Zoom emails them an activation link;
+// they show up as a host once they accept it.
+app.post('/api/zoom/users', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const first = String(req.body.first_name || '').trim().slice(0, 64);
+  const last = String(req.body.last_name || '').trim().slice(0, 64);
+  const type = req.body.type === 2 || req.body.type === '2' ? 2 : 1;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 128) return res.status(400).json({ error: 'Please enter a valid email address' });
+  if (!first) return res.status(400).json({ error: 'First name is required' });
+  try {
+    const u = await zoomApi('POST', '/users', { action: 'create', user_info: { email, type, first_name: first, last_name: last } });
+    await auditLog(user.id, 'zoom_host_create', 'zoom_user', null, `${email} (${type === 2 ? 'licensed' : 'basic'})`);
+    res.json({ id: u.id, email: u.email, message: `Invite sent to ${u.email}` });
+  } catch (err) { zoomFail(res, err); }
+});
+
 app.get('/api/zoom/meetings', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   const host = String(req.query.user || '');

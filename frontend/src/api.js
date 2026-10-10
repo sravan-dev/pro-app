@@ -202,6 +202,7 @@ export const api = {
   saveVideoSettings: (data) => request('/video-settings', { method: 'PUT', body: data }),
   getZoomStatus: () => request('/zoom-status'),
   getZoomUsers: () => request('/zoom/users'),
+  createZoomUser: (data) => request('/zoom/users', { method: 'POST', body: data }),
   getZoomMeetings: (user, type) => request(`/zoom/meetings?user=${encodeURIComponent(user)}&type=${type}`),
   getZoomMeeting: (id) => request(`/zoom/meetings/${id}`),
   createZoomMeeting: (data) => request('/zoom/meetings', { method: 'POST', body: data }),

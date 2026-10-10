@@ -39,6 +39,7 @@ export default function ZoomMeetings() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const [hostForm, setHostForm] = useState(null); // Create Host modal fields while open
 
   const flash = (msg) => { setNotice(msg); setTimeout(() => setNotice(''), 3000); };
 
@@ -143,6 +144,20 @@ export default function ZoomMeetings() {
     setBusyId(null);
   };
 
+  const createHost = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setFormError('');
+    try {
+      const r = await api.createZoomUser(hostForm);
+      setHostForm(null);
+      flash(`${r.message}. They can host meetings once they accept it.`);
+    } catch (err) { setFormError(err.message); }
+    setSaving(false);
+  };
+
+  const setHostField = (k) => (e) => setHostForm((f) => ({ ...f, [k]: e.target.value }));
+
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
 
   if (!status) return <div className="portal-page"><div className="spinner" /></div>;
@@ -170,7 +185,10 @@ export default function ZoomMeetings() {
           <h2 style={{ marginBottom: 4 }}>Zoom</h2>
           <p style={{ ...muted, margin: 0 }}>Create and manage Zoom meetings. Times are shown in your timezone ({browserTz}).</p>
         </div>
-        <button className="btn btn-primary" onClick={openCreate} disabled={!host}>+ New Zoom Meeting</button>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost" onClick={() => { setFormError(''); setHostForm({ first_name: '', last_name: '', email: '', type: '1' }); }}>+ Create Host</button>
+          <button className="btn btn-primary" onClick={openCreate} disabled={!host}>+ New Zoom Meeting</button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
@@ -233,6 +251,44 @@ export default function ZoomMeetings() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {hostForm && (
+        <div className="modal-overlay">
+          <form className="modal" onSubmit={createHost} style={{ maxWidth: 480 }}>
+            <h3>Create Zoom Host</h3>
+            <p style={{ ...muted, marginTop: '-0.5rem', fontSize: '0.9rem' }}>
+              Adds a user to your Zoom account. Zoom emails them an activation link; once they accept it
+              they appear in the Host list.
+            </p>
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="zh-first">First name *</label>
+                <input id="zh-first" value={hostForm.first_name} onChange={setHostField('first_name')} maxLength={64} required autoFocus />
+              </div>
+              <div className="form-group">
+                <label htmlFor="zh-last">Last name</label>
+                <input id="zh-last" value={hostForm.last_name} onChange={setHostField('last_name')} maxLength={64} />
+              </div>
+            </div>
+            <div className="form-group">
+              <label htmlFor="zh-email">Email *</label>
+              <input id="zh-email" type="email" value={hostForm.email} onChange={setHostField('email')} maxLength={128} required />
+            </div>
+            <div className="form-group">
+              <label htmlFor="zh-type">Zoom licence</label>
+              <select id="zh-type" value={hostForm.type} onChange={setHostField('type')}>
+                <option value="1">Basic (free — 40-minute limit on group meetings)</option>
+                <option value="2">Licensed (uses one of your paid Zoom licences)</option>
+              </select>
+            </div>
+            {formError && <div className="alert alert-error">{formError}</div>}
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setHostForm(null)} disabled={saving}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Sending invite…' : 'Create host'}</button>
+            </div>
+          </form>
         </div>
       )}
 
