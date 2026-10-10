@@ -2650,28 +2650,64 @@ app.get('/api/zoom/meetings/:id', async (req, res) => {
 });
 
 // Session summary for the Zoom page. Upcoming: the meeting's details. Past
-// (uuid given): also the actual times, attendance and the AI Companion summary.
+// (past=1): also the actual times, attendance and the AI Companion summary for
+// one session. The past-meetings list hands back the scheduled meeting's uuid,
+// which Zoom often can't find, so we ask for the sessions that actually ran
+// (instances) and use those; `instance` picks one, default the latest.
 // Each part may be missing (deleted meeting, no AI summary), so they load
 // independently and report their own error instead of failing the request.
+const isZoomUuid = (v) => /^[A-Za-z0-9+/=]{1,64}$/.test(v);
+// Zoom wants a UUID that starts with "/" or contains "//" double-encoded.
+const encZoomUuid = (u) => (u.startsWith('/') || u.includes('//') ? encodeURIComponent(encodeURIComponent(u)) : encodeURIComponent(u));
+
 app.get('/api/zoom/meetings/:id/summary', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   if (!isZoomMeetingId(req.params.id)) return res.status(400).json({ error: 'Invalid meeting id' });
-  const uuid = String(req.query.uuid || '');
-  if (uuid && !/^[A-Za-z0-9+/=]{1,64}$/.test(uuid)) return res.status(400).json({ error: 'Invalid meeting uuid' });
-  // Zoom wants a UUID that starts with "/" or contains "//" double-encoded.
-  const encUuid = uuid.startsWith('/') || uuid.includes('//') ? encodeURIComponent(encodeURIComponent(uuid)) : encodeURIComponent(uuid);
+  const past = req.query.past === '1';
+  const wanted = String(req.query.instance || req.query.uuid || '');
+  if (wanted && !isZoomUuid(wanted)) return res.status(400).json({ error: 'Invalid meeting uuid' });
   const part = (p) => p.then((data) => ({ data }), (err) => ({ error: err.message }));
   try {
-    const [meeting, past, participants, ai] = await Promise.all([
+    const [meeting, inst] = await Promise.all([
       part(zoomApi('GET', `/meetings/${req.params.id}`)),
-      uuid ? part(zoomApi('GET', `/past_meetings/${encUuid}`)) : null,
-      uuid ? part(zoomApi('GET', `/past_meetings/${encUuid}/participants?page_size=300`)) : null,
-      uuid ? part(zoomApi('GET', `/meetings/${encUuid}/meeting_summary`)) : null,
+      past ? part(zoomApi('GET', `/past_meetings/${req.params.id}/instances`)) : null,
     ]);
+    const instances = (inst?.data?.meetings || [])
+      .filter((m) => m.uuid && isZoomUuid(m.uuid))
+      .sort((x, y) => String(y.start_time).localeCompare(String(x.start_time)))
+      .map((m) => ({ uuid: m.uuid, start_time: m.start_time }));
+    const chosen = past
+      ? (instances.find((m) => m.uuid === wanted) || instances[0])?.uuid || wanted
+      : '';
+
+    let details = null; let participants = null; let ai = null;
+    if (chosen) {
+      const enc = encZoomUuid(chosen);
+      // Attendance comes 300 rows a page; follow the pages (capped) for big classes.
+      const allParticipants = async () => {
+        const rows = [];
+        let token = '';
+        for (let i = 0; i < 10; i++) {
+          const page = await zoomApi('GET', `/past_meetings/${enc}/participants?page_size=300${token ? `&next_page_token=${encodeURIComponent(token)}` : ''}`);
+          rows.push(...(page.participants || []));
+          token = page.next_page_token;
+          if (!token) break;
+        }
+        return rows;
+      };
+      [details, participants, ai] = await Promise.all([
+        part(zoomApi('GET', `/past_meetings/${enc}`)),
+        part(allParticipants()),
+        part(zoomApi('GET', `/meetings/${enc}/meeting_summary`)),
+      ]);
+    }
+    const neverHeld = past && !instances.length && participants?.error;
     res.json({
       meeting: meeting.data || null, meeting_error: meeting.error || null,
-      past: past?.data || null, past_error: past?.error || null,
-      participants: participants?.data?.participants || [], participants_error: participants?.error || null,
+      instances, instance: chosen || null,
+      past: details?.data || null, past_error: details?.error || null,
+      participants: participants?.data || [],
+      participants_error: neverHeld ? 'Zoom has no record of this meeting being held.' : (participants?.error || null),
       ai_summary: ai?.data || null, ai_summary_error: ai?.error || null,
     });
   } catch (err) { zoomFail(res, err); }
