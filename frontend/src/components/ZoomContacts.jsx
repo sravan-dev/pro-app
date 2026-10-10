@@ -10,6 +10,8 @@ const muted = { color: 'var(--color-text-secondary)' };
 const fromUtc = (s) => (s ? new Date(`${String(s).replace(' ', 'T')}Z`) : null);
 const fmtDate = (s) => (s ? fromUtc(s).toLocaleDateString([], { dateStyle: 'medium' }) : '—');
 const fmtWhen = (s) => (s ? fromUtc(s).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—');
+// Zoom's own ISO times ("2026-10-10T08:30:00Z").
+const fmtIso = (s) => (s ? new Date(s).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 const fmtDuration = (sec) => {
   const m = Math.round((Number(sec) || 0) / 60);
   return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`;
@@ -21,7 +23,16 @@ export default function ZoomContacts({ onCountChange }) {
   const [job, setJob] = useState(null);
   const [person, setPerson] = useState(null); // contact whose sessions popup is open
   const [sessions, setSessions] = useState(null);
+  const [pending, setPending] = useState(null); // { pending, meetings, list } — meetings not synced yet
+  const [pendingError, setPendingError] = useState('');
+  const [showPending, setShowPending] = useState(false);
   const polling = useRef(null);
+
+  const loadPending = useCallback(() => {
+    setPending(null);
+    setPendingError('');
+    api.getZoomContactsPending().then(setPending).catch((err) => setPendingError(err.message));
+  }, []);
 
   const load = useCallback(() => {
     api.getZoomContacts()
@@ -35,8 +46,9 @@ export default function ZoomContacts({ onCountChange }) {
       setJob(j);
       if (j.running) polling.current = setTimeout(poll, 2000);
       else if (j.finishedAt) load();
+      if (!j.running) loadPending();
     }).catch(() => {});
-  }, [load]);
+  }, [load, loadPending]);
 
   // Pick up a sync that is already running (e.g. started before a page refresh).
   useEffect(() => { load(); poll(); return () => clearTimeout(polling.current); }, [load, poll]);
@@ -70,10 +82,41 @@ export default function ZoomContacts({ onCountChange }) {
           People who joined your Zoom meetings.{' '}
           {data?.last_synced ? `Last synced ${fmtWhen(data.last_synced)}.` : 'Not synced yet.'}
         </span>
-        <button className="btn btn-primary" onClick={sync} disabled={running} style={{ marginLeft: 'auto' }}>
-          {running ? 'Syncing…' : '↻ Sync from Zoom'}
+        <span style={{ marginLeft: 'auto', fontSize: 14 }}>
+          {running ? null : pendingError ? (
+            <span style={muted} title={pendingError}>Couldn't check Zoom for new meetings</span>
+          ) : !pending ? (
+            <span style={muted}>Checking Zoom for new meetings…</span>
+          ) : pending.pending === 0 ? (
+            <span style={{ color: '#166534', fontWeight: 600 }}>✓ Up to date</span>
+          ) : (
+            <button type="button" onClick={() => setShowPending((v) => !v)}
+              style={{ background: '#FEF3C7', color: '#92400E', border: 'none', borderRadius: 999, padding: '4px 12px', fontWeight: 600, cursor: 'pointer' }}>
+              {pending.pending} meeting{pending.pending === 1 ? '' : 's'} not synced yet {showPending ? '▴' : '▾'}
+            </button>
+          )}
+        </span>
+        <button className="btn btn-primary" onClick={sync} disabled={running}>
+          {running ? 'Syncing…' : pending?.pending ? `↻ Sync ${pending.pending} pending` : '↻ Sync from Zoom'}
         </button>
       </div>
+
+      {showPending && pending?.pending > 0 && !running && (
+        <div className="card" style={{ padding: '0.75rem 1rem', marginBottom: '1rem', maxHeight: 240, overflowY: 'auto' }}>
+          <div style={{ ...muted, fontSize: 13, marginBottom: 6 }}>
+            Held since the last sync. Their attendees are added to Contacts when you sync.
+          </div>
+          {pending.list.map((m) => (
+            <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 14, padding: '4px 0', borderBottom: '1px solid var(--color-border, #F1F5F9)' }}>
+              <span>{m.topic || `Meeting ${m.id}`}</span>
+              <span style={{ ...muted, whiteSpace: 'nowrap' }}>{fmtIso(m.start_time)}</span>
+            </div>
+          ))}
+          {pending.pending > pending.list.length && (
+            <div style={{ ...muted, fontSize: 13, marginTop: 6 }}>…and {pending.pending - pending.list.length} more</div>
+          )}
+        </div>
+      )}
 
       {running && (
         <div className="alert alert-info">

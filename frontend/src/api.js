@@ -205,6 +205,7 @@ export const api = {
   createZoomUser: (data) => request('/zoom/users', { method: 'POST', body: data }),
   getZoomContacts: () => request('/zoom/contacts'),
   getZoomContactsCount: () => request('/zoom/contacts/count'),
+  getZoomContactsPending: () => request('/zoom/contacts/pending'),
   getZoomContactSessions: (key) => request(`/zoom/contacts/sessions?key=${encodeURIComponent(key)}`),
   startZoomContactsSync: () => request('/zoom/contacts/sync', { method: 'POST' }),
   getZoomContactsSync: () => request('/zoom/contacts/sync'),

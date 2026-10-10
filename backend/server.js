@@ -2774,21 +2774,33 @@ async function syncZoomSession(meetingId, topic, inst) {
       [inst.uuid, meetingId, String(topic).slice(0, 300), zoomUtc(inst.start_time), key, p.name.slice(0, 255), p.email.slice(0, 255), p.seconds]
     );
   }
-  await db.run("INSERT IGNORE INTO zoom_synced_instances (instance_uuid, meeting_id, synced_at) VALUES (?,?,UTC_TIMESTAMP())", [inst.uuid, meetingId]);
+  await db.run("INSERT IGNORE INTO zoom_synced_instances (instance_uuid, meeting_id, start_time_utc, synced_at) VALUES (?,?,?,UTC_TIMESTAMP())", [inst.uuid, meetingId, zoomUtc(inst.start_time)]);
   return people.size;
 }
 
-async function runZoomContactsSync(job) {
+// Every host's past meetings: meeting id → { topic, start_time } (the latest
+// occurrence when Zoom lists a meeting more than once).
+async function listZoomPastMeetings() {
   const users = (await zoomApi('GET', '/users?status=active&page_size=300')).users || [];
-  const meetings = new Map(); // meeting id → topic
+  const meetings = new Map();
   for (const u of users) {
     let token = '';
     do {
       const page = await zoomApi('GET', `/users/${encodeURIComponent(u.id)}/meetings?type=previous_meetings&page_size=300${token ? `&next_page_token=${encodeURIComponent(token)}` : ''}`);
-      for (const m of page.meetings || []) if (m.id) meetings.set(String(m.id), m.topic || '');
+      for (const m of page.meetings || []) {
+        if (!m.id) continue;
+        const id = String(m.id);
+        const prev = meetings.get(id);
+        if (!prev || String(m.start_time || '') > String(prev.start_time || '')) meetings.set(id, { topic: m.topic || '', start_time: m.start_time || '' });
+      }
       token = page.next_page_token;
     } while (token);
   }
+  return meetings;
+}
+
+async function runZoomContactsSync(job) {
+  const meetings = await listZoomPastMeetings();
   job.meetings = meetings.size;
   const done = new Set((await db.all("SELECT instance_uuid FROM zoom_synced_instances")).map((r) => r.instance_uuid));
 
@@ -2796,15 +2808,22 @@ async function runZoomContactsSync(job) {
   const queue = [...meetings];
   const worker = async () => {
     while (queue.length) {
-      const [id, topic] = queue.shift();
+      const [id, { topic, start_time: listedStart }] = queue.shift();
       try {
         const inst = await zoomApi('GET', `/past_meetings/${id}/instances`);
+        let ok = true;
         for (const i of inst.meetings || []) {
           if (!i.uuid || !isZoomUuid(i.uuid) || done.has(i.uuid)) continue;
           try {
             job.people_rows += await syncZoomSession(id, topic, i);
             job.new_sessions++;
-          } catch { job.errors++; }
+          } catch { job.errors++; ok = false; }
+        }
+        // Fully read: no longer "not synced" until Zoom lists a newer start.
+        if (ok && listedStart) {
+          await db.run(
+            "INSERT INTO zoom_checked_meetings (meeting_id, listed_start, checked_at) VALUES (?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE listed_start=VALUES(listed_start), checked_at=VALUES(checked_at)",
+            [id, String(listedStart).slice(0, 32)]);
         }
       } catch { job.errors++; }
       job.processed++;
@@ -2841,6 +2860,40 @@ app.get('/api/zoom/contacts', async (req, res) => {
      FROM zoom_attendance GROUP BY person_key ORDER BY last_seen DESC`);
   const last = await db.get("SELECT MAX(synced_at) AS at FROM zoom_synced_instances");
   res.json({ contacts, last_synced: last?.at || null });
+});
+
+// Meetings held since the last sync: their latest session isn't stored yet.
+// Attendees are only known once a session is synced, so this counts meetings,
+// not people. A meeting is pending when Zoom now lists a later start than the
+// one recorded when a sync last checked it. Meetings never checked (synced
+// before that record existed) fall back to their stored sessions: covered when
+// one started no more than 12h before the listed time (people often start a
+// little early or late).
+app.get('/api/zoom/contacts/pending', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  try {
+    const meetings = await listZoomPastMeetings();
+    const synced = new Map((await db.all(
+      "SELECT meeting_id, MAX(start_time_utc) AS last FROM zoom_synced_instances GROUP BY meeting_id"
+    )).map((r) => [String(r.meeting_id), r.last]));
+    const checked = new Map((await db.all("SELECT meeting_id, listed_start FROM zoom_checked_meetings"))
+      .map((r) => [String(r.meeting_id), r.listed_start]));
+    const pending = [];
+    for (const [id, m] of meetings) {
+      if (!m.start_time) continue;
+      if (checked.has(id)) {
+        if (m.start_time > checked.get(id)) pending.push({ id, topic: m.topic, start_time: m.start_time });
+        continue;
+      }
+      const last = synced.get(id);
+      const lastMs = last ? Date.parse(`${String(last).replace(' ', 'T')}Z`) : NaN;
+      if (!last || Number.isNaN(lastMs) || lastMs < Date.parse(m.start_time) - 12 * 3600 * 1000) {
+        pending.push({ id, topic: m.topic, start_time: m.start_time });
+      }
+    }
+    pending.sort((a, b) => b.start_time.localeCompare(a.start_time));
+    res.json({ pending: pending.length, meetings: meetings.size, list: pending.slice(0, 100) });
+  } catch (err) { zoomFail(res, err); }
 });
 
 app.get('/api/zoom/contacts/count', async (req, res) => {

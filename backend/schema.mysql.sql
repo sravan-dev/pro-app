@@ -455,5 +455,15 @@ CREATE TABLE IF NOT EXISTS zoom_attendance (
 CREATE TABLE IF NOT EXISTS zoom_synced_instances (
   instance_uuid VARCHAR(64) PRIMARY KEY,
   meeting_id VARCHAR(20) NOT NULL,
-  synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  start_time_utc DATETIME NULL,
+  synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_zoom_synced_meeting (meeting_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Per meeting, the latest start time Zoom listed when a sync last checked it,
+-- so meetings that were scheduled but never held don't stay "not synced".
+CREATE TABLE IF NOT EXISTS zoom_checked_meetings (
+  meeting_id VARCHAR(20) PRIMARY KEY,
+  listed_start VARCHAR(32) NOT NULL,
+  checked_at DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

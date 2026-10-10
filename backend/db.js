@@ -197,6 +197,14 @@ async function initSchema() {
   await addColumnIfMissing('sessions', 'student_id', 'student_id INT NULL');
   // Payroll: per-row shift breakdown snapshot taken at pay time.
   await addColumnIfMissing('payroll_runs', 'breakdown', 'breakdown TEXT');
+  // Zoom Contacts: when each synced session ran, for the "not synced yet" count.
+  // Sessions synced before the column existed take it from their attendance.
+  await addColumnIfMissing('zoom_synced_instances', 'start_time_utc', 'start_time_utc DATETIME NULL');
+  await addIndexIfMissing('zoom_synced_instances', 'idx_zoom_synced_meeting', 'meeting_id');
+  await exec(`UPDATE zoom_synced_instances s
+    JOIN (SELECT instance_uuid, MIN(start_time_utc) AS st FROM zoom_attendance GROUP BY instance_uuid) a
+      ON a.instance_uuid = s.instance_uuid
+    SET s.start_time_utc = a.st WHERE s.start_time_utc IS NULL`);
 
   // Indexes the cascading deletes depend on. Without them a delete by
   // tutor_id / session_id / user_id full-scans its table and takes a lock on
