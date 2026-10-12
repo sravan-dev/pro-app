@@ -44,6 +44,7 @@ const menuItems = {
   superadmin: [
     { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
     { key: 'contacts', label: 'Contacts', icon: 'contact' },
+    { key: 'zoom', label: 'Zoom', icon: 'video' },
     { key: 'kajabi', label: 'Kajabi Contacts', icon: 'contact' },
     { key: 'students', label: 'Students', icon: 'student' },
     { key: 'tutors', label: 'Tutors', icon: 'tutor' },
@@ -55,7 +56,6 @@ const menuItems = {
     { key: 'enrollments', label: 'Enrollments', icon: 'layers' },
     { key: 'tickets', label: 'Tickets', icon: 'life-buoy' },
     { key: 'meetings', label: 'Meetings', icon: 'link' },
-    { key: 'zoom', label: 'Zoom', icon: 'video' },
     { key: 'sessions', label: 'Sessions', icon: 'video' },
     { key: 'recordings', label: 'Recordings', icon: 'film' },
     { key: 'timeslots', label: 'Time Slots', icon: 'clock' },
