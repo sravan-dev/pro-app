@@ -3,8 +3,9 @@ import { api } from '../api';
 import DataTable from './DataTable';
 
 // Zoom page → Contacts: everyone who has joined your Zoom meetings, one row
-// per person (by email; guests without one by name). "Sync from Zoom" pulls
-// new sessions in the background; the first sync reads every past meeting.
+// per person (by email; guests without one by name). Opening the tab checks
+// Zoom for meetings held since the last sync and, if there are any, syncs them
+// in the background; the first sync reads every past meeting.
 const muted = { color: 'var(--color-text-secondary)' };
 // Stored times are UTC "YYYY-MM-DD HH:MM:SS".
 const fromUtc = (s) => (s ? new Date(`${String(s).replace(' ', 'T')}Z`) : null);
@@ -27,6 +28,7 @@ export default function ZoomContacts({ onCountChange }) {
   const [pendingError, setPendingError] = useState('');
   const [showPending, setShowPending] = useState(false);
   const polling = useRef(null);
+  const autoSynced = useRef(false); // auto-sync at most once per visit, so a failing sync can't loop
 
   const loadPending = useCallback(() => {
     setPending(null);
@@ -53,10 +55,12 @@ export default function ZoomContacts({ onCountChange }) {
   // Pick up a sync that is already running (e.g. started before a page refresh).
   useEffect(() => { load(); poll(); return () => clearTimeout(polling.current); }, [load, poll]);
 
-  const sync = async () => {
-    try { await api.startZoomContactsSync(); poll(); }
-    catch (err) { setError(err.message); }
-  };
+  // Meetings not synced yet → sync them without waiting for a click.
+  useEffect(() => {
+    if (!pending?.pending || job?.running || autoSynced.current) return;
+    autoSynced.current = true;
+    api.startZoomContactsSync().then(poll).catch((err) => setError(err.message));
+  }, [pending, job, poll]);
 
   const openPerson = (p) => {
     setPerson(p);
@@ -83,7 +87,9 @@ export default function ZoomContacts({ onCountChange }) {
           {data?.last_synced ? `Last synced ${fmtWhen(data.last_synced)}.` : 'Not synced yet.'}
         </span>
         <span style={{ marginLeft: 'auto', fontSize: 14 }}>
-          {running ? null : pendingError ? (
+          {running ? (
+            <span style={muted}>Syncing new meetings…</span>
+          ) : pendingError ? (
             <span style={muted} title={pendingError}>Couldn't check Zoom for new meetings</span>
           ) : !pending ? (
             <span style={muted}>Checking Zoom for new meetings…</span>
@@ -96,15 +102,12 @@ export default function ZoomContacts({ onCountChange }) {
             </button>
           )}
         </span>
-        <button className="btn btn-primary" onClick={sync} disabled={running}>
-          {running ? 'Syncing…' : pending?.pending ? `↻ Sync ${pending.pending} pending` : '↻ Sync from Zoom'}
-        </button>
       </div>
 
       {showPending && pending?.pending > 0 && !running && (
         <div className="card" style={{ padding: '0.75rem 1rem', marginBottom: '1rem', maxHeight: 240, overflowY: 'auto' }}>
           <div style={{ ...muted, fontSize: 13, marginBottom: 6 }}>
-            Held since the last sync. Their attendees are added to Contacts when you sync.
+            Held since the last sync. Their attendees are added to Contacts on the next sync.
           </div>
           {pending.list.map((m) => (
             <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 14, padding: '4px 0', borderBottom: '1px solid var(--color-border, #F1F5F9)' }}>
@@ -137,7 +140,7 @@ export default function ZoomContacts({ onCountChange }) {
 
       {!data ? <div className="spinner" /> : data.contacts.length === 0 ? (
         <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>
-          No Zoom contacts yet. Click “Sync from Zoom” to collect everyone who joined your past meetings.
+          No Zoom contacts yet. Everyone who joined your past meetings is added here automatically.
         </div>
       ) : (
         <DataTable columns={columns} data={data.contacts} pageSize={15} onRowClick={openPerson} />

@@ -152,6 +152,7 @@ export default function SuperadminPortal() {
   const [kajabiCount, setKajabiCount] = useState(null); // total Kajabi contacts
   const [zoomContactsCount, setZoomContactsCount] = useState(null); // people who joined our Zoom meetings
   const [zoomView, setZoomView] = usePersistedTab('tab:superadmin:zoom', 'upcoming');
+  const [zoomReload, setZoomReload] = useState(0); // bumped by the sidebar to refetch from Zoom
   const [kajabi, setKajabi] = useState({ kajabi_client_id: '', kajabi_client_secret: '', kajabi_connected: false });
   const [kajabiSaving, setKajabiSaving] = useState(false);
   const [kajabiContacts, setKajabiContacts] = useState([]);
@@ -2614,7 +2615,12 @@ export default function SuperadminPortal() {
 
   return (
     <div className="portal-layout portal-superadmin">
-      <Sidebar activeTab={activeTab} onTabChange={(tab) => { if (activeSession) setSessionMinimized(true); setActiveTab(tab); }} />
+      <Sidebar activeTab={activeTab} onTabChange={(tab) => {
+        if (activeSession) setSessionMinimized(true);
+        // Zoom in the sidebar always opens Upcoming, freshly loaded from Zoom.
+        if (tab === 'zoom') { setZoomView('upcoming'); setZoomReload((n) => n + 1); }
+        setActiveTab(tab);
+      }} />
       <main className="portal-content">
         {activeSession && (
           <SessionDock
@@ -3198,7 +3204,7 @@ export default function SuperadminPortal() {
         {/* ===== RATINGS ===== */}
         {activeTab === 'ratings' && <RatingsView />}
 
-        {activeTab === 'zoom' && <ZoomMeetings view={zoomView} onViewChange={setZoomView} onContactsCount={setZoomContactsCount} />}
+        {activeTab === 'zoom' && <ZoomMeetings key={zoomReload} view={zoomView} onViewChange={setZoomView} onContactsCount={setZoomContactsCount} />}
 
         {/* ===== MEETINGS ===== */}
         {activeTab === 'meetings' && (
