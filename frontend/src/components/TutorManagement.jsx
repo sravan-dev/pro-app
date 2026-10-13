@@ -5,6 +5,7 @@ import TutorApplications from './TutorApplications';
 import TutorProfile from './TutorProfile';
 import BlacklistModal from './BlacklistModal';
 import usePersistedTab from '../hooks/usePersistedTab';
+import downloadCsv, { today } from '../utils/downloadCsv';
 
 // Manager → Tutor Management: the same Tutors / Applications tabs the
 // superadmin has, limited to tutor accounts (the server enforces that too).
@@ -360,7 +361,10 @@ export default function TutorManagement({ showMsg }) {
         ? <TutorApplications embedded onTutorCreated={loadTutors} />
         : (
           <>
-            <p style={{ ...muted, marginTop: '-0.5rem', marginBottom: '1rem' }}>Click a tutor to view their full profile.</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+              <p style={{ ...muted, margin: 0 }}>Click a tutor to view their full profile.</p>
+              <button className="btn btn-ghost" disabled={!tutors.length} onClick={() => downloadCsv(`tutor-emails-${today()}.csv`, ['Email'], tutors.map((t) => [t.email]))}>⬇ Export Emails</button>
+            </div>
             <DataTable columns={columns} data={tutors} pageSize={15} selectable onRowClick={(r) => setProfileId(r.id)} onBulkAction={bulkDelete} bulkActionLabel="Delete Selected" />
           </>
         )}

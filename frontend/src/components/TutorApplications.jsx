@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import DataTable from './DataTable';
+import downloadCsv, { today } from '../utils/downloadCsv';
 
 // Tutor Management → Applications — tutor applications submitted from the public
 // /register page. `embedded` drops the page wrapper/heading when shown inside
@@ -87,26 +88,11 @@ export default function TutorApplications({ embedded = false, onTutorCreated }) 
   const newCount = rows.filter((r) => r.status === 'new').length;
 
   // Download every applicant's name, email and contact details as a CSV.
-  const exportEmails = () => {
-    // Fields come from the public form — prefix anything a spreadsheet would run
-    // as a formula. Plain phone numbers like +91 98765 43210 are left alone.
-    const cell = (v) => {
-      let s = String(v ?? '');
-      if (/^[=@\t\r]/.test(s) || (/^[+-]/.test(s) && !/^[+-][\d\s()-]*$/.test(s))) s = `'${s}`;
-      return `"${s.replace(/"/g, '""')}"`;
-    };
-    const lines = [
-      ['Name', 'Email', 'Phone', 'Position', 'Status', 'Submitted'].map(cell).join(','),
-      ...rows.map((r) => [r.full_name, r.email, r.phone, r.position, r.status, r.created_at].map(cell).join(',')),
-    ];
-    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `tutor-applications-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const exportEmails = () => downloadCsv(
+    `tutor-applications-${today()}.csv`,
+    ['Name', 'Email', 'Phone', 'Position', 'Status', 'Submitted'],
+    rows.map((r) => [r.full_name, r.email, r.phone, r.position, r.status, r.created_at]),
+  );
 
   return (
     <div className={embedded ? '' : 'portal-page'}>

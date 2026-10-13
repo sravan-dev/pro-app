@@ -15,6 +15,7 @@ import BlacklistModal from '../components/BlacklistModal';
 import TutorProfile from '../components/TutorProfile';
 import ZoomMeetings from '../components/ZoomMeetings';
 import usePersistedTab from '../hooks/usePersistedTab';
+import downloadCsv, { today } from '../utils/downloadCsv';
 
 // Simple horizontal bar chart built from the existing .stats-bars styles
 // (no charting library). rows = [{ label, value }].
@@ -3084,9 +3085,12 @@ export default function SuperadminPortal() {
               ? <TutorApplications embedded onTutorCreated={() => api.getTutors().then(setAllTutors).catch(() => {})} />
               : (
                 <>
-                  <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
-                    Click a tutor to view their full profile.
-                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+                    <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>
+                      Click a tutor to view their full profile.
+                    </p>
+                    <button className="btn btn-ghost" disabled={!allTutors.length} onClick={() => downloadCsv(`tutor-emails-${today()}.csv`, ['Email'], allTutors.map((t) => [t.email]))}>⬇ Export Emails</button>
+                  </div>
                   <DataTable columns={tutorColumns} data={allTutors} pageSize={15} selectable onRowClick={(r) => setTutorProfileId(r.id)} onBulkAction={bulkDeleteUsers} bulkActionLabel="Delete Selected" />
                 </>
               )}
