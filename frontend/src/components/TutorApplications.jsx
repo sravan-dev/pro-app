@@ -86,6 +86,28 @@ export default function TutorApplications({ embedded = false, onTutorCreated }) 
 
   const newCount = rows.filter((r) => r.status === 'new').length;
 
+  // Download every applicant's name, email and contact details as a CSV.
+  const exportEmails = () => {
+    // Fields come from the public form — prefix anything a spreadsheet would run
+    // as a formula. Plain phone numbers like +91 98765 43210 are left alone.
+    const cell = (v) => {
+      let s = String(v ?? '');
+      if (/^[=@\t\r]/.test(s) || (/^[+-]/.test(s) && !/^[+-][\d\s()-]*$/.test(s))) s = `'${s}`;
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const lines = [
+      ['Name', 'Email', 'Phone', 'Position', 'Status', 'Submitted'].map(cell).join(','),
+      ...rows.map((r) => [r.full_name, r.email, r.phone, r.position, r.status, r.created_at].map(cell).join(',')),
+    ];
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tutor-applications-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className={embedded ? '' : 'portal-page'}>
       <div className="page-header" style={embedded ? { marginBottom: '1rem' } : undefined}>
@@ -96,7 +118,10 @@ export default function TutorApplications({ embedded = false, onTutorCreated }) 
             {newCount > 0 && ` · ${newCount} new`}
           </p>
         </div>
-        <button className="btn btn-ghost" onClick={load} disabled={loading}>↻ Refresh</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost" onClick={exportEmails} disabled={!rows.length}>⬇ Export Emails</button>
+          <button className="btn btn-ghost" onClick={load} disabled={loading}>↻ Refresh</button>
+        </div>
       </div>
       {error && <div style={{ color: '#dc2626', margin: '8px 0' }}>{error}</div>}
       {created && (
