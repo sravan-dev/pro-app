@@ -2799,16 +2799,45 @@ async function listZoomPastMeetings() {
   return meetings;
 }
 
+// Past meetings whose latest session isn't synced yet, newest first. A meeting
+// is pending when Zoom now lists a later start than the one recorded when a
+// sync last checked it. Meetings never checked (synced before that record
+// existed) fall back to their stored sessions: covered when one started no more
+// than 12h before the listed time (people often start a little early or late).
+async function pendingZoomMeetings(meetings) {
+  const synced = new Map((await db.all(
+    "SELECT meeting_id, MAX(start_time_utc) AS last FROM zoom_synced_instances GROUP BY meeting_id"
+  )).map((r) => [String(r.meeting_id), r.last]));
+  const checked = new Map((await db.all("SELECT meeting_id, listed_start FROM zoom_checked_meetings"))
+    .map((r) => [String(r.meeting_id), r.listed_start]));
+  const pending = [];
+  for (const [id, m] of meetings) {
+    if (!m.start_time) continue;
+    if (checked.has(id)) {
+      if (m.start_time > checked.get(id)) pending.push({ id, topic: m.topic, start_time: m.start_time });
+      continue;
+    }
+    const last = synced.get(id);
+    const lastMs = last ? Date.parse(`${String(last).replace(' ', 'T')}Z`) : NaN;
+    if (!last || Number.isNaN(lastMs) || lastMs < Date.parse(m.start_time) - 12 * 3600 * 1000) {
+      pending.push({ id, topic: m.topic, start_time: m.start_time });
+    }
+  }
+  return pending.sort((a, b) => b.start_time.localeCompare(a.start_time));
+}
+
+// Reads only the pending meetings — the rest are already stored, and asking
+// Zoom about each of them again costs one API call per meeting.
 async function runZoomContactsSync(job) {
-  const meetings = await listZoomPastMeetings();
-  job.meetings = meetings.size;
+  const pending = await pendingZoomMeetings(await listZoomPastMeetings());
+  job.meetings = pending.length;
   const done = new Set((await db.all("SELECT instance_uuid FROM zoom_synced_instances")).map((r) => r.instance_uuid));
 
   // A few meetings at a time: quick enough, and well inside Zoom's rate limits.
-  const queue = [...meetings];
+  const queue = [...pending];
   const worker = async () => {
     while (queue.length) {
-      const [id, { topic, start_time: listedStart }] = queue.shift();
+      const { id, topic, start_time: listedStart } = queue.shift();
       try {
         const inst = await zoomApi('GET', `/past_meetings/${id}/instances`);
         let ok = true;
@@ -2864,34 +2893,12 @@ app.get('/api/zoom/contacts', async (req, res) => {
 
 // Meetings held since the last sync: their latest session isn't stored yet.
 // Attendees are only known once a session is synced, so this counts meetings,
-// not people. A meeting is pending when Zoom now lists a later start than the
-// one recorded when a sync last checked it. Meetings never checked (synced
-// before that record existed) fall back to their stored sessions: covered when
-// one started no more than 12h before the listed time (people often start a
-// little early or late).
+// not people.
 app.get('/api/zoom/contacts/pending', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   try {
     const meetings = await listZoomPastMeetings();
-    const synced = new Map((await db.all(
-      "SELECT meeting_id, MAX(start_time_utc) AS last FROM zoom_synced_instances GROUP BY meeting_id"
-    )).map((r) => [String(r.meeting_id), r.last]));
-    const checked = new Map((await db.all("SELECT meeting_id, listed_start FROM zoom_checked_meetings"))
-      .map((r) => [String(r.meeting_id), r.listed_start]));
-    const pending = [];
-    for (const [id, m] of meetings) {
-      if (!m.start_time) continue;
-      if (checked.has(id)) {
-        if (m.start_time > checked.get(id)) pending.push({ id, topic: m.topic, start_time: m.start_time });
-        continue;
-      }
-      const last = synced.get(id);
-      const lastMs = last ? Date.parse(`${String(last).replace(' ', 'T')}Z`) : NaN;
-      if (!last || Number.isNaN(lastMs) || lastMs < Date.parse(m.start_time) - 12 * 3600 * 1000) {
-        pending.push({ id, topic: m.topic, start_time: m.start_time });
-      }
-    }
-    pending.sort((a, b) => b.start_time.localeCompare(a.start_time));
+    const pending = await pendingZoomMeetings(meetings);
     res.json({ pending: pending.length, meetings: meetings.size, list: pending.slice(0, 100) });
   } catch (err) { zoomFail(res, err); }
 });
