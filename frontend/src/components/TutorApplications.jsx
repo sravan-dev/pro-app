@@ -86,6 +86,10 @@ export default function TutorApplications({ embedded = false, onTutorCreated }) 
   ];
 
   const newCount = rows.filter((r) => r.status === 'new').length;
+  // Clicking "N new" narrows the table to applications still waiting for review.
+  const [onlyNew, setOnlyNew] = useState(false);
+  const shown = onlyNew ? rows.filter((r) => r.status === 'new') : rows;
+  const linkBtn = { background: 'none', border: 0, padding: 0, font: 'inherit', color: 'var(--color-primary)', cursor: 'pointer', textDecoration: 'underline' };
 
   // Download every applicant's name, email and contact details as a CSV.
   const exportEmails = () => downloadCsv(
@@ -101,7 +105,12 @@ export default function TutorApplications({ embedded = false, onTutorCreated }) 
           {!embedded && <h2 style={{ marginBottom: 4 }}>Tutor Applications</h2>}
           <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>
             Submitted from the public form at <a href="/register" target="_blank" rel="noreferrer">/register</a>
-            {newCount > 0 && ` · ${newCount} new`}
+            {(newCount > 0 || onlyNew) && ' · '}
+            {onlyNew ? (
+              <>Showing {newCount} new · <button type="button" style={linkBtn} onClick={() => setOnlyNew(false)}>Show all</button></>
+            ) : newCount > 0 && (
+              <button type="button" style={linkBtn} onClick={() => setOnlyNew(true)} title="Show only new applications">{newCount} new</button>
+            )}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -121,7 +130,7 @@ export default function TutorApplications({ embedded = false, onTutorCreated }) 
         </div>
       )}
       {loading && !rows.length ? <div className="spinner" /> : (
-        <DataTable columns={columns} data={rows} pageSize={15} onRowClick={setSelected} />
+        <DataTable columns={columns} data={shown} pageSize={15} onRowClick={setSelected} />
       )}
 
       {selected && (
