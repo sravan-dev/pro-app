@@ -13,6 +13,11 @@ const { MySQLSessionStore, revokeUserSessions } = require('./sessionStore');
 const { seedTutors } = require('./seeds/tutors');
 
 const app = express();
+// Status for "an outside service (Zoom, HubSpot, Kajabi) rejected the request".
+// Not 502: the host's proxy replaces 5xx replies with its own HTML page, which
+// hides the real error message. Not 401 either: the client treats that as
+// "your login expired" and signs the user out.
+const UPSTREAM_FAILED = 424;
 const PORT = process.env.PORT || 8000;
 // Uploads (recordings, course materials, avatars) must live OUTSIDE the
 // deployed app folder, otherwise every deploy that replaces the project tree
@@ -2596,7 +2601,7 @@ async function zoomApi(method, path, body) {
   return data;
 }
 
-const zoomFail = (res, err) => res.status(err.code === 'NOT_CONFIGURED' ? 400 : 502).json({ error: err.message });
+const zoomFail = (res, err) => res.status(err.code === 'NOT_CONFIGURED' ? 400 : UPSTREAM_FAILED).json({ error: err.message });
 const isZoomUserId = (v) => typeof v === 'string' && /^[\w.@+-]{1,128}$/.test(v);
 const isZoomMeetingId = (v) => /^\d{1,20}$/.test(String(v));
 
@@ -3075,7 +3080,7 @@ app.get('/api/hubspot/contacts', async (req, res) => {
     }
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      return res.status(resp.status === 401 ? 401 : 502).json({ error: data.message || `HubSpot request failed (HTTP ${resp.status})` });
+      return res.status(UPSTREAM_FAILED).json({ error: data.message || `HubSpot request failed (HTTP ${resp.status})` });
     }
     const contacts = (data.results || []).map(mapHubspotContact);
     const next = data.paging && data.paging.next ? data.paging.next.after : '';
@@ -3083,7 +3088,7 @@ app.get('/api/hubspot/contacts', async (req, res) => {
     if (total === null && !after) total = await hubspotContactCount(token);
     res.json({ contacts, after: next, total });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(UPSTREAM_FAILED).json({ error: err.message });
   }
 });
 
@@ -3231,7 +3236,7 @@ app.get('/api/kajabi/contacts', async (req, res) => {
     const hasNext = !!(data.links && data.links.next) || contacts.length === SIZE;
     res.json({ contacts, page, total, has_next: hasNext });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(UPSTREAM_FAILED).json({ error: err.message });
   }
 });
 
