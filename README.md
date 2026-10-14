@@ -106,3 +106,25 @@ Sessions use whichever provider is set in Settings → Video:
 
 Browsers only allow a microphone or camera on `https` (or `localhost`), so
 serve the app over TLS anywhere real.
+
+## Zoom classes inside the LMS
+
+The admin Zoom page manages real Zoom meetings through a Server-to-Server OAuth
+app (Integrations → Video provider → Zoom). "Copy invite" shares the site's own link,
+`/join/<code>`, which opens the meeting inside the website with the Zoom Meeting
+SDK instead of sending students to zoom.us. Anyone with the link can join; a
+signed-in LMS user gets their name and email filled in. The page always offers
+an "Open in Zoom app" button as a fallback.
+
+To turn it on:
+
+1. In the Zoom App Marketplace, signed in to the **same Zoom account** that
+   hosts the meetings, create a **General App** and turn on **Meeting SDK**
+   under Features → Embed. Apps in another account can't join these meetings.
+2. Paste its Client ID and Client Secret into Integrations → "Zoom: join
+   classes inside the LMS".
+
+The join page is `backend/zoom-join.html`, a standalone page outside the React
+app: the SDK brings its own React 18 from Zoom's CDN. Zoom retires old SDK
+versions every few months, so bump `ZOOM_SDK_VERSION` in that file (and check
+the script list against Zoom's `meetingsdk-web-sample`) at least twice a year.

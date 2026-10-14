@@ -207,6 +207,7 @@ export const api = {
   saveAppSettings: (data) => request('/app-settings', { method: 'PUT', body: data }),
   saveVideoSettings: (data) => request('/video-settings', { method: 'PUT', body: data }),
   getZoomStatus: () => request('/zoom-status'),
+  saveZoomSdkSettings: (data) => request('/zoom-sdk-settings', { method: 'PUT', body: data }),
   getZoomUsers: () => request('/zoom/users'),
   createZoomUser: (data) => request('/zoom/users', { method: 'POST', body: data }),
   getZoomContacts: () => request('/zoom/contacts'),

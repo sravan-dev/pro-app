@@ -8,6 +8,8 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8000',
       '/uploads': 'http://localhost:8000',
+      // Zoom join page (/join/<code>) is served by the backend, not the React app.
+      '/join': 'http://localhost:8000',
     },
   },
 });

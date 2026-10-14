@@ -137,6 +137,10 @@ export default function SuperadminPortal() {
   // HubSpot CRM integration + contacts list
   const [hubspot, setHubspot] = useState({ hubspot_token: '', hubspot_connected: false });
   const [hubspotSaving, setHubspotSaving] = useState(false);
+
+  // Zoom Meeting SDK app — lets students join Zoom classes inside the site (/join/<code>)
+  const [zoomSdk, setZoomSdk] = useState({ zoom_sdk_key: '', zoom_sdk_secret: '', zoom_sdk_has_secret: false });
+  const [zoomSdkSaving, setZoomSdkSaving] = useState(false);
   const [contacts, setContacts] = useState([]);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsError, setContactsError] = useState('');
@@ -377,6 +381,7 @@ export default function SuperadminPortal() {
         api.getLiveKitStatus().then(setLivekitStatus).catch(() => {});
       }
       setHubspot({ hubspot_token: '', hubspot_connected: !!s.hubspot_connected });
+      setZoomSdk({ zoom_sdk_key: s.zoom_sdk_key || '', zoom_sdk_secret: '', zoom_sdk_has_secret: !!s.zoom_sdk_has_secret });
       setKajabi({ kajabi_client_id: '', kajabi_client_secret: '', kajabi_connected: !!s.kajabi_connected });
     }).catch(() => {});
   }, []);
@@ -3873,6 +3878,67 @@ export default function SuperadminPortal() {
                 <div className="form-actions" style={{ marginTop: '1rem' }}>
                   <button type="submit" className="btn btn-primary" disabled={videoSaving}>
                     {videoSaving ? 'Saving...' : 'Save Video Settings'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Zoom Meeting SDK — students join Zoom classes inside the site */}
+            <div className="settings-section" style={{ marginBottom: '2rem' }}>
+              <h3>Zoom: join classes inside the LMS</h3>
+              <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
+                Lets students join your Zoom classes on this website instead of going to zoom.us — “Copy invite” on the
+                Zoom page shares a link to this site. In the Zoom App Marketplace, signed in to the <strong>same Zoom
+                account</strong> that hosts your meetings, go to Develop → Build App → <strong>General App</strong>, turn
+                on <strong>Meeting SDK</strong> under Features → Embed, and paste the app's Client ID and Client Secret
+                below. This is a separate app from the Server-to-Server OAuth app that creates the meetings.
+              </p>
+
+              <div className="alert" style={{ marginBottom: '1rem', cursor: 'default', background: zoomSdk.zoom_sdk_has_secret ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)', color: zoomSdk.zoom_sdk_has_secret ? '#065f46' : '#92400e' }}>
+                {zoomSdk.zoom_sdk_has_secret
+                  ? '✓ Set up. Students can join Zoom classes inside the website.'
+                  : '⚠ Not set up yet. Invite links open a page with an “Open in Zoom app” button.'}
+              </div>
+
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setZoomSdkSaving(true);
+                try {
+                  const r = await api.saveZoomSdkSettings({ zoom_sdk_key: zoomSdk.zoom_sdk_key, zoom_sdk_secret: zoomSdk.zoom_sdk_secret });
+                  // The secret is write-only; clear the field and mark it stored.
+                  setZoomSdk((z) => ({ ...z, zoom_sdk_secret: '', zoom_sdk_has_secret: true }));
+                  showMsg(r.message, 'success');
+                } catch (err) { showMsg(err.message, 'error'); }
+                finally { setZoomSdkSaving(false); }
+              }}>
+                <div className="form-group" style={{ maxWidth: '420px' }}>
+                  <label>Meeting SDK Client ID</label>
+                  <input
+                    value={zoomSdk.zoom_sdk_key}
+                    onChange={(e) => setZoomSdk({ ...zoomSdk, zoom_sdk_key: e.target.value })}
+                    placeholder="Client ID"
+                  />
+                </div>
+                <div className="form-group" style={{ maxWidth: '420px' }}>
+                  <label>Meeting SDK Client Secret</label>
+                  <input
+                    type="password"
+                    value={zoomSdk.zoom_sdk_secret}
+                    onChange={(e) => setZoomSdk({ ...zoomSdk, zoom_sdk_secret: e.target.value })}
+                    placeholder={zoomSdk.zoom_sdk_has_secret ? '•••••••• (saved — leave blank to keep)' : 'Client Secret'}
+                  />
+                </div>
+                <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', maxWidth: '420px' }}>
+                  If students see “This class can't be joined in the browser”, turn off “Only authenticated users can
+                  join meetings” in your Zoom account settings.
+                </p>
+                <div className="form-actions" style={{ marginTop: '1rem' }}>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={zoomSdkSaving || !zoomSdk.zoom_sdk_key.trim() || (!zoomSdk.zoom_sdk_has_secret && !zoomSdk.zoom_sdk_secret.trim())}
+                  >
+                    {zoomSdkSaving ? 'Saving…' : 'Save Meeting SDK'}
                   </button>
                 </div>
               </form>

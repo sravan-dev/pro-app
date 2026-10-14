@@ -137,6 +137,8 @@ export default function ZoomMeetings({ view: viewProp, onViewChange, onContactsC
     setBusyId(null);
   };
 
+  // The invite carries only the site's own join link (/join/<code>), which opens
+  // the class inside the LMS; the raw Zoom link is the fallback if none was made.
   const copyInvite = async (m) => {
     setBusyId(m.id);
     try {
@@ -144,9 +146,7 @@ export default function ZoomMeetings({ view: viewProp, onViewChange, onContactsC
       const lines = [
         d.topic,
         d.start_time ? `Time: ${fmtWhen(d.start_time)}` : null,
-        `Join Zoom meeting: ${d.join_url}`,
-        `Meeting ID: ${fmtId(d.id)}`,
-        d.password ? `Passcode: ${d.password}` : null,
+        `Join class: ${d.lms_code ? `${window.location.origin}/join/${d.lms_code}` : d.join_url}`,
       ].filter(Boolean);
       await navigator.clipboard.writeText(lines.join('\n'));
       flash('Invite copied');
@@ -243,6 +243,12 @@ export default function ZoomMeetings({ view: viewProp, onViewChange, onContactsC
         {view !== 'contacts' && <button className="btn btn-ghost" onClick={load} disabled={loading} style={{ marginLeft: 'auto' }}>↻ Refresh</button>}
       </div>
 
+      {view !== 'contacts' && status.sdk_configured === false && (
+        <div className="alert alert-info" style={{ cursor: 'default' }}>
+          Students can't join inside the website yet, so invite links open a page with an “Open in Zoom app” button.
+          To let them join here, add a Zoom Meeting SDK app in Integrations → Zoom: join classes inside the LMS.
+        </div>
+      )}
       {notice && <div className="alert alert-success">{notice}</div>}
       {warning && (
         <div className="alert alert-info" style={{ cursor: 'default' }}>

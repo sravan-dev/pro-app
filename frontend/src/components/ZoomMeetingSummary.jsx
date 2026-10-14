@@ -99,6 +99,8 @@ export default function ZoomMeetingSummary({ meeting, past, onClose, onStart, on
   const attendance = data ? mergeAttendance(data.participants) : [];
   const ai = data?.ai_summary;
   const instances = data?.instances || [];
+  // The site's own join link (opens the class inside the LMS) — what invites share.
+  const lmsLink = data?.lms_code ? `${window.location.origin}/join/${data.lms_code}` : '';
 
   const details = data && (
     <>
@@ -121,9 +123,14 @@ export default function ZoomMeetingSummary({ meeting, past, onClose, onStart, on
         {pm && <Item label="Ran for">{pm.duration} min</Item>}
       </div>
 
-      {d.join_url && !past && (
+      {(lmsLink || d.join_url) && !past && (
         <Section title="Join link">
-          <a href={d.join_url} target="_blank" rel="noreferrer" style={{ wordBreak: 'break-all' }}>{d.join_url}</a>
+          <a href={lmsLink || d.join_url} target="_blank" rel="noreferrer" style={{ wordBreak: 'break-all' }}>{lmsLink || d.join_url}</a>
+          {lmsLink && d.join_url && (
+            <div style={{ ...muted, fontSize: 12, marginTop: 4, wordBreak: 'break-all' }}>
+              Direct Zoom link: <a href={d.join_url} target="_blank" rel="noreferrer">{d.join_url}</a>
+            </div>
+          )}
         </Section>
       )}
 

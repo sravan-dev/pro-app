@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Zoom needs a UTF-8 charset for meeting audio/video to work. -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="format-detection" content="telephone=no" />
+  <title>Join class · Tiju's Academy</title>
+  <link rel="icon" type="image/png" href="/logo.png" />
+  <link rel="apple-touch-icon" href="/logo.png" />
+  <!--
+    /join/<code>: join a Zoom class inside the site with the Zoom Meeting SDK
+    (Client View). This page is deliberately separate from the React app: the
+    SDK ships its own React 18 (loaded below from Zoom's CDN), which clashes with
+    the app's React 19, and Client View takes over the whole page once it joins.
+    Served by backend/server.js (GET /join/:code) with COOP/COEP headers.
+  -->
+  <style>
+    .tj-page {
+      --tj-primary: #2D2A6E;
+      --tj-primary-dark: #1F1C4E;
+      --tj-text: #1F2937;
+      --tj-muted: #6B7280;
+      --tj-border: #E5E7EB;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background: #E5E7EB;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      color: var(--tj-text);
+      line-height: 1.5;
+      box-sizing: border-box;
+    }
+    body { margin: 0; background: #E5E7EB; }
+    .tj-page *, .tj-page *::before, .tj-page *::after { box-sizing: border-box; }
+    .tj-card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 10px 15px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.05);
+      padding: 2.5rem;
+      width: 100%;
+      max-width: 420px;
+    }
+    @media (max-width: 480px) { .tj-card { padding: 1.75rem 1.25rem; } }
+    .tj-header { text-align: center; margin-bottom: 1.25rem; }
+    .tj-logo { height: 72px; width: auto; max-width: 100%; display: block; margin: 0 auto 0.75rem; }
+    .tj-title { font-size: 1.35rem; line-height: 1.3; margin: 0.5rem 0 0.25rem; overflow-wrap: anywhere; }
+    .tj-when { color: var(--tj-muted); margin: 0; font-size: 0.95rem; }
+    .tj-form { display: flex; flex-direction: column; gap: 1rem; }
+    .tj-field { display: flex; flex-direction: column; gap: 0.375rem; }
+    .tj-field label { font-size: 0.875rem; font-weight: 500; }
+    .tj-optional { color: var(--tj-muted); font-weight: 400; }
+    .tj-field input {
+      padding: 0.625rem 0.75rem;
+      border: 1px solid var(--tj-border);
+      border-radius: 8px;
+      font: inherit;
+      font-size: 16px; /* 16px stops iPhones zooming in on focus */
+      color: var(--tj-text);
+      background: #fff;
+      outline: none;
+    }
+    .tj-field input:focus { border-color: var(--tj-primary); box-shadow: 0 0 0 3px rgba(45, 42, 110, 0.18); }
+    .tj-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      padding: 0.75rem 1.25rem;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .tj-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .tj-btn-primary { background: var(--tj-primary); color: #fff; }
+    .tj-btn-primary:hover:not(:disabled) { background: var(--tj-primary-dark); }
+    .tj-btn-outline { background: #fff; color: var(--tj-primary); border-color: var(--tj-border); }
+    .tj-btn-outline:hover { border-color: var(--tj-primary); }
+    .tj-actions { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem; }
+    .tj-alert { padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.875rem; margin-bottom: 1rem; }
+    .tj-alert-error { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+    .tj-alert-info { background: #EEF2FF; color: #312E81; border: 1px solid #C7D2FE; }
+    .tj-note { color: var(--tj-muted); font-size: 0.8rem; text-align: center; margin: 1rem 0 0; }
+    .tj-spinner {
+      width: 32px; height: 32px; margin: 1rem auto;
+      border: 3px solid var(--tj-border); border-top-color: var(--tj-primary); border-radius: 50%;
+      animation: tj-spin 0.8s linear infinite;
+    }
+    @keyframes tj-spin { to { transform: rotate(360deg); } }
+    [hidden] { display: none !important; }
+
+    /* Once the meeting starts, Zoom's own UI (#zmmtg-root) fills the page. Until
+       then keep it hidden so it can't cover this card, and undo the min-width
+       Zoom's stylesheet puts on html/body so the card still fits on phones. */
+    html.tj-in-meeting .tj-page { display: none; }
+    html:not(.tj-in-meeting) #zmmtg-root { display: none !important; }
+    html:not(.tj-in-meeting), html:not(.tj-in-meeting) body { min-width: 0 !important; }
+  </style>
+</head>
+<body>
+  <main class="tj-page">
+    <div class="tj-card">
+      <div class="tj-header">
+        <img src="/logo.png" alt="Tiju's Academy" class="tj-logo" />
+        <h1 class="tj-title" id="title">Join class</h1>
+        <p class="tj-when" id="when" hidden></p>
+      </div>
+
+      <div id="loading" class="tj-spinner" role="status" aria-label="Loading"></div>
+      <div id="message" class="tj-alert" role="alert" hidden></div>
+
+      <form id="form" class="tj-form" hidden novalidate>
+        <div class="tj-field">
+          <label for="name">Your name</label>
+          <input id="name" name="name" autocomplete="name" maxlength="64" placeholder="e.g. Priya Nair" required />
+        </div>
+        <div class="tj-field">
+          <label for="email">Email <span class="tj-optional">(optional)</span></label>
+          <input id="email" name="email" type="email" autocomplete="email" maxlength="128" placeholder="you@example.com" />
+        </div>
+        <button class="tj-btn tj-btn-primary" id="join" type="submit">Join class</button>
+      </form>
+
+      <div class="tj-actions">
+        <a class="tj-btn tj-btn-primary" id="retry" href="#" hidden>Try again</a>
+        <a class="tj-btn tj-btn-outline" id="zoomApp" href="#" hidden>Open in Zoom app instead</a>
+      </div>
+      <p class="tj-note" id="note" hidden>Works best in Chrome, Edge or Safari. Allow camera and microphone when your browser asks.</p>
+      <noscript><p class="tj-note">Please turn on JavaScript to join the class.</p></noscript>
+    </div>
+  </main>
+
+  <script>
+  (function () {
+    // Bump this at least every ~6 months: Zoom stops older Meeting SDK versions
+    // working (it raises the minimum each quarter). Script list from Zoom's
+    // official sample (github.com/zoom/meetingsdk-web-sample, CDN/meeting.html).
+    var ZOOM_SDK_VERSION = '6.5.0';
+    var ZOOM_CDN = 'https://source.zoom.us/' + ZOOM_SDK_VERSION;
+    var ZOOM_SCRIPTS = [
+      ZOOM_CDN + '/lib/vendor/react.min.js',
+      ZOOM_CDN + '/lib/vendor/react-dom.min.js',
+      ZOOM_CDN + '/lib/vendor/react-redux.min.js',
+      ZOOM_CDN + '/lib/vendor/redux.min.js',
+      ZOOM_CDN + '/lib/vendor/redux-thunk.min.js',
+      ZOOM_CDN + '/lib/vendor/lodash.min.js',
+      ZOOM_CDN + '/zoom-meeting-' + ZOOM_SDK_VERSION + '.min.js',
+    ];
+    var NAME_KEY = 'tj-zoom-join:name';
+    var EMAIL_KEY = 'tj-zoom-join:email';
+    var FAILED_KEY = 'tj-zoom-join:failed';
+
+    var code = (location.pathname.split('/')[2] || '').toLowerCase();
+    var params = new URLSearchParams(location.search);
+    var cameBack = params.has('left');
+    var autoJoin = params.has('auto');
+    // Tidy the address bar so a manual refresh just shows the form again.
+    if (cameBack || autoJoin) history.replaceState(null, '', location.pathname);
+
+    var $ = function (id) { return document.getElementById(id); };
+    var els = {
+      title: $('title'), when: $('when'), loading: $('loading'), message: $('message'), form: $('form'),
+      name: $('name'), email: $('email'), join: $('join'), retry: $('retry'), zoomApp: $('zoomApp'), note: $('note'),
+    };
+    var info = null;
+
+    function storage(area) {
+      return {
+        get: function (k) { try { return window[area].getItem(k) || ''; } catch (e) { return ''; } },
+        set: function (k, v) { try { window[area].setItem(k, v); } catch (e) { /* private mode */ } },
+        remove: function (k) { try { window[area].removeItem(k); } catch (e) { /* private mode */ } },
+      };
+    }
+    var store = storage('localStorage'); // name + email, for next time
+    var tabStore = storage('sessionStorage'); // a failed join, across Zoom's redirect to leaveUrl
+
+    function show(el, on) { el.hidden = !on; }
+
+    function setMessage(text, kind) {
+      els.message.textContent = text || '';
+      els.message.className = 'tj-alert ' + (kind === 'info' ? 'tj-alert-info' : 'tj-alert-error');
+      show(els.message, !!text);
+    }
+
+    function setBusy(busy) {
+      els.join.disabled = busy;
+      els.join.textContent = busy ? 'Opening the class…' : 'Join class';
+      els.name.disabled = busy;
+      els.email.disabled = busy;
+    }
+
+    // JSON request that never throws a cryptic parse error: the host's proxy
+    // can answer with an HTML page instead of JSON.
+    function requestJson(url, body) {
+      return fetch(url, body ? {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      } : undefined).then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          if (!res.ok) throw new Error(data.error || 'The server returned an unexpected response (HTTP ' + res.status + '). Please try again.');
+          return data;
+        });
+      }, function () {
+        throw new Error('Could not reach the server. Check your internet connection and reload the page.');
+      });
+    }
+
+    function showClassInfo() {
+      if (info.topic) {
+        els.title.textContent = info.topic;
+        document.title = info.topic + " · Tiju's Academy";
+      }
+      var start = info.start_time ? new Date(info.start_time) : null;
+      if (start && !isNaN(start)) {
+        els.when.textContent = start.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) +
+          (info.duration ? ' · ' + info.duration + ' min' : '');
+        show(els.when, true);
+      }
+      if (info.join_url) {
+        els.zoomApp.href = info.join_url;
+        show(els.zoomApp, true);
+      }
+    }
+
+    // Load Zoom's scripts in order. They are classic scripts that share globals,
+    // so they must run one after another (async = false keeps insertion order).
+    var sdkPromise = null;
+    function loadZoomSdk() {
+      if (window.ZoomMtg) return Promise.resolve(window.ZoomMtg);
+      if (sdkPromise) return sdkPromise;
+      sdkPromise = new Promise(function (resolve, reject) {
+        ZOOM_SCRIPTS.forEach(function (src, i) {
+          var s = document.createElement('script');
+          s.src = src;
+          s.async = false;
+          s.onerror = function () { reject(new Error('Could not load Zoom. Check your internet connection and try again.')); };
+          if (i === ZOOM_SCRIPTS.length - 1) {
+            s.onload = function () {
+              if (window.ZoomMtg) resolve(window.ZoomMtg);
+              else reject(new Error('Zoom could not start in this browser. Please use the Zoom app button.'));
+            };
+          }
+          document.body.appendChild(s);
+        });
+      });
+      sdkPromise.catch(function () { sdkPromise = null; });
+      return sdkPromise;
+    }
+
+    // Start downloading Zoom while the student types their name.
+    function preloadZoomSdk() {
+      ZOOM_SCRIPTS.forEach(function (src) {
+        var l = document.createElement('link');
+        l.rel = 'preload';
+        l.as = 'script';
+        l.href = src;
+        document.head.appendChild(l);
+      });
+    }
+
+    // Plain-language messages for the Meeting SDK's error codes
+    // (developers.zoom.us/docs/meeting-sdk/web/error-codes/; 3707 is what Zoom
+    // returns for an unknown meeting number, though that page doesn't list it).
+    function zoomErrorText(err) {
+      switch (err && err.errorCode) {
+        case 3008: return { text: "The class hasn't started yet. Please try again once your tutor starts it.", retry: true };
+        case 3004: return { text: "This class's passcode has changed. Please ask Tiju's Academy for a new link." };
+        case 3001: case 3702: case 3707: case 3709:
+          return { text: "This class doesn't exist any more. Please ask Tiju's Academy for a new link." };
+        case 4004: return { text: 'This class has ended.' };
+        case 4005: return { text: 'This class is full.' };
+        case 4006: return { text: 'The tutor has locked this class.' };
+        case 3009: return { text: 'The tutor removed you from this class.' };
+        case 3705: return { text: 'Joining took too long. Please try again.', retry: true };
+        case 3704: case 3710: case 3712: case 4011: case 6603:
+          return { text: "Joining in the browser isn't working for this class right now. Please use the Zoom app button below." };
+        case 3099: case 3100:
+          return { text: "This class can't be joined in the browser. Please use the Zoom app button below." };
+        default:
+          return {
+            text: "Couldn't join the class" + (err && err.errorMessage ? ' (' + err.errorMessage + ')' : '') +
+              '. Please try again, or use the Zoom app button below.',
+            retry: true,
+          };
+      }
+    }
+
+    // Client View can't join a second time without a page reload, so retrying
+    // reloads the page and joins straight away with the saved name.
+    function offerRetry() {
+      els.retry.href = location.pathname + '?auto=1';
+      show(els.retry, true);
+    }
+
+    function showJoinError(err) {
+      var m = zoomErrorText(err);
+      setMessage(m.text);
+      show(els.form, false);
+      if (m.retry) offerRetry();
+    }
+
+    // Zoom couldn't start at all, so its screen never came up: show the card again.
+    function initFailed(err) {
+      console.error('Zoom init failed', err);
+      document.documentElement.classList.remove('tj-in-meeting');
+      showJoinError(err);
+    }
+
+    // Joining failed after Zoom's screen came up. Zoom shows its own dialog
+    // (OK / Retry), so leave it in charge — hiding it would also hide the meeting
+    // if its Retry then works. Its OK button sends the browser to leaveUrl, so
+    // remember the failure for this page to explain there.
+    function joinFailed(err) {
+      console.error('Zoom join failed', err);
+      tabStore.set(FAILED_KEY, JSON.stringify({ errorCode: err && err.errorCode, errorMessage: err && err.errorMessage, at: Date.now() }));
+    }
+
+    // A join that failed in this tab in the last 15 minutes, if any (read once).
+    function takeJoinFailure() {
+      var raw = tabStore.get(FAILED_KEY);
+      tabStore.remove(FAILED_KEY);
+      try {
+        var f = raw ? JSON.parse(raw) : null;
+        return f && Date.now() - f.at < 15 * 60 * 1000 ? f : null;
+      } catch (e) { return null; }
+    }
+
+    function join(e) {
+      if (e) e.preventDefault();
+      var name = els.name.value.trim();
+      var email = els.email.value.trim();
+      if (!name) { setMessage('Please enter your name.'); els.name.focus(); return; }
+      setMessage('');
+      setBusy(true);
+      store.set(NAME_KEY, name);
+      store.set(EMAIL_KEY, email);
+      Promise.all([
+        requestJson('/api/public/zoom-join/' + encodeURIComponent(code), { name: name, email: email }),
+        loadZoomSdk(),
+      ]).then(function (r) {
+        var cred = r[0];
+        var ZoomMtg = r[1];
+        // Zoom's mobile layout expects the page not to be pinch-zoomed.
+        document.querySelector('meta[name="viewport"]').content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no';
+        ZoomMtg.preLoadWasm();
+        ZoomMtg.prepareWebSDK();
+        ZoomMtg.i18n.load('en-US');
+        ZoomMtg.i18n.onLoad(function () {
+          document.documentElement.classList.add('tj-in-meeting');
+          var root = document.getElementById('zmmtg-root');
+          if (root) root.style.display = 'block';
+          ZoomMtg.init({
+            leaveUrl: location.origin + '/join/' + code + '?left=1',
+            patchJsMedia: true,
+            // Closing the tab leaves the meeting cleanly instead of leaving a
+            // ghost participant behind.
+            leaveOnPageUnload: true,
+            disableCORP: !window.crossOriginIsolated,
+            success: function () {
+              ZoomMtg.join({
+                signature: cred.signature,
+                meetingNumber: cred.meetingNumber,
+                userName: cred.userName,
+                userEmail: cred.userEmail,
+                passWord: cred.password,
+                success: function () { tabStore.remove(FAILED_KEY); },
+                error: joinFailed,
+              });
+            },
+            error: initFailed,
+          });
+          // Connected (status 2), e.g. after Zoom's own Retry: forget any failure.
+          ZoomMtg.inMeetingServiceListener('onMeetingStatus', function (data) {
+            if (data && data.meetingStatus === 2) tabStore.remove(FAILED_KEY);
+          });
+        });
+      }).catch(function (err) {
+        setBusy(false);
+        setMessage(err.message);
+      });
+    }
+
+    function start() {
+      if (!/^[a-f0-9]{10,16}$/.test(code)) {
+        show(els.loading, false);
+        setMessage("This class link is not valid. Please check you copied the whole link.");
+        return;
+      }
+      Promise.all([
+        requestJson('/api/public/zoom-join/' + encodeURIComponent(code)),
+        // Signed in to the LMS? Fill in their name and email.
+        requestJson('/api/auth/session').catch(function () { return {}; }),
+      ]).then(function (r) {
+        info = r[0];
+        var session = r[1];
+        show(els.loading, false);
+        showClassInfo();
+
+        if (!info.in_browser) {
+          setMessage(info.join_url
+            ? "Joining in the browser isn't available for this class yet. Use the button below to join in the Zoom app."
+            : "Joining isn't available for this class yet. Please ask Tiju's Academy for the Zoom link.", 'info');
+          els.zoomApp.classList.replace('tj-btn-outline', 'tj-btn-primary');
+          els.zoomApp.textContent = 'Join in the Zoom app';
+          return;
+        }
+
+        var user = session && session.authenticated ? session.user : null;
+        els.name.value = (user && user.name) || store.get(NAME_KEY);
+        els.email.value = (user && user.email) || store.get(EMAIL_KEY);
+        show(els.form, true);
+        show(els.note, true);
+        preloadZoomSdk();
+
+        var failure = cameBack ? takeJoinFailure() : null;
+        if (failure) {
+          showJoinError(failure);
+          return;
+        }
+        if (cameBack) {
+          setMessage("You've left the class.", 'info');
+          els.join.textContent = 'Rejoin class';
+        } else if (autoJoin && els.name.value.trim()) {
+          join();
+          return;
+        }
+        (els.name.value ? els.join : els.name).focus();
+      }).catch(function (err) {
+        show(els.loading, false);
+        setMessage(err.message);
+      });
+    }
+
+    els.form.addEventListener('submit', join);
+    start();
+  })();
+  </script>
+</body>
+</html>

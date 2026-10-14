@@ -226,6 +226,8 @@ CREATE TABLE IF NOT EXISTS app_settings (
   zoom_account_id VARCHAR(255) DEFAULT '',
   zoom_client_id VARCHAR(255) DEFAULT '',
   zoom_client_secret VARCHAR(255) DEFAULT '',
+  zoom_sdk_key VARCHAR(255) DEFAULT '',
+  zoom_sdk_secret VARCHAR(255) DEFAULT '',
   hubspot_token TEXT,
   livekit_url VARCHAR(255) DEFAULT '',
   livekit_api_key VARCHAR(255) DEFAULT '',
@@ -466,6 +468,22 @@ CREATE TABLE IF NOT EXISTS zoom_checked_meetings (
   meeting_id VARCHAR(20) PRIMARY KEY,
   listed_start VARCHAR(32) NOT NULL,
   checked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Join links for Zoom meetings: /join/<code> opens the meeting inside the site
+-- (Zoom Meeting SDK). The meeting's details are copied from Zoom whenever the
+-- admin creates, opens or edits it, so joining never waits on Zoom's API.
+CREATE TABLE IF NOT EXISTS zoom_links (
+  code VARCHAR(20) PRIMARY KEY,
+  meeting_id VARCHAR(20) NOT NULL UNIQUE,
+  topic VARCHAR(300) DEFAULT '',
+  start_time VARCHAR(32) DEFAULT '',
+  duration INT DEFAULT 0,
+  passcode VARCHAR(64) DEFAULT '',
+  join_url TEXT,
+  created_by INT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Login sessions (express-session). Kept in the DB rather than server memory so

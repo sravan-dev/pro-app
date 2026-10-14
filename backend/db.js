@@ -189,6 +189,9 @@ async function initSchema() {
   await addColumnIfMissing('app_settings', 'zoom_account_id', "zoom_account_id VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('app_settings', 'zoom_client_id', "zoom_client_id VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('app_settings', 'zoom_client_secret', "zoom_client_secret VARCHAR(255) DEFAULT ''");
+  // Zoom Meeting SDK app (a "General app") — lets people join meetings inside the site.
+  await addColumnIfMissing('app_settings', 'zoom_sdk_key', "zoom_sdk_key VARCHAR(255) DEFAULT ''");
+  await addColumnIfMissing('app_settings', 'zoom_sdk_secret', "zoom_sdk_secret VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('app_settings', 'hubspot_token', "hubspot_token TEXT");
   await addColumnIfMissing('app_settings', 'livekit_url', "livekit_url VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('app_settings', 'livekit_api_key', "livekit_api_key VARCHAR(255) DEFAULT ''");

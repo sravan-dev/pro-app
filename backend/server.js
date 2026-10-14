@@ -129,6 +129,26 @@ function isDup(err) {
   return !!err && (err.code === 'ER_DUP_ENTRY' || /duplicate/i.test(err.message || ''));
 }
 
+// Soft per-client throttle for unauthenticated endpoints: at most `max` hits per
+// `windowMs` per client. In-memory is enough: it only has to stop a script
+// hammering a form, not survive restarts. Keyed on the first X-Forwarded-For
+// hop since the host proxies.
+function makeRateLimiter(max, windowMs) {
+  const hitsByKey = new Map();
+  return (req) => {
+    const key = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
+    const now = Date.now();
+    const hits = (hitsByKey.get(key) || []).filter((t) => now - t < windowMs);
+    const limited = hits.length >= max;
+    if (!limited) hits.push(now);
+    hitsByKey.set(key, hits);
+    if (hitsByKey.size > 5000) {
+      for (const [k, v] of hitsByKey) if (!v.some((t) => now - t < windowMs)) hitsByKey.delete(k);
+    }
+    return { limited, key };
+  };
+}
+
 // ============================================================
 // Middleware
 // ============================================================
@@ -1182,10 +1202,11 @@ app.post('/api/test-call', async (req, res) => {
 // Temporary meetings (link + 5-digit passcode, no account needed)
 // ============================================================
 const meetingRoomName = (code) => `meet-${code}`;
-async function genMeetingCode() {
+// A random link code not yet used in `table` (meetings or zoom_links).
+async function genMeetingCode(table = 'meetings') {
   for (let i = 0; i < 20; i++) {
     const code = crypto.randomBytes(5).toString('hex'); // 10 hex chars
-    if (!(await db.get("SELECT 1 FROM meetings WHERE code=?", [code]))) return code;
+    if (!(await db.get(`SELECT 1 FROM ${table} WHERE code=?`, [code]))) return code;
   }
   return crypto.randomBytes(8).toString('hex');
 }
@@ -2447,7 +2468,7 @@ app.post('/api/clear-data', async (req, res) => {
 // ============================================================
 app.get('/api/app-settings', async (req, res) => {
   const user = await requireAuth(req, res); if (!user) return;
-  const s = (await db.get("SELECT currency, video_provider, zoom_account_id, zoom_client_id, zoom_client_secret, hubspot_token, kajabi_client_id, kajabi_client_secret FROM app_settings WHERE id=1")) || {};
+  const s = (await db.get("SELECT currency, video_provider, zoom_account_id, zoom_client_id, zoom_client_secret, zoom_sdk_key, zoom_sdk_secret, hubspot_token, kajabi_client_id, kajabi_client_secret FROM app_settings WHERE id=1")) || {};
   const isAdmin = user.role === 'superadmin';
   res.json({
     currency: s.currency || 'INR',
@@ -2467,6 +2488,9 @@ app.get('/api/app-settings', async (req, res) => {
       livekit_api_key: livekit.apiKey || '',
       livekit_has_secret: !!livekit.apiSecret,
       livekit_source: livekit.source,
+      // Zoom Meeting SDK app (join inside the site); the secret is write-only.
+      zoom_sdk_key: s.zoom_sdk_key || '',
+      zoom_sdk_has_secret: !!s.zoom_sdk_secret,
     } : {}),
     // Never echo the HubSpot token back; report whether one is stored or
     // available via the .env default.
@@ -2560,16 +2584,37 @@ async function getZoomAccessToken() {
 // Live Zoom integration status — actually tries to obtain a token.
 app.get('/api/zoom-status', async (req, res) => {
   const user = await requireAuth(req, res); if (!user) return;
-  const s = (await db.get("SELECT video_provider, zoom_account_id, zoom_client_id, zoom_client_secret FROM app_settings WHERE id=1")) || {};
+  const s = (await db.get("SELECT video_provider, zoom_account_id, zoom_client_id, zoom_client_secret, zoom_sdk_key, zoom_sdk_secret FROM app_settings WHERE id=1")) || {};
   const provider = s.video_provider || 'webrtc';
   const configured = !!(s.zoom_account_id && s.zoom_client_id && s.zoom_client_secret);
-  if (!configured) return res.json({ provider, configured: false, connected: false });
+  // Meeting SDK app saved → /join/<code> links open the meeting inside the site.
+  const sdk_configured = !!(s.zoom_sdk_key && s.zoom_sdk_secret);
+  if (!configured) return res.json({ provider, configured: false, connected: false, sdk_configured });
   try {
     await getZoomAccessToken();
-    res.json({ provider, configured: true, connected: true });
+    res.json({ provider, configured: true, connected: true, sdk_configured });
   } catch (err) {
-    res.json({ provider, configured: true, connected: false, error: err.message });
+    res.json({ provider, configured: true, connected: false, sdk_configured, error: err.message });
   }
+});
+
+// Zoom Meeting SDK credentials: a Zoom "General app" with Meeting SDK turned on,
+// created in the same Zoom account that hosts the meetings. Separate from the
+// Server-to-Server app above, which can't sign Meeting SDK tokens. The secret is
+// write-only: blank keeps the stored one.
+app.put('/api/zoom-sdk-settings', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const key = String(req.body.zoom_sdk_key || '').trim();
+  const secret = String(req.body.zoom_sdk_secret || '').trim();
+  if (!key) return res.status(400).json({ error: 'Client ID is required' });
+  if (key.length > 255 || secret.length > 255) return res.status(400).json({ error: 'Client ID and Client Secret must be 255 characters or fewer' });
+  await db.run("INSERT IGNORE INTO app_settings (id, currency) VALUES (1, 'INR')");
+  const existing = (await db.get("SELECT zoom_sdk_secret FROM app_settings WHERE id=1")) || {};
+  if (!secret && !existing.zoom_sdk_secret) return res.status(400).json({ error: 'Client Secret is required' });
+  if (secret) await db.run("UPDATE app_settings SET zoom_sdk_key=?, zoom_sdk_secret=? WHERE id=1", [key, secret]);
+  else await db.run("UPDATE app_settings SET zoom_sdk_key=? WHERE id=1", [key]);
+  auditLog(user.id, 'update_zoom_sdk_settings', 'app_settings', 1, 'Saved Zoom Meeting SDK credentials');
+  res.json({ message: 'Zoom Meeting SDK settings saved' });
 });
 
 // ============================================================
@@ -2609,6 +2654,46 @@ const zoomJbhWarning = (body, saved) => (body.settings.join_before_host && saved
 const zoomFail = (res, err) => res.status(err.code === 'NOT_CONFIGURED' ? 400 : UPSTREAM_FAILED).json({ error: err.message });
 const isZoomUserId = (v) => typeof v === 'string' && /^[\w.@+-]{1,128}$/.test(v);
 const isZoomMeetingId = (v) => /^\d{1,20}$/.test(String(v));
+const isZoomLinkCode = (v) => /^[a-f0-9]{10,16}$/.test(String(v));
+
+// Keep the site's join link (/join/<code>) for a Zoom meeting in step with
+// Zoom: called with the meeting object whenever the admin creates, opens or
+// edits it. Returns the link's code (made on first use, then kept).
+async function saveZoomLink(m, userId) {
+  const meetingId = String(m.id);
+  if (!isZoomMeetingId(meetingId)) return null;
+  const joinUrl = /^https:\/\/([\w-]+\.)*zoom\.(us|com)\//.test(m.join_url || '') ? m.join_url : '';
+  const fields = [String(m.topic || '').slice(0, 300), String(m.start_time || '').slice(0, 32),
+    parseInt(m.duration, 10) || 0, String(m.password || '').slice(0, 64), joinUrl];
+  const row = await db.get("SELECT code FROM zoom_links WHERE meeting_id=?", [meetingId]);
+  if (row) {
+    await db.run("UPDATE zoom_links SET topic=?, start_time=?, duration=?, passcode=?, join_url=? WHERE meeting_id=?", [...fields, meetingId]);
+    return row.code;
+  }
+  const code = await genMeetingCode('zoom_links');
+  try {
+    await db.run("INSERT INTO zoom_links (code, meeting_id, topic, start_time, duration, passcode, join_url, created_by) VALUES (?,?,?,?,?,?,?,?)",
+      [code, meetingId, ...fields, userId]);
+    return code;
+  } catch (err) {
+    if (!isDup(err)) throw err;
+    // Another request saved this meeting first; use its code.
+    return (await db.get("SELECT code FROM zoom_links WHERE meeting_id=?", [meetingId]))?.code || null;
+  }
+}
+
+// Meeting SDK signature: an HS256 JWT signed with the Meeting SDK app's Client
+// Secret. Always role 0 (attendee), valid for 2 hours. iat is backdated a little
+// to allow for clock skew between this server and Zoom.
+function zoomSdkSignature(sdkKey, sdkSecret, meetingNumber) {
+  const iat = Math.floor(Date.now() / 1000) - 30;
+  const exp = iat + 2 * 60 * 60;
+  const part = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const data = `${part({ alg: 'HS256', typ: 'JWT' })}.${part({
+    appKey: sdkKey, sdkKey, mn: String(meetingNumber), role: 0, iat, exp, tokenExp: exp, video_webrtc_mode: 1,
+  })}`;
+  return `${data}.${crypto.createHmac('sha256', sdkSecret).update(data).digest('base64url')}`;
+}
 
 // Turn the admin form into a Zoom meeting body. Returns { error } or { body }.
 function zoomMeetingBody(b) {
@@ -2685,12 +2770,15 @@ app.get('/api/zoom/meetings', async (req, res) => {
   } catch (err) { zoomFail(res, err); }
 });
 
-// One meeting with passcode + start link (for Start / Copy invite / Edit).
+// One meeting with passcode + start link (for Start / Copy invite / Edit), plus
+// lms_code for the site's own join link. Saving the link here also refreshes its
+// copy of the passcode and time.
 app.get('/api/zoom/meetings/:id', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   if (!isZoomMeetingId(req.params.id)) return res.status(400).json({ error: 'Invalid meeting id' });
   try {
-    res.json(await zoomApi('GET', `/meetings/${req.params.id}`));
+    const m = await zoomApi('GET', `/meetings/${req.params.id}`);
+    res.json({ ...m, lms_code: await saveZoomLink(m, user.id).catch(() => null) });
   } catch (err) { zoomFail(res, err); }
 });
 
@@ -2750,8 +2838,9 @@ app.get('/api/zoom/meetings/:id/summary', async (req, res) => {
       ]);
     }
     const neverHeld = past && !instances.length && participants?.error;
+    const lmsCode = !past && meeting.data ? await saveZoomLink(meeting.data, user.id).catch(() => null) : null;
     res.json({
-      meeting: meeting.data || null, meeting_error: meeting.error || null,
+      meeting: meeting.data || null, meeting_error: meeting.error || null, lms_code: lmsCode,
       instances, instance: chosen || null,
       past: details?.data || null, past_error: details?.error || null,
       participants: participants?.data || [],
@@ -2949,7 +3038,8 @@ app.post('/api/zoom/meetings', async (req, res) => {
   try {
     const m = await zoomApi('POST', `/users/${encodeURIComponent(host)}/meetings`, { ...body, type: 2 });
     await auditLog(user.id, 'zoom_meeting_create', 'zoom_meeting', null, `${m.id} ${body.topic}`);
-    res.json({ ...m, warning: zoomJbhWarning(body, m.settings) });
+    const lmsCode = await saveZoomLink(m, user.id).catch(() => null);
+    res.json({ ...m, lms_code: lmsCode, warning: zoomJbhWarning(body, m.settings) });
   } catch (err) { zoomFail(res, err); }
 });
 
@@ -2963,12 +3053,11 @@ const updateZoomMeeting = async (req, res) => {
   try {
     await zoomApi('PATCH', `/meetings/${req.params.id}`, body);
     await auditLog(user.id, 'zoom_meeting_update', 'zoom_meeting', null, `${req.params.id} ${body.topic}`);
-    let warning;
-    if (body.settings.join_before_host) {
-      const saved = await zoomApi('GET', `/meetings/${req.params.id}`).catch(() => null);
-      warning = zoomJbhWarning(body, saved && saved.settings);
-    }
-    res.json({ message: 'Meeting updated', warning });
+    // Read back what Zoom saved: refreshes the join link's passcode and time,
+    // and shows whether join-before-host stuck.
+    const saved = await zoomApi('GET', `/meetings/${req.params.id}`).catch(() => null);
+    if (saved) await saveZoomLink(saved, user.id).catch(() => null);
+    res.json({ message: 'Meeting updated', warning: zoomJbhWarning(body, saved && saved.settings) });
   } catch (err) { zoomFail(res, err); }
 };
 app.route('/api/zoom/meetings/:id').put(updateZoomMeeting).patch(updateZoomMeeting);
@@ -2979,8 +3068,75 @@ app.delete('/api/zoom/meetings/:id', async (req, res) => {
   try {
     await zoomApi('DELETE', `/meetings/${req.params.id}`);
     await auditLog(user.id, 'zoom_meeting_delete', 'zoom_meeting', null, String(req.params.id));
+    // The site's join link stops working too.
+    await db.run("DELETE FROM zoom_links WHERE meeting_id=?", [String(req.params.id)]).catch(() => {});
     res.json({ message: 'Meeting deleted' });
   } catch (err) { zoomFail(res, err); }
+});
+
+// ============================================================
+// Zoom join links — /join/<code> opens the meeting inside the site with the
+// Zoom Meeting SDK (Client View). Public by design: like a Zoom invite link,
+// anyone holding the link can join. Codes are random, so they can't be guessed.
+// ============================================================
+const ZOOM_JOIN_PAGE = path.join(__dirname, 'zoom-join.html');
+const zoomJoinRateLimited = makeRateLimiter(60, 10 * 60 * 1000);
+const ZOOM_LINK_GONE = "This class link is not valid any more. Please ask Tiju's Academy for a new one.";
+
+async function zoomSdkCreds() {
+  const s = (await db.get("SELECT zoom_sdk_key, zoom_sdk_secret FROM app_settings WHERE id=1")) || {};
+  return s.zoom_sdk_key && s.zoom_sdk_secret ? { key: s.zoom_sdk_key, secret: s.zoom_sdk_secret } : null;
+}
+
+// The join page. Cross-origin isolation (COOP + COEP) lets the SDK use
+// SharedArrayBuffer for better video; Zoom's CDN sends the CORP header that
+// needs. Set only on this page so the rest of the app is unaffected.
+app.get('/join/:code', (req, res) => {
+  res.set({
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Embedder-Policy': 'require-corp',
+    'Cache-Control': 'no-store',
+  });
+  res.sendFile(ZOOM_JOIN_PAGE);
+});
+
+// Public: what the join page shows before joining.
+app.get('/api/public/zoom-join/:code', async (req, res) => {
+  const row = isZoomLinkCode(req.params.code)
+    ? await db.get("SELECT topic, start_time, duration, join_url FROM zoom_links WHERE code=?", [req.params.code])
+    : null;
+  if (!row) return res.status(404).json({ error: ZOOM_LINK_GONE });
+  res.json({
+    topic: row.topic, start_time: row.start_time, duration: row.duration,
+    join_url: row.join_url || '', in_browser: !!(await zoomSdkCreds()),
+  });
+});
+
+// Public: name (+ optional email) → a Meeting SDK signature and the meeting
+// number + passcode the SDK joins with.
+app.post('/api/public/zoom-join/:code', async (req, res) => {
+  if (zoomJoinRateLimited(req).limited) {
+    return res.status(429).json({ error: 'Too many attempts from this connection. Please wait a few minutes and try again.' });
+  }
+  const row = isZoomLinkCode(req.params.code)
+    ? await db.get("SELECT meeting_id, passcode FROM zoom_links WHERE code=?", [req.params.code])
+    : null;
+  if (!row) return res.status(404).json({ error: ZOOM_LINK_GONE });
+  const name = String(req.body?.name || '').trim().slice(0, 64);
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!name) return res.status(400).json({ error: 'Please enter your name' });
+  if (email && (email.length > 128 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+    return res.status(400).json({ error: 'Please enter a valid email address, or leave it blank' });
+  }
+  const creds = await zoomSdkCreds();
+  if (!creds) return res.status(409).json({ error: 'Joining in the browser is not set up yet. Please use the Zoom app button.' });
+  res.json({
+    signature: zoomSdkSignature(creds.key, creds.secret, row.meeting_id),
+    meetingNumber: row.meeting_id,
+    password: row.passcode || '',
+    userName: name,
+    userEmail: email,
+  });
 });
 
 // ============================================================
@@ -4194,23 +4350,8 @@ app.post('/api/upload-recording', upload.single('recording'), async (req, res) =
 const APPLICATION_SOURCES = ['indeed_naukri', 'linkedin', 'social_media', 'walk_in', 'referral', 'other'];
 const APPLICATION_STATUSES = ['new', 'shortlisted', 'rejected', 'hired'];
 
-// Soft per-client throttle for the unauthenticated submit endpoint. In-memory
-// is enough: it only has to stop a script hammering the form, not survive
-// restarts. Keyed on the first X-Forwarded-For hop since the host proxies.
-const applicationHits = new Map();
-function applicationRateLimited(req) {
-  const key = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
-  const now = Date.now();
-  const windowMs = 60 * 60 * 1000;
-  const hits = (applicationHits.get(key) || []).filter((t) => now - t < windowMs);
-  const limited = hits.length >= 5;
-  if (!limited) hits.push(now);
-  applicationHits.set(key, hits);
-  if (applicationHits.size > 5000) {
-    for (const [k, v] of applicationHits) if (!v.some((t) => now - t < windowMs)) applicationHits.delete(k);
-  }
-  return { limited, key };
-}
+// Throttle for the unauthenticated submit endpoint: 5 applications per hour.
+const applicationRateLimited = makeRateLimiter(5, 60 * 60 * 1000);
 
 function removeApplicationFiles(files) {
   for (const list of Object.values(files || {})) {
