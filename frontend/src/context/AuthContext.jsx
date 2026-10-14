@@ -50,6 +50,12 @@ export function AuthProvider({ children }) {
     checkSession();
   }, [checkSession]);
 
+  useEffect(() => {
+    const onExpired = () => setUser(null);
+    window.addEventListener('auth:expired', onExpired);
+    return () => window.removeEventListener('auth:expired', onExpired);
+  }, [setUser]);
+
   const login = async (email, password) => {
     const data = await api.login(email, password);
     setUser(data.user);

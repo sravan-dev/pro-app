@@ -467,3 +467,12 @@ CREATE TABLE IF NOT EXISTS zoom_checked_meetings (
   listed_start VARCHAR(32) NOT NULL,
   checked_at DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Login sessions (express-session). Kept in the DB rather than server memory so
+-- a restart or redeploy doesn't log everyone out.
+CREATE TABLE IF NOT EXISTS user_sessions (
+  sid VARCHAR(128) PRIMARY KEY,
+  data MEDIUMTEXT NOT NULL,
+  expires BIGINT NOT NULL,
+  INDEX idx_user_sessions_expires (expires)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

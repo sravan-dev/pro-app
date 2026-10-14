@@ -14,6 +14,9 @@ async function request(path, options = {}) {
 
   const res = await fetch(`${API}${path}`, config);
   const data = await res.json();
+  // Session gone server-side: let AuthContext drop the cached user so the app
+  // returns to the login screen instead of rendering "Not authenticated" errors.
+  if (res.status === 401 && path !== '/auth/login') window.dispatchEvent(new Event('auth:expired'));
   if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
   return data;
 }

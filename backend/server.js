@@ -9,6 +9,7 @@ const fs = require('fs');
 const multer = require('multer');
 const nodemailer = require('nodemailer');
 const db = require('./db');
+const { MySQLSessionStore } = require('./sessionStore');
 const { seedTutors } = require('./seeds/tutors');
 
 const app = express();
@@ -150,12 +151,13 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'tijuspro-secret-key-change-in-prod',
   resave: false,
   saveUninitialized: false,
-  // Slide the 24h window forward on every request, so an actively-used session
-  // isn't logged out mid-work at exactly 24h after login — only 24h of
-  // inactivity ends it.
+  // Persist sessions in MySQL so server restarts/deploys don't log users out.
+  store: new MySQLSessionStore(),
+  // Slide the 7-day window forward on every request, so an actively-used
+  // session never expires mid-work — only 7 days of inactivity ends it.
   rolling: true,
   cookie: {
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     httpOnly: true,
     sameSite: 'lax',
   },
