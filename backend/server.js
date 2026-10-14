@@ -129,14 +129,25 @@ function isDup(err) {
   return !!err && (err.code === 'ER_DUP_ENTRY' || /duplicate/i.test(err.message || ''));
 }
 
+// The visitor's IP. Production sits behind Cloudflare, which sets
+// CF-Connecting-IP to the real client and overwrites any value the client
+// sends. X-Forwarded-For's first entry can't be trusted there: Cloudflare
+// appends the real IP to whatever the client sent, so a script could rotate a
+// fake first entry on every request. Without Cloudflare (local dev) fall back
+// to that first entry, then the socket address.
+function clientIp(req) {
+  return String(req.headers['cf-connecting-ip'] || '').trim()
+    || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+    || req.socket.remoteAddress || '';
+}
+
 // Soft per-client throttle for unauthenticated endpoints: at most `max` hits per
-// `windowMs` per client. In-memory is enough: it only has to stop a script
-// hammering a form, not survive restarts. Keyed on the first X-Forwarded-For
-// hop since the host proxies.
+// `windowMs` per client IP. In-memory is enough: it only has to stop a script
+// hammering a form, not survive restarts.
 function makeRateLimiter(max, windowMs) {
   const hitsByKey = new Map();
   return (req) => {
-    const key = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
+    const key = clientIp(req);
     const now = Date.now();
     const hits = (hitsByKey.get(key) || []).filter((t) => now - t < windowMs);
     const limited = hits.length >= max;
