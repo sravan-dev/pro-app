@@ -13,7 +13,10 @@ async function request(path, options = {}) {
   }
 
   const res = await fetch(`${API}${path}`, config);
-  const data = await res.json();
+  // A proxy/host error page comes back as HTML; report the status instead of
+  // a cryptic "Unexpected token '<'" JSON parse error.
+  let data;
+  try { data = await res.json(); } catch { throw new Error(`Server returned an unexpected response (HTTP ${res.status}). Please try again.`); }
   // Session gone server-side: let AuthContext drop the cached user so the app
   // returns to the login screen instead of rendering "Not authenticated" errors.
   if (res.status === 401 && path !== '/auth/login') window.dispatchEvent(new Event('auth:expired'));
@@ -216,7 +219,7 @@ export const api = {
   getZoomMeeting: (id) => request(`/zoom/meetings/${id}`),
   getZoomMeetingSummary: (id, { past, instance } = {}) => request(`/zoom/meetings/${id}/summary?past=${past ? 1 : 0}${instance ? `&instance=${encodeURIComponent(instance)}` : ''}`),
   createZoomMeeting: (data) => request('/zoom/meetings', { method: 'POST', body: data }),
-  updateZoomMeeting: (id, data) => request(`/zoom/meetings/${id}`, { method: 'PATCH', body: data }),
+  updateZoomMeeting: (id, data) => request(`/zoom/meetings/${id}`, { method: 'PUT', body: data }),
   deleteZoomMeeting: (id) => request(`/zoom/meetings/${id}`, { method: 'DELETE' }),
   getLiveKitStatus: () => request('/livekit/status'),
   removeLiveKitServer: () => request('/livekit/server', { method: 'DELETE' }),

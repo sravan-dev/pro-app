@@ -2940,7 +2940,9 @@ app.post('/api/zoom/meetings', async (req, res) => {
   } catch (err) { zoomFail(res, err); }
 });
 
-app.patch('/api/zoom/meetings/:id', async (req, res) => {
+// PUT, not PATCH: the host's proxy answers PATCH with its own HTML page
+// before it reaches the app, which surfaced as a JSON parse error in the UI.
+app.put('/api/zoom/meetings/:id', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   if (!isZoomMeetingId(req.params.id)) return res.status(400).json({ error: 'Invalid meeting id' });
   const { error, body } = zoomMeetingBody(req.body);
