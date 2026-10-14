@@ -392,7 +392,6 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
       const cctx = canvas.getContext('2d');
 
       // Composite the rendered <video> tiles into a grid every frame.
-      let raf = 0;
       const draw = () => {
         const vids = container
           ? Array.from(container.querySelectorAll('video')).filter((v) => v.videoWidth > 0)
@@ -410,9 +409,15 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
           if (vr > cr) { dh = cw / vr; dy = gy + (ch - dh) / 2; } else { dw = ch * vr; dx = gx + (cw - dw) / 2; }
           try { cctx.drawImage(v, dx, dy, dw, dh); } catch { /* not ready */ }
         });
-        raf = requestAnimationFrame(draw);
       };
       draw();
+      // Tick from a worker, not requestAnimationFrame: rAF stops and page
+      // timers are throttled while the browser is minimized or the tab is in
+      // the background, which froze the recorded video. Worker timers keep
+      // running, so the recording stays live while the host is elsewhere.
+      const tickUrl = URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 33);'], { type: 'text/javascript' }));
+      const ticker = new Worker(tickUrl);
+      ticker.onmessage = draw;
 
       // Mix all audio: host mic + every remote participant (and any that join).
       const actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -463,7 +468,8 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
       };
 
       recCleanupRef.current = () => {
-        cancelAnimationFrame(raf);
+        ticker.terminate();
+        URL.revokeObjectURL(tickUrl);
         room?.off(RoomEvent.TrackSubscribed, onSub);
         micStream?.getTracks().forEach((t) => t.stop());
         actx.close().catch(() => {});
