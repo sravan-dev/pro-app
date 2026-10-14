@@ -175,6 +175,16 @@ async function initSchema() {
   await addColumnIfMissing('tutor_applications', 'tutor_user_id', 'tutor_user_id INT NULL');
   // Owner of each login session, so a password change can sign that user out everywhere.
   await addColumnIfMissing('user_sessions', 'user_id', 'user_id INT NULL');
+  // Sessions saved before that column existed have no owner, so a password
+  // change would silently skip them. Fill it in from the stored session data;
+  // if this server can't parse JSON, drop them instead (users just log in again).
+  try {
+    await exec(`UPDATE user_sessions
+      SET user_id = CAST(JSON_UNQUOTE(JSON_EXTRACT(data, '$.userId')) AS UNSIGNED)
+      WHERE user_id IS NULL AND JSON_VALID(data) AND JSON_EXTRACT(data, '$.userId') IS NOT NULL`);
+  } catch {
+    await exec('DELETE FROM user_sessions WHERE user_id IS NULL');
+  }
   await addColumnIfMissing('app_settings', 'video_provider', "video_provider VARCHAR(20) DEFAULT 'livekit'");
   await addColumnIfMissing('app_settings', 'zoom_account_id', "zoom_account_id VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('app_settings', 'zoom_client_id', "zoom_client_id VARCHAR(255) DEFAULT ''");
