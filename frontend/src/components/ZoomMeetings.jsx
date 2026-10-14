@@ -42,6 +42,7 @@ export default function ZoomMeetings({ view: viewProp, onViewChange, onContactsC
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [warning, setWarning] = useState(''); // Zoom saved, but not quite as asked
   const [form, setForm] = useState(null); // { id?, ...fields } while the create/edit modal is open
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
@@ -102,13 +103,14 @@ export default function ZoomMeetings({ view: viewProp, onViewChange, onContactsC
     e.preventDefault();
     setSaving(true);
     setFormError('');
+    setWarning('');
     const { id, ...fields } = form;
     const body = { ...fields, timezone: browserTz, user: host };
     try {
-      if (id) await api.updateZoomMeeting(id, body);
-      else await api.createZoomMeeting(body);
+      const r = id ? await api.updateZoomMeeting(id, body) : await api.createZoomMeeting(body);
       setForm(null);
       flash(id ? 'Meeting updated' : 'Meeting created');
+      if (r?.warning) setWarning(r.warning);
       if (view !== 'upcoming') setView('upcoming'); else load();
     } catch (err) { setFormError(err.message); }
     setSaving(false);
@@ -242,6 +244,12 @@ export default function ZoomMeetings({ view: viewProp, onViewChange, onContactsC
       </div>
 
       {notice && <div className="alert alert-success">{notice}</div>}
+      {warning && (
+        <div className="alert alert-info" style={{ cursor: 'default' }}>
+          {warning}
+          <button className="btn btn-sm btn-ghost" style={{ marginLeft: 8 }} onClick={() => setWarning('')}>Dismiss</button>
+        </div>
+      )}
       {error && <div className="alert alert-error">{error}</div>}
 
       {view === 'contacts' ? <ZoomContacts onCountChange={onContactsCount} /> : loading ? <div className="spinner" /> : meetings.length === 0 ? (
@@ -338,11 +346,12 @@ export default function ZoomMeetings({ view: viewProp, onViewChange, onContactsC
             </div>
             <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontWeight: 400 }}>
-                <input type="checkbox" checked={form.waiting_room} onChange={set('waiting_room')} /> Waiting room
+                <input type="checkbox" checked={form.waiting_room} onChange={(e) => setForm((f) => ({ ...f, waiting_room: e.target.checked, join_before_host: e.target.checked ? false : f.join_before_host }))} /> Waiting room
               </label>
               <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontWeight: 400 }}>
-                <input type="checkbox" checked={form.join_before_host} onChange={set('join_before_host')} /> Let people join before the host
+                <input type="checkbox" checked={form.join_before_host} onChange={(e) => setForm((f) => ({ ...f, join_before_host: e.target.checked, waiting_room: e.target.checked ? false : f.waiting_room }))} /> Let people join before the host
               </label>
+              <small style={{ color: 'var(--color-text-secondary)' }}>Zoom can't do both: turning on one turns off the other.</small>
               <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontWeight: 400 }}>
                 <input type="checkbox" checked={form.mute_upon_entry} onChange={set('mute_upon_entry')} /> Mute people when they join
               </label>

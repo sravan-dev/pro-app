@@ -2601,6 +2601,11 @@ async function zoomApi(method, path, body) {
   return data;
 }
 
+// Zoom silently drops join-before-host when the account or group locks it
+// off. Compare what was asked for with what Zoom saved and explain.
+const zoomJbhWarning = (body, saved) => (body.settings.join_before_host && saved && saved.join_before_host === false
+  ? 'Zoom kept "Let people join before the host" off. It is locked in the Zoom account settings (Zoom web portal > Settings > Meeting > Allow participants to join before host).'
+  : undefined);
 const zoomFail = (res, err) => res.status(err.code === 'NOT_CONFIGURED' ? 400 : UPSTREAM_FAILED).json({ error: err.message });
 const isZoomUserId = (v) => typeof v === 'string' && /^[\w.@+-]{1,128}$/.test(v);
 const isZoomMeetingId = (v) => /^\d{1,20}$/.test(String(v));
@@ -2628,8 +2633,11 @@ function zoomMeetingBody(b) {
       agenda: String(b.agenda || '').slice(0, 2000),
       ...(passcode ? { password: passcode } : {}),
       settings: {
-        waiting_room: !!b.waiting_room,
+        // Zoom ignores join-before-host while the waiting room is on, so
+        // asking for join-before-host turns the waiting room off.
+        waiting_room: !!b.waiting_room && !b.join_before_host,
         join_before_host: !!b.join_before_host,
+        ...(b.join_before_host ? { jbh_time: 0 } : {}),
         mute_upon_entry: !!b.mute_upon_entry,
         auto_recording: recording,
       },
@@ -2941,7 +2949,7 @@ app.post('/api/zoom/meetings', async (req, res) => {
   try {
     const m = await zoomApi('POST', `/users/${encodeURIComponent(host)}/meetings`, { ...body, type: 2 });
     await auditLog(user.id, 'zoom_meeting_create', 'zoom_meeting', null, `${m.id} ${body.topic}`);
-    res.json(m);
+    res.json({ ...m, warning: zoomJbhWarning(body, m.settings) });
   } catch (err) { zoomFail(res, err); }
 });
 
@@ -2955,7 +2963,12 @@ const updateZoomMeeting = async (req, res) => {
   try {
     await zoomApi('PATCH', `/meetings/${req.params.id}`, body);
     await auditLog(user.id, 'zoom_meeting_update', 'zoom_meeting', null, `${req.params.id} ${body.topic}`);
-    res.json({ message: 'Meeting updated' });
+    let warning;
+    if (body.settings.join_before_host) {
+      const saved = await zoomApi('GET', `/meetings/${req.params.id}`).catch(() => null);
+      warning = zoomJbhWarning(body, saved && saved.settings);
+    }
+    res.json({ message: 'Meeting updated', warning });
   } catch (err) { zoomFail(res, err); }
 };
 app.route('/api/zoom/meetings/:id').put(updateZoomMeeting).patch(updateZoomMeeting);
