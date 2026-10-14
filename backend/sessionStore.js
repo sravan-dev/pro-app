@@ -33,8 +33,8 @@ class MySQLSessionStore extends session.Store {
 
   set(sid, sess, cb = () => {}) {
     db.run(
-      'INSERT INTO user_sessions (sid, data, expires) VALUES (?,?,?) ON DUPLICATE KEY UPDATE data=VALUES(data), expires=VALUES(expires)',
-      [sid, JSON.stringify(sess), expiresAt(sess)]
+      'INSERT INTO user_sessions (sid, user_id, data, expires) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE user_id=VALUES(user_id), data=VALUES(data), expires=VALUES(expires)',
+      [sid, (sess && sess.userId) || null, JSON.stringify(sess), expiresAt(sess)]
     ).then(() => cb(null), cb);
   }
 
@@ -48,4 +48,10 @@ class MySQLSessionStore extends session.Store {
   }
 }
 
-module.exports = { MySQLSessionStore };
+// Sign a user out everywhere (e.g. after their password changes), optionally
+// keeping the session making the request.
+function revokeUserSessions(userId, exceptSid = null) {
+  return db.run('DELETE FROM user_sessions WHERE user_id=? AND sid<>?', [userId, exceptSid || '']);
+}
+
+module.exports = { MySQLSessionStore, revokeUserSessions };

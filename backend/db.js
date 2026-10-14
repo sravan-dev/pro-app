@@ -173,6 +173,8 @@ async function initSchema() {
   await addColumnIfMissing('users', 'blacklisted_at', 'blacklisted_at DATETIME NULL');
   await addColumnIfMissing('users', 'blacklisted_by', 'blacklisted_by INT NULL');
   await addColumnIfMissing('tutor_applications', 'tutor_user_id', 'tutor_user_id INT NULL');
+  // Owner of each login session, so a password change can sign that user out everywhere.
+  await addColumnIfMissing('user_sessions', 'user_id', 'user_id INT NULL');
   await addColumnIfMissing('app_settings', 'video_provider', "video_provider VARCHAR(20) DEFAULT 'livekit'");
   await addColumnIfMissing('app_settings', 'zoom_account_id', "zoom_account_id VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('app_settings', 'zoom_client_id', "zoom_client_id VARCHAR(255) DEFAULT ''");
@@ -211,6 +213,7 @@ async function initSchema() {
   // every row it reads — on `signaling`, which is written by every live-session
   // poll, that reliably deadlocks. (No-ops on a fresh schema.)
   await addIndexIfMissing('courses', 'idx_courses_tutor', 'tutor_id');
+  await addIndexIfMissing('user_sessions', 'idx_user_sessions_user', 'user_id');
   await addIndexIfMissing('meeting_records', 'idx_meeting_records_session', 'session_id');
   await addIndexIfMissing('signaling', 'idx_signaling_from_user', 'from_user_id');
   await addIndexIfMissing('password_resets', 'idx_password_resets_user', 'user_id');

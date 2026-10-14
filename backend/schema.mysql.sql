@@ -472,7 +472,9 @@ CREATE TABLE IF NOT EXISTS zoom_checked_meetings (
 -- a restart or redeploy doesn't log everyone out.
 CREATE TABLE IF NOT EXISTS user_sessions (
   sid VARCHAR(128) PRIMARY KEY,
+  user_id INT NULL,
   data MEDIUMTEXT NOT NULL,
   expires BIGINT NOT NULL,
-  INDEX idx_user_sessions_expires (expires)
+  INDEX idx_user_sessions_expires (expires),
+  INDEX idx_user_sessions_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

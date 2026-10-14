@@ -9,7 +9,7 @@ const fs = require('fs');
 const multer = require('multer');
 const nodemailer = require('nodemailer');
 const db = require('./db');
-const { MySQLSessionStore } = require('./sessionStore');
+const { MySQLSessionStore, revokeUserSessions } = require('./sessionStore');
 const { seedTutors } = require('./seeds/tutors');
 
 const app = express();
@@ -404,8 +404,9 @@ async function requireAuth(req, res) {
   if (!req.session.userId) { res.status(401).json({ error: 'Not authenticated' }); return null; }
   const user = await db.get("SELECT id,name,email,portal,role,specialization,status,avatar_color,avatar_url,must_change_password FROM users WHERE id=?", [req.session.userId]);
   if (!user) { req.session.destroy(() => {}); res.status(401).json({ error: 'User not found' }); return null; }
-  // A blacklisted user is signed out on their next request, not just blocked at login.
+  // A blacklisted or deactivated user is signed out on their next request, not just blocked at login.
   if (user.status === 'blacklisted') { req.session.destroy(() => {}); res.status(401).json({ error: 'Account suspended' }); return null; }
+  if (user.status === 'inactive') { req.session.destroy(() => {}); res.status(401).json({ error: 'Account deactivated' }); return null; }
   return user;
 }
 
@@ -482,6 +483,8 @@ app.post('/api/auth/login', async (req, res) => {
   if (user.status === 'inactive') return res.status(403).json({ error: 'Account deactivated' });
   if (user.status === 'blacklisted') return res.status(403).json({ error: 'Your account has been suspended. Please contact the academy.' });
 
+  // Fresh session ID on login so a pre-login session ID can't be reused.
+  await new Promise((resolve, reject) => req.session.regenerate((err) => (err ? reject(err) : resolve())));
   req.session.userId = user.id;
   req.session.role = user.role;
   auditLog(user.id, 'login', 'user', user.id);
@@ -500,7 +503,7 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/auth/session', async (req, res) => {
   if (!req.session.userId) return res.json({ authenticated: false });
   const user = await db.get("SELECT id,name,email,portal,role,specialization,status,avatar_color,avatar_url,must_change_password FROM users WHERE id=?", [req.session.userId]);
-  if (!user || user.status === 'blacklisted') {
+  if (!user || user.status === 'blacklisted' || user.status === 'inactive') {
     if (user) req.session.destroy(() => {});
     return res.json({ authenticated: false });
   }
@@ -2175,6 +2178,7 @@ app.put('/api/users', async (req, res) => {
   const before = fields.payout_rate !== undefined || fields.payout_type !== undefined
     ? await db.get("SELECT payout_rate, payout_type FROM users WHERE id=?", [id]) : null;
   await db.run(`UPDATE users SET ${sets.join(',')} WHERE id=?`, vals);
+  if (password) await revokeUserSessions(id, req.sessionID);
   auditLog(user.id, 'update_user', 'user', id, before
     ? `pay: ${before.payout_type} ${before.payout_rate} -> ${fields.payout_type ?? before.payout_type} ${fields.payout_rate ?? before.payout_rate}`
     : undefined);
@@ -2212,6 +2216,7 @@ app.post('/api/users/invite', async (req, res) => {
   if (admin.role === 'manager' && u.role !== 'tutor') return res.status(403).json({ error: 'Managers can only invite tutor accounts' });
   const tempPassword = makeTempPassword();
   await db.run("UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?", [bcrypt.hashSync(tempPassword, 10), u.id]);
+  await revokeUserSessions(u.id, req.sessionID);
   const loginUrl = `${req.protocol}://${req.get('host')}/login`;
   const emailResult = await sendEmail(u.email, "Your Tiju's Academy login", inviteEmailHtml(u.name, u.email, tempPassword, loginUrl));
   auditLog(admin.id, 'invite_user', 'user', u.id);
@@ -2245,6 +2250,7 @@ app.post('/api/users/invite-all', async (req, res) => {
       try {
         const hash = await bcrypt.hash(tempPassword, 10); // async — doesn't block the event loop like hashSync
         await db.run("UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?", [hash, u.id]);
+        await revokeUserSessions(u.id);
       } catch (err) {
         job.failed.push({ name: u.name, email: u.email, password: '', reason: `Password reset failed: ${err.message}. Re-run Invite for this student.` });
         job.processed++;
@@ -4134,6 +4140,8 @@ app.post('/api/reset-password', async (req, res) => {
   if (!reset) return res.status(400).json({ error: 'Invalid or expired token' });
   await db.run("UPDATE users SET password_hash=?,must_change_password=0 WHERE id=?", [bcrypt.hashSync(password, 10), reset.user_id]);
   await db.run("UPDATE password_resets SET used=1 WHERE id=?", [reset.id]);
+  // Sign out every existing session — the reason for a reset is often a leak.
+  await revokeUserSessions(reset.user_id);
   auditLog(reset.user_id, 'password_reset', 'user', reset.user_id);
   res.json({ message: 'Password reset successfully' });
 });
