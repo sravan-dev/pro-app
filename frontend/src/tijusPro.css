@@ -1270,6 +1270,8 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
 .register-field { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
 .register-field input, .register-field select, .register-field textarea { width: 100%; font-family: inherit; }
 .register-field textarea { resize: vertical; }
+/* Read-only fields (the form's date; name/email on a tutor's own profile). */
+.register-field input:disabled { background: var(--color-bg); color: var(--color-text-secondary); cursor: not-allowed; }
 .register-label { font-size: 0.85rem; font-weight: 600; color: var(--color-text); }
 .register-hint { font-size: 0.75rem; color: var(--color-text-secondary); }
 .req { color: var(--color-danger); }

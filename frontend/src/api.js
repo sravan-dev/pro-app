@@ -201,6 +201,11 @@ export const api = {
     return request('/profile/avatar', { method: 'POST', body: fd });
   },
   removeAvatar: () => request('/profile/avatar', { method: 'DELETE' }),
+  // Tutor → My Profile: their tutor application (/register) details
+  getMyProfileDetails: () => request('/profile/details'),
+  saveMyProfileDetails: (data) => request('/profile/details', { method: 'PUT', body: data }),
+  uploadMyProfileFiles: (formData) => request('/profile/details/files', { method: 'POST', body: formData }),
+  myProfileFileUrl: (kind) => `${API}/profile/details/file/${kind}`,
 
   // App Settings
   getAppSettings: () => request('/app-settings'),

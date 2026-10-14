@@ -7,6 +7,7 @@ import DataTable from '../components/DataTable';
 import Calendar from '../components/Calendar';
 import SessionCard from '../components/SessionCard';
 import SessionDock from '../components/SessionDock';
+import TutorMyProfile from '../components/TutorMyProfile';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
 
@@ -614,6 +615,8 @@ export default function TutorPortal() {
             )}
           </div>
         )}
+
+        {activeTab === 'profile' && <TutorMyProfile />}
         </div>
       </main>
     </div>

@@ -4360,6 +4360,17 @@ app.post('/api/upload-recording', upload.single('recording'), async (req, res) =
 // ============================================================
 const APPLICATION_SOURCES = ['indeed_naukri', 'linkedin', 'social_media', 'walk_in', 'referral', 'other'];
 const APPLICATION_STATUSES = ['new', 'shortlisted', 'rejected', 'hired'];
+const EDUCATION_FIELDS = ['qualification', 'institution', 'year', 'score'];
+const REFERENCE_FIELDS = ['name', 'designation', 'company', 'email', 'phone'];
+// Required on the /register form. A tutor's own profile counts as complete once
+// these (plus job source and one qualification) are filled in.
+const APPLICATION_REQUIRED = [
+  ['full_name', 'Full name'], ['phone', 'Contact number'], ['email', 'Email'],
+  ['emergency_name', 'Emergency contact name'], ['emergency_phone', 'Emergency contact number'],
+  ['permanent_address', 'Permanent address'], ['current_address', 'Current address'],
+  ['reason', 'Reason for applying'], ['motivation', 'Motivation'],
+  ['signature', 'Signature'],
+];
 
 // Throttle for the unauthenticated submit endpoint: 5 applications per hour.
 const applicationRateLimited = makeRateLimiter(5, 60 * 60 * 1000);
@@ -4370,11 +4381,13 @@ function removeApplicationFiles(files) {
   }
 }
 
-// Parse a JSON array of row objects from the form, keeping only the known
-// string fields, dropping blank rows and capping the row count.
+// Parse an array of row objects (or its JSON, from a multipart form), keeping
+// only the known string fields, dropping blank rows and capping the row count.
 function parseApplicationRows(raw, fields, maxRows) {
-  let rows;
-  try { rows = JSON.parse(raw || '[]'); } catch { return []; }
+  let rows = raw;
+  if (typeof raw === 'string' || raw == null) {
+    try { rows = JSON.parse(raw || '[]'); } catch { return []; }
+  }
   if (!Array.isArray(rows)) return [];
   return rows.slice(0, maxRows).map((r) => {
     const out = {};
@@ -4428,16 +4441,10 @@ app.post('/api/public/tutor-applications', (req, res) => {
       signature: str('signature'),
       place: str('place', 120),
     };
-    const education = parseApplicationRows(b.education, ['qualification', 'institution', 'year', 'score'], 8);
-    const references = parseApplicationRows(b.references, ['name', 'designation', 'company', 'email', 'phone'], 5);
+    const education = parseApplicationRows(b.education, EDUCATION_FIELDS, 8);
+    const references = parseApplicationRows(b.references, REFERENCE_FIELDS, 5);
 
-    const missing = [
-      ['full_name', 'Full name'], ['phone', 'Contact number'], ['email', 'Email'],
-      ['emergency_name', 'Emergency contact name'], ['emergency_phone', 'Emergency contact number'],
-      ['permanent_address', 'Permanent address'], ['current_address', 'Current address'],
-      ['reason', 'Reason for applying'], ['motivation', 'Motivation'],
-      ['signature', 'Signature'],
-    ].filter(([k]) => !a[k]).map(([, label]) => label);
+    const missing = APPLICATION_REQUIRED.filter(([k]) => !a[k]).map(([, label]) => label);
     if (missing.length) return fail(400, `Please fill in: ${missing.join(', ')}`);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email)) return fail(400, 'Please enter a valid email address');
     if (!APPLICATION_SOURCES.includes(a.job_source)) return fail(400, 'Please tell us where you heard about this job');
@@ -4481,17 +4488,15 @@ app.get('/api/tutor-applications', async (req, res) => {
   })));
 });
 
-// Stream an applicant's photo or CV. Superadmin only — these files sit outside
-// the static /uploads mount on purpose.
-app.get('/api/tutor-applications/:id/file/:kind', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
-  const col = { photo: 'photo_path', resume: 'resume_path' }[req.params.kind];
+// Stream an application's photo or CV (kind "photo" | "resume"). These files sit
+// outside the static /uploads mount on purpose; callers check who may see them.
+function sendApplicationFile(res, row, kind) {
+  const col = { photo: 'photo_path', resume: 'resume_path' }[kind];
   if (!col) return res.status(404).json({ error: 'Not found' });
-  const row = await db.get(`SELECT full_name, ${col} AS f FROM tutor_applications WHERE id=?`, [req.params.id]);
-  if (!row || !row.f) return res.status(404).json({ error: 'No file' });
-  const abs = path.join(APPLICATIONS_DIR, path.basename(row.f));
+  if (!row || !row[col]) return res.status(404).json({ error: 'No file' });
+  const abs = path.join(APPLICATIONS_DIR, path.basename(row[col]));
   const ext = path.extname(abs).toLowerCase();
-  const mime = Object.hasOwn(APPLICATION_FILE_TYPES[req.params.kind], APPLICATION_EXT_TYPES[ext]) ? APPLICATION_EXT_TYPES[ext] : null;
+  const mime = Object.hasOwn(APPLICATION_FILE_TYPES[kind], APPLICATION_EXT_TYPES[ext]) ? APPLICATION_EXT_TYPES[ext] : null;
   if (!mime) return res.status(404).json({ error: 'Not found' });
   if (!fs.existsSync(abs)) return res.status(404).json({ error: 'File missing on server' });
   const base = row.full_name.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 60) || 'applicant';
@@ -4499,9 +4504,16 @@ app.get('/api/tutor-applications/:id/file/:kind', async (req, res) => {
   // from the server-chosen extension (plus nosniff), never from the upload.
   const disposition = mime.startsWith('image/') || mime === 'application/pdf' ? 'inline' : 'attachment';
   res.setHeader('Content-Type', mime);
-  res.setHeader('Content-Disposition', `${disposition}; filename="${base}_${req.params.kind}${ext}"`);
+  res.setHeader('Content-Disposition', `${disposition}; filename="${base}_${kind}${ext}"`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.sendFile(abs, { headers: { 'Content-Type': mime } });
+}
+
+// An applicant's photo or CV, for the admin (Tutor Management).
+app.get('/api/tutor-applications/:id/file/:kind', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
+  const row = await db.get("SELECT full_name, photo_path, resume_path FROM tutor_applications WHERE id=?", [req.params.id]);
+  sendApplicationFile(res, row, req.params.kind);
 });
 
 // Applicant details an admin may correct, with the same length caps as the
@@ -4544,13 +4556,10 @@ app.put('/api/tutor-applications/:id', async (req, res) => {
 });
 
 // Add or replace an application's photo and/or CV (fields "photo", "resume"),
-// with the same type and 5 MB checks as the public form. The old file is
+// with the same type and 5 MB checks as the public form. `getRow` resolves the
+// application once the upload has passed those checks; the old file is
 // deleted once the new one is saved.
-app.post('/api/tutor-applications/:id/files', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
-  const row = await db.get("SELECT id, full_name, photo_path, resume_path FROM tutor_applications WHERE id=?", [req.params.id]);
-  if (!row) return res.status(404).json({ error: 'Application not found' });
-
+function uploadApplicationFiles(req, res, getRow, actorId, auditAction) {
   applicationUpload(req, res, async (err) => {
     const files = req.files || {};
     const fail = (status, error) => { removeApplicationFiles(files); res.status(status).json({ error }); };
@@ -4562,7 +4571,10 @@ app.post('/api/tutor-applications/:id/files', async (req, res) => {
     const photo = files.photo?.[0]?.filename;
     const resume = files.resume?.[0]?.filename;
     if (!photo && !resume) return fail(400, 'Choose a photo or CV to upload');
+    let row;
     try {
+      row = await getRow();
+      if (!row) return fail(404, 'Application not found');
       const sets = []; const vals = [];
       if (photo) { sets.push('photo_path=?'); vals.push(photo); }
       if (resume) { sets.push('resume_path=?'); vals.push(resume); }
@@ -4573,9 +4585,16 @@ app.post('/api/tutor-applications/:id/files', async (req, res) => {
     for (const old of [photo && row.photo_path, resume && row.resume_path]) {
       if (old) { try { fs.unlinkSync(path.join(APPLICATIONS_DIR, path.basename(old))); } catch {} }
     }
-    await auditLog(user.id, 'replace_tutor_application_file', 'tutor_application', row.id, `${row.full_name}: ${[photo && 'photo', resume && 'CV'].filter(Boolean).join(' + ')}`);
+    await auditLog(actorId, auditAction, 'tutor_application', row.id, `${row.full_name}: ${[photo && 'photo', resume && 'CV'].filter(Boolean).join(' + ')}`);
     res.json({ message: 'File saved', has_photo: !!(photo || row.photo_path), has_resume: !!(resume || row.resume_path) });
   });
+}
+
+app.post('/api/tutor-applications/:id/files', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
+  const row = await db.get("SELECT id, full_name, photo_path, resume_path FROM tutor_applications WHERE id=?", [req.params.id]);
+  if (!row) return res.status(404).json({ error: 'Application not found' });
+  uploadApplicationFiles(req, res, async () => row, user.id, 'replace_tutor_application_file');
 });
 
 // Make as Tutor: create a tutor account from an application (name, email,
@@ -4625,6 +4644,107 @@ app.delete('/api/tutor-applications/:id', async (req, res) => {
   }
   await auditLog(user.id, 'delete_tutor_application', 'tutor_application', row.id, row.full_name);
   res.json({ message: 'Application deleted' });
+});
+
+// ============================================================
+// Tutor → My Profile: tutors fill in or correct their own /register details —
+// whatever they missed when applying, or all of it if they never applied.
+// It edits the application they were hired from, the record the admin sees in
+// Tutor Management, and creates one for tutors who don't have one yet.
+// ============================================================
+// Everything on the form except name and email (their account's, which the
+// admin changes) and the position applied for.
+const PROFILE_EDITABLE = {
+  phone: 80, blood_group: 10, emergency_name: 160, emergency_phone: 80, emergency_relationship: 80,
+  job_source_detail: 160, permanent_address: 4000, current_address: 4000, reason: 4000, motivation: 4000,
+  total_experience: 40, current_employer: 160, current_designation: 160, current_ctc: 60, expected_ctc: 60,
+  notice_period: 60, job_description: 4000, signature: 160, place: 120,
+};
+
+// The tutor's own application: the one linked to their account (Make as
+// Tutor), else an unlinked one with their email. Never another account's.
+const ownApplication = (user) => db.get(
+  `SELECT * FROM tutor_applications WHERE tutor_user_id=? OR (tutor_user_id IS NULL AND email=?)
+   ORDER BY (tutor_user_id=?) DESC, created_at DESC, id DESC LIMIT 1`,
+  [user.id, user.email, user.id]);
+
+// Their application, linked to their account; a blank one (marked hired) when
+// they never applied.
+async function ensureOwnApplication(user) {
+  const a = await ownApplication(user);
+  if (a) {
+    if (!a.tutor_user_id) await db.run("UPDATE tutor_applications SET tutor_user_id=? WHERE id=?", [user.id, a.id]);
+    return a;
+  }
+  const u = await db.get("SELECT phone FROM users WHERE id=?", [user.id]);
+  const r = await db.run(
+    `INSERT INTO tutor_applications (position, full_name, phone, email, education, references_json, status, tutor_user_id)
+     VALUES ('Tutor',?,?,?,'[]','[]','hired',?)`,
+    [user.name, (u && u.phone) || '', user.email, user.id]);
+  return db.get("SELECT * FROM tutor_applications WHERE id=?", [r.lastInsertRowid]);
+}
+
+// The profile form's data: the application's fields (or the account's name,
+// email and phone before there is one) and what the form still lacks.
+function profileDetails(a, fallback) {
+  const src = a || fallback;
+  const out = {
+    position: src.position || 'Tutor', full_name: src.full_name || '', email: src.email || '',
+    job_source: src.job_source || '',
+  };
+  for (const k of Object.keys(PROFILE_EDITABLE)) out[k] = src[k] || '';
+  const education = parseJsonArray(a?.education);
+  const references = parseJsonArray(a?.references_json);
+  const missing = APPLICATION_REQUIRED.filter(([k]) => !out[k]).map(([, label]) => label);
+  if (!out.job_source) missing.push('Where you heard about the job');
+  if (!education.length) missing.push('Education qualification');
+  return { ...out, education, references, has_photo: !!a?.photo_path, has_resume: !!a?.resume_path, missing };
+}
+
+app.get('/api/profile/details', async (req, res) => {
+  const user = await requireRole(req, res, ['tutor']); if (!user) return;
+  const a = await ownApplication(user);
+  const u = a ? null : await db.get("SELECT phone FROM users WHERE id=?", [user.id]);
+  res.json(profileDetails(a, { full_name: user.name, email: user.email, phone: (u && u.phone) || '' }));
+});
+
+// Save the form. Blank answers are allowed so a tutor can fill it in over
+// several visits; the reply lists what is still missing.
+app.put('/api/profile/details', async (req, res) => {
+  const user = await requireRole(req, res, ['tutor']); if (!user) return;
+  const b = req.body || {};
+  if (b.declaration !== true) return res.status(400).json({ error: 'Please tick the declaration to save' });
+  const sets = []; const vals = [];
+  for (const [k, max] of Object.entries(PROFILE_EDITABLE)) {
+    if (b[k] === undefined) continue;
+    sets.push(`${k}=?`); vals.push(String(b[k] ?? '').trim().slice(0, max));
+  }
+  if (b.job_source !== undefined) {
+    const src = String(b.job_source || '');
+    if (src && !APPLICATION_SOURCES.includes(src)) return res.status(400).json({ error: 'Invalid job source' });
+    sets.push('job_source=?'); vals.push(src);
+  }
+  if (b.education !== undefined) { sets.push('education=?'); vals.push(JSON.stringify(parseApplicationRows(b.education, EDUCATION_FIELDS, 8))); }
+  if (b.references !== undefined) { sets.push('references_json=?'); vals.push(JSON.stringify(parseApplicationRows(b.references, REFERENCE_FIELDS, 5))); }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+
+  const a = await ensureOwnApplication(user);
+  await db.run(`UPDATE tutor_applications SET ${sets.join(', ')} WHERE id=?`, [...vals, a.id]);
+  await auditLog(user.id, 'update_own_profile', 'tutor_application', a.id, user.name);
+  const saved = await db.get("SELECT * FROM tutor_applications WHERE id=?", [a.id]);
+  res.json({ message: 'Profile saved', ...profileDetails(saved) });
+});
+
+// Add or replace their photo and/or CV.
+app.post('/api/profile/details/files', async (req, res) => {
+  const user = await requireRole(req, res, ['tutor']); if (!user) return;
+  uploadApplicationFiles(req, res, () => ensureOwnApplication(user), user.id, 'update_own_profile_file');
+});
+
+// Their own photo or CV.
+app.get('/api/profile/details/file/:kind', async (req, res) => {
+  const user = await requireRole(req, res, ['tutor']); if (!user) return;
+  sendApplicationFile(res, await ownApplication(user), req.params.kind);
 });
 
 // Any unmatched /api or /uploads request must return JSON, never the SPA's HTML
