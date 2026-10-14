@@ -2940,9 +2940,9 @@ app.post('/api/zoom/meetings', async (req, res) => {
   } catch (err) { zoomFail(res, err); }
 });
 
-// PUT, not PATCH: the host's proxy answers PATCH with its own HTML page
-// before it reaches the app, which surfaced as a JSON parse error in the UI.
-app.put('/api/zoom/meetings/:id', async (req, res) => {
+// The client sends PUT like every other update; PATCH is still accepted so a
+// browser tab opened before a deploy (running the old script) keeps working.
+const updateZoomMeeting = async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   if (!isZoomMeetingId(req.params.id)) return res.status(400).json({ error: 'Invalid meeting id' });
   const { error, body } = zoomMeetingBody(req.body);
@@ -2952,7 +2952,8 @@ app.put('/api/zoom/meetings/:id', async (req, res) => {
     await auditLog(user.id, 'zoom_meeting_update', 'zoom_meeting', null, `${req.params.id} ${body.topic}`);
     res.json({ message: 'Meeting updated' });
   } catch (err) { zoomFail(res, err); }
-});
+};
+app.route('/api/zoom/meetings/:id').put(updateZoomMeeting).patch(updateZoomMeeting);
 
 app.delete('/api/zoom/meetings/:id', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
