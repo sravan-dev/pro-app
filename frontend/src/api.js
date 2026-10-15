@@ -252,6 +252,9 @@ export const api = {
     return request(`/kajabi/contacts${qs ? `?${qs}` : ''}`);
   },
 
+  // Public support request (login page) → emailed to tech support
+  sendSupportRequest: (data) => request('/public/support', { method: 'POST', body: data }),
+
   // Contact enrollment intimations (notifies managers & advisors)
   createContactEnrollment: (contact) => request('/contact-enrollments', { method: 'POST', body: contact }),
   getContactEnrollments: () => request('/contact-enrollments'),

@@ -331,7 +331,7 @@ function gmailFailureReason(err) {
   return msg;
 }
 
-async function sendEmail(to, subject, html) {
+async function sendEmail(to, subject, html, { replyTo } = {}) {
   const cfg = await db.get("SELECT * FROM smtp_settings WHERE id=1");
   const provider = (cfg && cfg.provider) || 'smtp';
   const from = (cfg && (cfg.from_email || cfg.user)) || '';
@@ -347,7 +347,7 @@ async function sendEmail(to, subject, html) {
       const resp = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { Authorization: `Bearer ${cfg.resend_api_key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from, to, subject, html }),
+        body: JSON.stringify({ from, to, subject, html, ...(replyTo ? { reply_to: replyTo } : {}) }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
@@ -376,7 +376,7 @@ async function sendEmail(to, subject, html) {
     }
     // Gmail forces the sender to the authenticated account; from_email can
     // only add a display name (e.g. "Tiju's Academy <acct@gmail.com>").
-    const mail = { from: cfg.from_email || cfg.gmail_user, to, subject, html };
+    const mail = { from: cfg.from_email || cfg.gmail_user, to, subject, html, ...(replyTo ? { replyTo } : {}) };
     // 465 first, then 587 (STARTTLS): hosts commonly block one of the two
     // outbound, and a blocked port looks like a hang rather than a refusal.
     const attempts = [
@@ -424,6 +424,7 @@ async function sendEmail(to, subject, html) {
       to,
       subject,
       html,
+      ...(replyTo ? { replyTo } : {}),
     });
     console.log(`[EMAIL] Sent to ${to}: ${subject}`);
     return { sent: true };
@@ -4382,6 +4383,46 @@ const APPLICATION_REQUIRED = [
   ['reason', 'Reason for applying'], ['motivation', 'Motivation'],
   ['signature', 'Signature'],
 ];
+
+// ============================================================
+// Support requests from the login page's "Support" button, emailed to tech
+// support with the sender as reply-to. No account needed.
+// ============================================================
+const SUPPORT_EMAIL = 'techsupport@tijusacademy.com';
+const supportRateLimited = makeRateLimiter(5, 60 * 60 * 1000);
+const escapeHtml = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+app.post('/api/public/support', async (req, res) => {
+  const b = req.body || {};
+  // Honeypot: a hidden field real visitors never fill. Report success so bots
+  // don't learn to skip it.
+  if (b.website) return res.json({ message: 'Request sent' });
+  if (supportRateLimited(req).limited) return res.status(429).json({ error: 'Too many requests from this connection. Please try again later.' });
+
+  const str = (k, max) => String(b[k] ?? '').trim().slice(0, max);
+  const name = str('name', 120);
+  const email = str('email', 255);
+  const subject = str('subject', 150).replace(/[\r\n]+/g, ' ');
+  const description = str('description', 5000);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Please enter a valid email so we can reply' });
+  if (!subject || !description) return res.status(400).json({ error: 'Subject and description are required' });
+
+  const row = (label, value) => `<tr><td style="padding:6px 10px;color:#888">${label}</td><td style="padding:6px 10px;font-weight:600">${escapeHtml(value)}</td></tr>`;
+  const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+      <h2 style="color:#2E2B70;margin-bottom:4px">Support request</h2>
+      <p style="color:#555;margin-top:0">Sent from the Tijus SmS login page.</p>
+      <table style="border-collapse:collapse;width:100%;margin:16px 0">
+        ${row('Name', name || 'Not given')}
+        ${row('Email', email)}
+        ${row('Subject', subject)}
+      </table>
+      <div style="white-space:pre-wrap;line-height:1.5;padding:12px 14px;background:#F5F4FA;border-radius:8px;color:#1B1935">${escapeHtml(description)}</div>
+      <p style="color:#888;font-size:13px">Reply to this email to answer ${escapeHtml(name || email)} directly.</p>
+    </div>`;
+  const result = await sendEmail(SUPPORT_EMAIL, `[Support] ${subject}`, html, { replyTo: email });
+  if (!result.sent) return res.status(UPSTREAM_FAILED).json({ error: `Could not send your message right now. Please email ${SUPPORT_EMAIL} directly.` });
+  res.json({ message: 'Request sent' });
+});
 
 // Throttle for the unauthenticated submit endpoint: 5 applications per hour.
 const applicationRateLimited = makeRateLimiter(5, 60 * 60 * 1000);

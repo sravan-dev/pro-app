@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import TutorApplicationFields, { EMPTY_EDU, EMPTY_REF } from './TutorApplicationFields';
+import SupportWidget from './SupportWidget';
 
 // /register — public tutor application form (the paper "Job Application Form"
 // as a web page). Anyone can submit; nothing is created until a superadmin
@@ -85,6 +86,7 @@ export default function TutorRegister() {
 
   return (
     <div className="register-page">
+      <SupportWidget defaultEmail={form.email} />
       <form className="register-card" onSubmit={handleSubmit}>
         <header className="register-head">
           <img src="/logo.png" alt="Tiju's Academy" className="register-logo" />

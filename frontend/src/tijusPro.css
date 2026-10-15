@@ -454,6 +454,37 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
   .signin-legal { padding: 0.9rem 1rem; text-align: center; }
 }
 
+/* "Support" tab stuck to the right edge of the public pages (login, register) */
+.support-tab {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  z-index: 150; /* below .modal-overlay (200) */
+  transform: translateY(-50%) rotate(180deg);
+  writing-mode: vertical-rl;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 0.6rem;
+  border: none;
+  border-radius: 0 12px 12px 0; /* left side once rotated */
+  background: #F3D011;
+  color: #2E2B70;
+  font-family: 'Montserrat', -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 700;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 0 8px 24px -8px rgba(10, 8, 40, 0.55);
+  transition: padding 0.15s;
+}
+.support-tab:hover { padding-left: 0.85rem; } /* grows out of the edge (rotated) */
+.support-tab svg { transform: rotate(90deg); }
+.support-modal { max-width: 520px; }
+.support-modal h3 { color: #2E2B70; }
+.support-intro { margin: -0.25rem 0 1rem; color: var(--color-text-secondary); font-size: 0.92rem; }
+.support-modal textarea { width: 100%; resize: vertical; min-height: 110px; }
+
 /* ========================================
    Forms
    ======================================== */

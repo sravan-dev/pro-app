@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ForgotPasswordModal from './ForgotPasswordModal';
+import SupportWidget from './SupportWidget';
 
 const REMEMBER_KEY = 'login:remember-email';
 
@@ -143,6 +144,8 @@ export default function Login() {
           © {new Date().getFullYear()} Tiju&apos;s Academy · <a href="https://tijusacademy.com" target="_blank" rel="noreferrer">tijusacademy.com</a>
         </div>
       </footer>
+
+      <SupportWidget defaultEmail={email} />
 
       {showForgot && <ForgotPasswordModal onClose={() => setShowForgot(false)} />}
     </div>
