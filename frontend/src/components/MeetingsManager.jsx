@@ -2,23 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 
 const meetingLink = (code) => `${window.location.origin}/m/${code}`;
-const shareText = (m) => `${meetingLink(m.code)}\nPasscode: ${m.passcode}`;
+const shareText = (m) => (m.passcode ? `${meetingLink(m.code)}\nPasscode: ${m.passcode}` : meetingLink(m.code));
+const copiedWhat = (m) => (m.passcode ? `link + passcode ${m.passcode}` : 'link');
 
-// Temporary meetings (link + 5-digit passcode, no account needed): create,
-// list, copy, end and delete. Superadmin sees every meeting; a tutor sees only
+// Temporary meetings (link, optionally + 5-digit passcode; no account needed):
+// create, list, copy, end and delete. Superadmin sees every meeting; a tutor sees only
 // their own (filtered server-side). Pass `defaultHost` ({ name, email }) to
 // prefill the host and offer one-click "Quick Meeting".
 export default function MeetingsManager({ onMessage, defaultHost }) {
   const [meetings, setMeetings] = useState([]);
   const [creating, setCreating] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ title: '', name: '', email: '' });
+  const [form, setForm] = useState({ title: '', name: '', email: '', passcode_required: false });
 
   const load = () => api.getMeetings().then(setMeetings).catch(() => {});
   useEffect(() => { load(); }, []);
 
   const openForm = () => {
-    setForm({ title: '', name: defaultHost?.name || '', email: defaultHost?.email || '' });
+    setForm({ title: '', name: defaultHost?.name || '', email: defaultHost?.email || '', passcode_required: false });
     setShowForm(true);
   };
 
@@ -29,20 +30,20 @@ export default function MeetingsManager({ onMessage, defaultHost }) {
       await load();
       setShowForm(false);
       try { await navigator.clipboard.writeText(shareText(m)); } catch {}
-      onMessage(`Meeting created — link + passcode ${m.passcode} copied to clipboard`, 'success');
+      onMessage(`Meeting created — ${copiedWhat(m)} copied to clipboard`, 'success');
     } catch (err) { onMessage(err.message, 'error'); }
     finally { setCreating(false); }
   };
 
   const submitForm = (e) => {
     e.preventDefault();
-    create({ title: form.title.trim() || 'Meeting', name: form.name.trim(), email: form.email.trim() });
+    create({ title: form.title.trim() || 'Meeting', name: form.name.trim(), email: form.email.trim(), passcode_required: form.passcode_required });
   };
 
   const quickMeeting = () => create({ title: 'Quick Meeting', name: defaultHost?.name || '', email: defaultHost?.email || '' });
 
   const endMeeting = async (id) => {
-    if (!confirm('End this meeting? The link and passcode will stop working. It stays in the list as history.')) return;
+    if (!confirm('End this meeting? The link will stop working. It stays in the list as history.')) return;
     try {
       await api.endMeeting(id);
       await load();
@@ -62,7 +63,7 @@ export default function MeetingsManager({ onMessage, defaultHost }) {
   const copyMeeting = async (m) => {
     try {
       await navigator.clipboard.writeText(shareText(m));
-      onMessage('Link + passcode copied', 'success');
+      onMessage(`Copied ${copiedWhat(m)}`, 'success');
     } catch { onMessage('Copy failed — copy manually', 'error'); }
   };
 
@@ -82,7 +83,7 @@ export default function MeetingsManager({ onMessage, defaultHost }) {
         </div>
       </div>
       <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
-        Create a temporary meeting link. Share the link and 5-digit passcode — anyone can join directly, no account needed.
+        Create a temporary meeting link. Share the link — anyone can join directly with just their name, no account needed.
         Ended meetings stay here as history until you delete them.
       </p>
       {meetings.length === 0 ? (
@@ -122,7 +123,11 @@ export default function MeetingsManager({ onMessage, defaultHost }) {
                         <span style={{ color: '#aaa' }}>/m/{m.code}</span>
                       )}
                     </td>
-                    <td><span style={{ fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.15em' }}>{m.passcode}</span></td>
+                    <td>
+                      {m.passcode
+                        ? <span style={{ fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.15em' }}>{m.passcode}</span>
+                        : <span style={{ color: '#aaa' }}>None</span>}
+                    </td>
                     <td>
                       <span style={{ fontSize: '12px', fontWeight: 600, padding: '2px 10px', borderRadius: '999px', background: active ? '#DCFCE7' : '#F1F5F9', color: active ? '#166534' : '#64748B' }}>
                         {active ? 'Active' : 'Ended'}
@@ -161,6 +166,12 @@ export default function MeetingsManager({ onMessage, defaultHost }) {
                   <label>Host Email</label>
                   <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@example.com" />
                 </div>
+              </div>
+              <div className="form-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 'normal' }}>
+                  <input type="checkbox" checked={form.passcode_required} onChange={(e) => setForm({ ...form, passcode_required: e.target.checked })} style={{ width: 'auto' }} />
+                  Require a 5-digit passcode to join
+                </label>
               </div>
               <div className="form-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>

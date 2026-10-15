@@ -1210,7 +1210,7 @@ app.post('/api/test-call', async (req, res) => {
 });
 
 // ============================================================
-// Temporary meetings (link + 5-digit passcode, no account needed)
+// Temporary meetings (link, optionally + 5-digit passcode; no account needed)
 // ============================================================
 const meetingRoomName = (code) => `meet-${code}`;
 // A random link code not yet used in `table` (meetings or zoom_links).
@@ -1230,7 +1230,8 @@ app.post('/api/meetings', async (req, res) => {
   const hostName = (req.body?.name || (user.role === 'tutor' ? user.name : '') || '').toString().trim().slice(0, 80);
   const hostEmail = (req.body?.email || (user.role === 'tutor' ? user.email : '') || '').toString().trim().slice(0, 120);
   const code = await genMeetingCode();
-  const passcode = genPasscode();
+  // Empty passcode = anyone with the link can join.
+  const passcode = req.body?.passcode_required ? genPasscode() : '';
   const r = await db.run("INSERT INTO meetings (code,passcode,title,host_name,host_email,created_by) VALUES (?,?,?,?,?,?)",
     [code, passcode, title, hostName, hostEmail, user.id]);
   auditLog(user.id, 'create_meeting', 'meeting', r.lastInsertRowid, title);
@@ -1277,18 +1278,19 @@ app.delete('/api/meetings', async (req, res) => {
 // Public: basic info for the join page (no passcode required).
 app.get('/api/meetings/info', async (req, res) => {
   const code = (req.query.code || '').toString();
-  const m = await db.get("SELECT title,status FROM meetings WHERE code=?", [code]);
+  const m = await db.get("SELECT title,status,passcode FROM meetings WHERE code=?", [code]);
   if (!m) return res.status(404).json({ error: 'Meeting not found' });
-  res.json({ title: m.title, active: m.status === 'active' });
+  res.json({ title: m.title, active: m.status === 'active', passcode_required: !!m.passcode });
 });
 
-// Public: exchange code + passcode + display name for a LiveKit token. No login.
+// Public: exchange code + passcode (if the meeting has one) + display name for
+// a LiveKit token. No login.
 app.post('/api/meetings/token', async (req, res) => {
   const { code, passcode, name } = req.body || {};
-  if (!code || !passcode) return res.status(400).json({ error: 'Code and passcode required' });
+  if (!code) return res.status(400).json({ error: 'Code required' });
   const m = await db.get("SELECT * FROM meetings WHERE code=?", [code.toString()]);
   if (!m || m.status !== 'active') return res.status(404).json({ error: 'Meeting not found or ended' });
-  if (m.passcode !== passcode.toString().trim()) return res.status(403).json({ error: 'Invalid passcode' });
+  if (m.passcode && m.passcode !== (passcode || '').toString().trim()) return res.status(403).json({ error: 'Invalid passcode' });
   if (!livekitConfigured()) return res.status(503).json({ error: 'Video is not configured on the server' });
   const displayName = (name || 'Guest').toString().trim().slice(0, 40) || 'Guest';
   const room = meetingRoomName(m.code);

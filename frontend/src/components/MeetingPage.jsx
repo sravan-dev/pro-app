@@ -16,9 +16,10 @@ import Whiteboard from './Whiteboard';
 import '@livekit/components-styles';
 import { api } from '../api';
 
-// Public, account-less meeting page. Anyone with the link enters their name and
-// the 5-digit passcode, then joins a LiveKit room directly — no login, no user
-// account. The passcode is verified server-side, which mints the LiveKit token.
+// Public, account-less meeting page. Anyone with the link enters their name (and
+// the 5-digit passcode, if the meeting has one), then joins a LiveKit room
+// directly — no login, no user account. The passcode is verified server-side,
+// which mints the LiveKit token.
 export default function MeetingPage() {
   const { code } = useParams();
   const [info, setInfo] = useState(null);
@@ -28,6 +29,7 @@ export default function MeetingPage() {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState('');
   const [conn, setConn] = useState(null);
+  const needsPasscode = !!info?.passcode_required;
 
   useEffect(() => {
     let mounted = true;
@@ -78,7 +80,7 @@ export default function MeetingPage() {
           <img src="/logo.png" alt="Tiju's Academy" className="login-logo" />
           <h2 style={{ margin: '0.5rem 0' }}>{info?.title || 'Join Meeting'}</h2>
           <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>
-            Enter your name and the 5-digit passcode to join
+            {needsPasscode ? 'Enter your name and the 5-digit passcode to join' : 'Enter your name to join'}
           </p>
         </div>
 
@@ -92,18 +94,20 @@ export default function MeetingPage() {
               <label>Your Name</label>
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Alex" autoFocus />
             </div>
-            <div className="form-group">
-              <label>Passcode *</label>
-              <input
-                value={passcode}
-                onChange={(e) => setPasscode(e.target.value.replace(/\D/g, '').slice(0, 5))}
-                inputMode="numeric"
-                placeholder="5-digit code"
-                required
-                style={{ letterSpacing: '0.3em', fontSize: '1.1rem' }}
-              />
-            </div>
-            <button className="btn btn-primary btn-block" type="submit" disabled={joining || passcode.length !== 5}>
+            {needsPasscode && (
+              <div className="form-group">
+                <label>Passcode *</label>
+                <input
+                  value={passcode}
+                  onChange={(e) => setPasscode(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                  inputMode="numeric"
+                  placeholder="5-digit code"
+                  required
+                  style={{ letterSpacing: '0.3em', fontSize: '1.1rem' }}
+                />
+              </div>
+            )}
+            <button className="btn btn-primary btn-block" type="submit" disabled={joining || (needsPasscode && passcode.length !== 5)}>
               {joining ? 'Joining…' : 'Join Meeting'}
             </button>
           </form>
