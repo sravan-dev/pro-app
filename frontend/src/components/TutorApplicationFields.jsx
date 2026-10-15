@@ -178,10 +178,13 @@ export default function TutorApplicationFields({
       </section>
 
       <section className="register-section">
-        <h2>Declaration</h2>
+        <h2>Declaration <span className="req">*</span></h2>
         <label className="register-check">
           <input type="checkbox" checked={declared} onChange={(e) => setDeclared(e.target.checked)} required />
-          I hereby declare that all the information given above is true and correct to the best of my knowledge and belief.
+          <span>
+            I hereby declare that all the information given above is true and correct to the best of my knowledge and belief.
+            <span className="req"> *</span>
+          </span>
         </label>
         <div className="register-grid">
           <Field label="Signature (type your full name)" required>
