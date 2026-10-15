@@ -13,6 +13,7 @@ import ManagerPortal from './portals/ManagerPortal';
 import SuperadminPortal from './portals/SuperadminPortal';
 import SeedPage from './components/SeedPage';
 import TutorRegister from './components/TutorRegister';
+import Preloader from './components/Preloader';
 
 function AppRoutes() {
   const { user, loading } = useAuth();
@@ -28,7 +29,7 @@ function AppRoutes() {
   }, [user]);
 
   if (loading) {
-    return <div className="loading-screen"><div className="spinner" /><p>Loading Tijus SmS...</p></div>;
+    return <Preloader />;
   }
 
   const getDefaultRoute = () => {
