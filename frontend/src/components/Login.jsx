@@ -59,7 +59,7 @@ export default function Login() {
 
         <div className="signin-card">
           <img src="/logo.png" alt="Tiju's Academy" className="signin-logo" />
-          <h1 className="signin-title">Welcome Back…</h1>
+          <h1 className="signin-title" lang="de">Hallo!</h1>
           <p className="signin-sub">Please enter your email and password</p>
 
           <form onSubmit={handleSubmit} className="signin-form">
