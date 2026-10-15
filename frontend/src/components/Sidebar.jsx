@@ -130,6 +130,16 @@ export default function Sidebar({ activeTab, onTabChange }) {
     return () => { clearInterval(interval); window.removeEventListener('tickets:changed', refresh); };
   }, [hasTickets]);
 
+  // Contact totals shown next to the HubSpot / Kajabi menu items, e.g. "(1,234)".
+  const [contactCounts, setContactCounts] = useState({});
+  const hasHubspot = items.some((i) => i.key === 'contacts');
+  const hasKajabi = items.some((i) => i.key === 'kajabi');
+  useEffect(() => {
+    const save = (key) => (r) => { if (typeof r.count === 'number') setContactCounts((c) => ({ ...c, [key]: r.count })); };
+    if (hasHubspot) api.getHubspotStatus().then(save('contacts')).catch(() => {});
+    if (hasKajabi) api.getKajabiStatus().then(save('kajabi')).catch(() => {});
+  }, [hasHubspot, hasKajabi]);
+
   const handleLogout = async () => {
     await logout();
     navigate('/login');
@@ -210,7 +220,10 @@ export default function Sidebar({ activeTab, onTabChange }) {
             onClick={() => { onTabChange(item.key); setMobileOpen(false); }}
           >
             <span className="sidebar-icon">{iconMap[item.icon] || <Svg><circle cx="12" cy="12" r="3" /></Svg>}</span>
-            <span className="sidebar-label">{item.label}</span>
+            <span className="sidebar-label">
+              {item.label}
+              {contactCounts[item.key] != null && ` (${contactCounts[item.key].toLocaleString()})`}
+            </span>
             {item.key === 'tickets' && ticketCount > 0 && (
               <span className="sidebar-badge">{ticketCount > 99 ? '99+' : ticketCount}</span>
             )}
