@@ -204,7 +204,7 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; }
   padding: 6px; border-radius: 8px; display: inline-flex; line-height: 0;
 }
 .mobile-menu-btn:hover { background: rgba(255,255,255,0.12); }
-.mobile-topbar-logo { height: 28px; width: auto; }
+.mobile-topbar-logo { height: 40px; width: auto; }
 .sidebar-backdrop { display: none; }
 
 /* ========================================
@@ -1309,11 +1309,11 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
   /* Show the top bar with the hamburger; sidebar becomes a slide-in drawer. */
   .mobile-topbar {
     display: flex; align-items: center; gap: 12px;
-    position: fixed; top: 0; left: 0; right: 0; height: 56px;
+    position: fixed; top: 0; left: 0; right: 0; height: 64px;
     background: var(--color-sidebar); padding: 0 12px; z-index: 90;
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
   }
-  .portal-content { margin-left: 0; padding: 1rem; padding-top: 72px; }
+  .portal-content { margin-left: 0; padding: 1rem; padding-top: 80px; }
   .sidebar {
     width: 260px;
     transform: translateX(-100%);
