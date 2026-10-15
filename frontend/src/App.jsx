@@ -28,7 +28,7 @@ function AppRoutes() {
   }, [user]);
 
   if (loading) {
-    return <div className="loading-screen"><div className="spinner" /><p>Loading TijusPro...</p></div>;
+    return <div className="loading-screen"><div className="spinner" /><p>Loading Tijus SmS...</p></div>;
   }
 
   const getDefaultRoute = () => {
