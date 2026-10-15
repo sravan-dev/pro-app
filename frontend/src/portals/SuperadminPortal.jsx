@@ -14,6 +14,7 @@ import TutorApplications from '../components/TutorApplications';
 import BlacklistModal from '../components/BlacklistModal';
 import TutorProfile from '../components/TutorProfile';
 import ZoomMeetings from '../components/ZoomMeetings';
+import MeetingsManager from '../components/MeetingsManager';
 import usePersistedTab from '../hooks/usePersistedTab';
 import downloadCsv, { today } from '../utils/downloadCsv';
 
@@ -75,10 +76,6 @@ export default function SuperadminPortal() {
   const [allTimeSlots, setAllTimeSlots] = useState([]);
   const [editingSlot, setEditingSlot] = useState(null);
   const [slotForm, setSlotForm] = useState({ start_time: '', end_time: '', note: '' });
-  const [meetings, setMeetings] = useState([]);
-  const [creatingMeeting, setCreatingMeeting] = useState(false);
-  const [showMeetingForm, setShowMeetingForm] = useState(false);
-  const [meetingForm, setMeetingForm] = useState({ title: '', name: '', email: '' });
   const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
   const [reports, setReports] = useState(null);
 
@@ -470,7 +467,6 @@ export default function SuperadminPortal() {
     if (activeTab === 'attendance' && allAttendance.length === 0) api.getAttendanceLogs().then(setAllAttendance).catch(() => {});
     if (activeTab === 'recordings') api.getMeetingRecords().then(setRecordings).catch(() => {});
     if (activeTab === 'timeslots') api.getAvailability().then(setAllTimeSlots).catch(() => {});
-    if (activeTab === 'meetings') api.getMeetings().then(setMeetings).catch(() => {});
     if (activeTab === 'dashboard' && allSessions.length === 0) api.getSessions().then(setAllSessions).catch(() => {});
     if (activeTab === 'reports' && !reports) api.reports().then(setReports).catch(() => {});
     if (activeTab === 'integrations' && !smtpLoaded) api.getSmtpSettings().then((s) => { setSmtpForm({ provider: 'smtp', resend_api_key: '', resend_monthly_cap: 0, resend_quota_used: '', resend_quota_at: null, gmail_user: '', gmail_app_password: '', ...s }); setSmtpLoaded(true); }).catch(() => {});
@@ -733,56 +729,6 @@ export default function SuperadminPortal() {
     const failed = ids.length - deleted.length;
     if (failed) showMsg(`${deleted.length} deleted, ${failed} failed`, 'error');
     else showMsg(`All ${deleted.length} recording(s) deleted`, 'success');
-  };
-
-  // ===== MEETINGS (temporary link + passcode) =====
-  const meetingLink = (code) => `${window.location.origin}/m/${code}`;
-
-  const openMeetingForm = () => {
-    setMeetingForm({ title: '', name: '', email: '' });
-    setShowMeetingForm(true);
-  };
-
-  const submitMeeting = async (e) => {
-    e.preventDefault();
-    setCreatingMeeting(true);
-    try {
-      const m = await api.createMeeting({
-        title: meetingForm.title.trim() || 'Meeting',
-        name: meetingForm.name.trim(),
-        email: meetingForm.email.trim(),
-      });
-      setMeetings(await api.getMeetings());
-      setShowMeetingForm(false);
-      try { await navigator.clipboard.writeText(`${meetingLink(m.code)}\nPasscode: ${m.passcode}`); } catch {}
-      showMsg(`Meeting created — link + passcode ${m.passcode} copied to clipboard`, 'success');
-    } catch (err) { showMsg(err.message, 'error'); }
-    finally { setCreatingMeeting(false); }
-  };
-
-  const endMeeting = async (id) => {
-    if (!confirm('End this meeting? The link and passcode will stop working. It stays in the list as history.')) return;
-    try {
-      await api.endMeeting(id);
-      setMeetings(await api.getMeetings());
-      showMsg('Meeting ended', 'success');
-    } catch (err) { showMsg(err.message, 'error'); }
-  };
-
-  const deleteMeeting = async (id) => {
-    if (!confirm('Permanently delete this meeting from history? This cannot be undone.')) return;
-    try {
-      await api.deleteMeeting(id);
-      setMeetings(await api.getMeetings());
-      showMsg('Meeting deleted', 'success');
-    } catch (err) { showMsg(err.message, 'error'); }
-  };
-
-  const copyMeeting = async (m) => {
-    try {
-      await navigator.clipboard.writeText(`${meetingLink(m.code)}\nPasscode: ${m.passcode}`);
-      showMsg('Link + passcode copied', 'success');
-    } catch { showMsg('Copy failed — copy manually', 'error'); }
   };
 
   // ===== COURSE CRUD =====
@@ -2116,34 +2062,6 @@ export default function SuperadminPortal() {
     </div>
   );
 
-  const meetingFormModal = showMeetingForm && (
-    <div className="modal-overlay">
-      <div className="modal">
-        <h3>New Meeting</h3>
-        <form onSubmit={submitMeeting}>
-          <div className="form-group">
-            <label>Subject *</label>
-            <input value={meetingForm.title} onChange={(e) => setMeetingForm({ ...meetingForm, title: e.target.value })} placeholder="e.g. Demo class" required autoFocus />
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label>Host Name *</label>
-              <input value={meetingForm.name} onChange={(e) => setMeetingForm({ ...meetingForm, name: e.target.value })} placeholder="e.g. Tiju" required />
-            </div>
-            <div className="form-group">
-              <label>Host Email</label>
-              <input type="email" value={meetingForm.email} onChange={(e) => setMeetingForm({ ...meetingForm, email: e.target.value })} placeholder="name@example.com" />
-            </div>
-          </div>
-          <div className="form-actions">
-            <button type="button" className="btn btn-ghost" onClick={() => setShowMeetingForm(false)}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={creatingMeeting}>{creatingMeeting ? 'Creating…' : 'Create Meeting'}</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-
   const eligibleManagers = [...allTutors, ...(data?.users || []).filter((u) => ['manager','advisor'].includes(u.role))]
     .filter((u, i, arr) => arr.findIndex((x) => x.id === u.id) === i)
     .filter((u) => !materialManagers.some((m) => m.user_id === u.id));
@@ -2736,7 +2654,6 @@ export default function SuperadminPortal() {
         {courseFormModal}
         {courseMgrModal}
         {categoryMgrModal}
-        {meetingFormModal}
         {materialsMgrModal}
         {enrollFormModal}
         {enrollContactModal}
@@ -3212,77 +3129,7 @@ export default function SuperadminPortal() {
         {activeTab === 'zoom' && <ZoomMeetings key={zoomReload} view={zoomView} onViewChange={setZoomView} onContactsCount={setZoomContactsCount} />}
 
         {/* ===== MEETINGS ===== */}
-        {activeTab === 'meetings' && (
-          <div className="portal-page">
-            <div className="page-header">
-              <h2>Meetings</h2>
-              <button className="btn btn-primary" onClick={openMeetingForm} disabled={creatingMeeting}>
-                + New Meeting
-              </button>
-            </div>
-            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
-              Create a temporary meeting link. Share the link and 5-digit passcode — anyone can join directly, no account needed.
-              Ended meetings stay here as history until you delete them.
-            </p>
-            {meetings.length === 0 ? (
-              <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>
-                No meetings yet. Click “New Meeting” to create one.
-              </div>
-            ) : (
-              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <table className="data-table" style={{ width: '100%' }}>
-                  <thead>
-                    <tr>
-                      <th>Subject</th>
-                      <th>Host</th>
-                      <th>Link</th>
-                      <th>Passcode</th>
-                      <th>Status</th>
-                      <th>Created</th>
-                      <th style={{ textAlign: 'right' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {meetings.map((m) => {
-                      const active = m.status === 'active';
-                      return (
-                        <tr key={m.id} style={{ opacity: active ? 1 : 0.65 }}>
-                          <td><strong>{m.title}</strong></td>
-                          <td style={{ fontSize: '13px' }}>
-                            {m.host_name || '—'}
-                            {m.host_email && <div style={{ color: '#888', fontSize: '12px' }}>{m.host_email}</div>}
-                          </td>
-                          <td>
-                            {active ? (
-                              <a href={meetingLink(m.code)} target="_blank" rel="noreferrer" style={{ color: 'var(--color-primary, #4F46E5)' }}>
-                                /m/{m.code}
-                              </a>
-                            ) : (
-                              <span style={{ color: '#aaa' }}>/m/{m.code}</span>
-                            )}
-                          </td>
-                          <td><span style={{ fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.15em' }}>{m.passcode}</span></td>
-                          <td>
-                            <span style={{ fontSize: '12px', fontWeight: 600, padding: '2px 10px', borderRadius: '999px', background: active ? '#DCFCE7' : '#F1F5F9', color: active ? '#166534' : '#64748B' }}>
-                              {active ? 'Active' : 'Ended'}
-                            </span>
-                          </td>
-                          <td style={{ color: '#888', fontSize: '13px' }}>{new Date(m.created_at.replace(' ', 'T') + 'Z').toLocaleString()}</td>
-                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            {active && <button className="btn btn-sm btn-ghost" onClick={() => copyMeeting(m)}>Copy</button>}
-                            {active && <a className="btn btn-sm btn-ghost" href={meetingLink(m.code)} target="_blank" rel="noreferrer">Open</a>}
-                            {active && <button className="btn btn-sm btn-ghost" onClick={() => endMeeting(m.id)}>End</button>}
-                            <button className="btn btn-sm btn-ghost text-danger" onClick={() => deleteMeeting(m.id)}>Delete</button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
+        {activeTab === 'meetings' && <MeetingsManager onMessage={showMsg} />}
 
         {/* ===== SESSIONS ===== */}
         {activeTab === 'sessions' && (

@@ -1223,12 +1223,12 @@ async function genMeetingCode(table = 'meetings') {
 }
 const genPasscode = () => String(10000 + (crypto.randomBytes(4).readUInt32BE(0) % 90000)); // 5 digits
 
-// Admin: create a meeting → returns the join code + passcode.
+// Superadmin or tutor: create a meeting → returns the join code + passcode.
 app.post('/api/meetings', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const user = await requireRole(req, res, ['superadmin','tutor']); if (!user) return;
   const title = (req.body?.title || 'Meeting').toString().trim().slice(0, 80) || 'Meeting';
-  const hostName = (req.body?.name || '').toString().trim().slice(0, 80);
-  const hostEmail = (req.body?.email || '').toString().trim().slice(0, 120);
+  const hostName = (req.body?.name || (user.role === 'tutor' ? user.name : '') || '').toString().trim().slice(0, 80);
+  const hostEmail = (req.body?.email || (user.role === 'tutor' ? user.email : '') || '').toString().trim().slice(0, 120);
   const code = await genMeetingCode();
   const passcode = genPasscode();
   const r = await db.run("INSERT INTO meetings (code,passcode,title,host_name,host_email,created_by) VALUES (?,?,?,?,?,?)",
@@ -1237,21 +1237,26 @@ app.post('/api/meetings', async (req, res) => {
   res.status(201).json({ id: r.lastInsertRowid, code, passcode, title, host_name: hostName, host_email: hostEmail, status: 'active' });
 });
 
-// Admin: list meetings (newest first), active and ended.
+// List meetings (newest first), active and ended. Superadmin sees all of them,
+// a tutor only the ones they created.
 app.get('/api/meetings', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
-  res.json(await db.all("SELECT id,code,passcode,title,host_name,host_email,status,created_at FROM meetings ORDER BY created_at DESC"));
+  const user = await requireRole(req, res, ['superadmin','tutor']); if (!user) return;
+  const cols = "SELECT id,code,passcode,title,host_name,host_email,status,created_at FROM meetings";
+  res.json(user.role === 'superadmin'
+    ? await db.all(`${cols} ORDER BY created_at DESC`)
+    : await db.all(`${cols} WHERE created_by=? ORDER BY created_at DESC`, [user.id]));
 });
 
-// Admin: end a meeting (passcode stops working) or, with ?permanent=true,
-// delete it from history entirely. Ending also drops the LiveKit room.
+// End a meeting (passcode stops working) or, with ?permanent=true, delete it
+// from history entirely. Ending also drops the LiveKit room. Tutors can only
+// touch meetings they created.
 app.delete('/api/meetings', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const user = await requireRole(req, res, ['superadmin','tutor']); if (!user) return;
   const id = parseInt(req.query.id);
   if (!id) return res.status(400).json({ error: 'Meeting ID required' });
   const permanent = req.query.permanent === 'true';
   const m = await db.get("SELECT * FROM meetings WHERE id=?", [id]);
-  if (!m) return res.status(404).json({ error: 'Meeting not found' });
+  if (!m || (user.role === 'tutor' && m.created_by !== user.id)) return res.status(404).json({ error: 'Meeting not found' });
   if (livekitConfigured()) {
     try {
       const { RoomServiceClient } = await getLiveKit();

@@ -8,6 +8,7 @@ import Calendar from '../components/Calendar';
 import SessionCard from '../components/SessionCard';
 import SessionDock from '../components/SessionDock';
 import TutorMyProfile from '../components/TutorMyProfile';
+import MeetingsManager from '../components/MeetingsManager';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
 
@@ -615,6 +616,8 @@ export default function TutorPortal() {
             )}
           </div>
         )}
+
+        {activeTab === 'meetings' && <MeetingsManager onMessage={setMessage} defaultHost={{ name: user?.name, email: user?.email }} />}
 
         {activeTab === 'profile' && <TutorMyProfile />}
         </div>

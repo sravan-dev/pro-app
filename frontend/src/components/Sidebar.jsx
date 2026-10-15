@@ -17,6 +17,7 @@ const menuItems = {
     { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
     { key: 'students', label: 'Students', icon: 'users' },
     { key: 'sessions', label: 'Sessions', icon: 'video' },
+    { key: 'meetings', label: 'Meetings', icon: 'link' },
     { key: 'availability', label: 'My Availability', icon: 'clock' },
     { key: 'attendance', label: 'Attendance', icon: 'check-square' },
     { key: 'recordings', label: 'Recordings', icon: 'film' },
