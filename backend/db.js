@@ -210,6 +210,12 @@ async function initSchema() {
   await addColumnIfMissing('smtp_settings', 'gmail_user', "gmail_user VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('smtp_settings', 'gmail_app_password', "gmail_app_password VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('sessions', 'student_id', 'student_id INT NULL');
+  // A course's tutor is optional ("None" in the course form).
+  const courseTutor = await get(
+    `SELECT IS_NULLABLE AS nullable FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'courses' AND column_name = 'tutor_id'`
+  );
+  if (courseTutor?.nullable === 'NO') await exec('ALTER TABLE courses MODIFY tutor_id INT NULL');
   // Payroll: per-row shift breakdown snapshot taken at pay time.
   await addColumnIfMissing('payroll_runs', 'breakdown', 'breakdown TEXT');
   // Zoom Contacts: when each synced session ran, for the "not synced yet" count.

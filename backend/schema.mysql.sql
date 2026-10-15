@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS courses (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   category VARCHAR(100) NOT NULL,
-  tutor_id INT NOT NULL,
+  tutor_id INT NULL,
   students_count INT DEFAULT 0,
   progress DOUBLE DEFAULT 0,
   icon VARCHAR(50) DEFAULT 'book',

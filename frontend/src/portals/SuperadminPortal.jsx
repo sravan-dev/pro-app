@@ -922,7 +922,7 @@ export default function SuperadminPortal() {
 
   const openEditCourse = (course) => {
     setEditingCourse(course);
-    setCourseForm({ name: course.name, category: course.category, tutor_id: course.tutor_id, color: course.color, icon: course.icon || 'book', status: course.status });
+    setCourseForm({ name: course.name, category: course.category, tutor_id: course.tutor_id || '', color: course.color, icon: course.icon || 'book', status: course.status });
     setShowCourseForm(true);
   };
 
@@ -1510,7 +1510,7 @@ export default function SuperadminPortal() {
   const courseColumns = [
     { key: 'name', label: 'Course', accessor: 'name' },
     { key: 'category', label: 'Category', accessor: 'category', render: (r) => <span className="role-badge role-advisor">{r.category}</span> },
-    { key: 'tutor', label: 'Tutor', accessor: 'tutor_name' },
+    { key: 'tutor', label: 'Tutor', accessor: 'tutor_name', render: (r) => r.tutor_name || <span style={{ color: 'var(--color-text-secondary)' }}>None</span> },
     { key: 'students', label: 'Students', accessor: 'students_count' },
     { key: 'progress', label: 'Progress', accessor: 'progress', render: (r) => progressCol(r, 'progress') },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
@@ -1942,9 +1942,9 @@ export default function SuperadminPortal() {
               </select>
             </div>
             <div className="form-group">
-              <label>Tutor *</label>
-              <select value={courseForm.tutor_id} onChange={(e) => setCourseForm({ ...courseForm, tutor_id: e.target.value })} required>
-                <option value="">Select tutor...</option>
+              <label>Tutor</label>
+              <select value={courseForm.tutor_id} onChange={(e) => setCourseForm({ ...courseForm, tutor_id: e.target.value })}>
+                <option value="">None</option>
                 {tutors.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
@@ -2557,10 +2557,10 @@ export default function SuperadminPortal() {
             <select value={sessionForm.course_id} onChange={(e) => {
               const cid = e.target.value;
               const course = (data?.courses || []).find((c) => String(c.id) === cid);
-              setSessionForm({ ...sessionForm, course_id: cid, tutor_id: course ? String(course.tutor_id) : '' });
+              setSessionForm({ ...sessionForm, course_id: cid, tutor_id: course?.tutor_id ? String(course.tutor_id) : '' });
             }} required>
               <option value="">Select course...</option>
-              {(data?.courses || []).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.tutor_name})</option>)}
+              {(data?.courses || []).map((c) => <option key={c.id} value={c.id}>{c.name}{c.tutor_name ? ` (${c.tutor_name})` : ''}</option>)}
             </select>
           </div>
           <div className="form-group">

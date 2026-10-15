@@ -586,12 +586,12 @@ app.get('/api/bootstrap', async (req, res) => {
   const data = { user, courses: [], students: [], tutors: [] };
 
   if (user.role === 'student') {
-    data.courses = await db.all("SELECT c.*,u.name as tutor_name,e.progress_percentage,e.grade,e.status as enrollment_status FROM courses c JOIN enrollments e ON e.course_id=c.id JOIN users u ON u.id=c.tutor_id WHERE e.student_id=?", [user.id]);
+    data.courses = await db.all("SELECT c.*,u.name as tutor_name,e.progress_percentage,e.grade,e.status as enrollment_status FROM courses c JOIN enrollments e ON e.course_id=c.id LEFT JOIN users u ON u.id=c.tutor_id WHERE e.student_id=?", [user.id]);
   } else if (user.role === 'tutor') {
     data.courses = await db.all("SELECT c.* FROM courses c WHERE c.tutor_id=?", [user.id]);
     data.students = await db.all("SELECT u.id,u.name,u.email,u.status,u.avatar_color,e.course_id,e.progress_percentage,e.grade,c.name as course_name FROM users u JOIN enrollments e ON e.student_id=u.id JOIN courses c ON c.id=e.course_id WHERE c.tutor_id=? ORDER BY u.name", [user.id]);
   } else {
-    data.courses = await db.all("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id ORDER BY c.name");
+    data.courses = await db.all("SELECT c.*,u.name as tutor_name FROM courses c LEFT JOIN users u ON u.id=c.tutor_id WHERE (c.tutor_id IS NULL OR u.id IS NOT NULL) ORDER BY c.name");
     data.students = await db.all("SELECT id,name,email,status,avatar_color,specialization FROM users WHERE role='student' ORDER BY name");
     data.tutors = await db.all("SELECT id,name,email,status,avatar_color,specialization FROM users WHERE role='tutor' ORDER BY name");
   }
@@ -605,7 +605,7 @@ app.get('/api/portal-data', async (req, res) => {
 
   switch (user.role) {
     case 'student': {
-      data.courses = await db.all("SELECT c.*,u.name as tutor_name,e.progress_percentage,e.grade,e.status as enrollment_status FROM courses c JOIN enrollments e ON e.course_id=c.id JOIN users u ON u.id=c.tutor_id WHERE e.student_id=? ORDER BY c.name", [user.id]);
+      data.courses = await db.all("SELECT c.*,u.name as tutor_name,e.progress_percentage,e.grade,e.status as enrollment_status FROM courses c JOIN enrollments e ON e.course_id=c.id LEFT JOIN users u ON u.id=c.tutor_id WHERE e.student_id=? ORDER BY c.name", [user.id]);
       data.upcoming_sessions = await db.all("SELECT s.*,c.name as course_name,u.name as tutor_name FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? WHERE s.start_time>? AND s.status='scheduled' AND (s.student_id IS NULL OR s.student_id=?) ORDER BY s.start_time LIMIT 20", [user.id, nowStr(), user.id]);
       // Sessions in the student's enrolled courses happening right now.
       data.live_sessions = await db.all("SELECT s.*, c.name as course_name, u.name as tutor_name, (SELECT COUNT(*) FROM attendance_logs a WHERE a.session_id=s.session_id AND a.leave_time IS NULL) as active_participants FROM sessions s JOIN courses c ON c.id=s.course_id JOIN users u ON u.id=s.tutor_id JOIN enrollments e ON e.course_id=s.course_id AND e.student_id=? WHERE s.status='live' AND (s.student_id IS NULL OR s.student_id=?) ORDER BY s.start_time DESC", [user.id, user.id]);
@@ -640,7 +640,7 @@ app.get('/api/portal-data', async (req, res) => {
       // Scoped to the students assigned to this advisor (manual assignment).
       data.students = await db.all("SELECT u.id,u.name,u.email,u.status,u.avatar_color, COUNT(e.enrollment_id) as enrolled_courses, ROUND(AVG(e.progress_percentage),1) as avg_progress, GROUP_CONCAT(DISTINCT e.grade) as grades FROM users u LEFT JOIN enrollments e ON e.student_id=u.id WHERE u.role='student' AND u.advisor_id=? GROUP BY u.id ORDER BY u.name", [user.id]);
       data.at_risk = await db.all("SELECT u.id,u.name,u.email,u.avatar_color, ROUND(AVG(e.progress_percentage),1) as avg_progress FROM users u JOIN enrollments e ON e.student_id=u.id WHERE u.role='student' AND u.advisor_id=? GROUP BY u.id HAVING avg_progress<40 ORDER BY avg_progress", [user.id]);
-      data.courses = await db.all("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id");
+      data.courses = await db.all("SELECT c.*,u.name as tutor_name FROM courses c LEFT JOIN users u ON u.id=c.tutor_id WHERE (c.tutor_id IS NULL OR u.id IS NOT NULL)");
       break;
     }
     case 'manager': {
@@ -659,7 +659,7 @@ app.get('/api/portal-data', async (req, res) => {
         completed_sessions: (await db.get("SELECT COUNT(*) as c FROM sessions WHERE status='completed'")).c,
       };
       data.tutors = await db.all(`SELECT u.id,u.name,u.email,u.status,u.avatar_color,u.specialization, COUNT(DISTINCT c.id) as course_count, SUM(c.students_count) as total_students, COUNT(DISTINCT CASE WHEN s.status='completed' THEN s.session_id END) as sessions_completed FROM users u LEFT JOIN courses c ON c.tutor_id=u.id LEFT JOIN sessions s ON s.tutor_id=u.id WHERE u.role='tutor' AND u.team_id IN (${inClause}) GROUP BY u.id ORDER BY u.name`, tids);
-      data.courses = await db.all("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id ORDER BY c.category,c.name");
+      data.courses = await db.all("SELECT c.*,u.name as tutor_name FROM courses c LEFT JOIN users u ON u.id=c.tutor_id WHERE (c.tutor_id IS NULL OR u.id IS NOT NULL) ORDER BY c.category,c.name");
       data.enrollment_by_category = await db.all(`SELECT c.category, COUNT(e.enrollment_id) as count FROM courses c LEFT JOIN enrollments e ON e.course_id=c.id LEFT JOIN users u ON u.id=e.student_id WHERE u.team_id IN (${inClause}) GROUP BY c.category ORDER BY count DESC`, tids);
       // Assignment UI data: this manager's teams, their students (with current
       // advisor/tutor), and the advisor & tutor pools within those teams.
@@ -681,7 +681,7 @@ app.get('/api/portal-data', async (req, res) => {
         total_enrollments: (await db.get("SELECT COUNT(*) as c FROM enrollments")).c,
       };
       data.users = await db.all("SELECT id,name,email,portal,role,status,avatar_color,specialization,gender,team_id,advisor_id,assigned_tutor_id,created_at FROM users ORDER BY created_at DESC");
-      data.courses = await db.all("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id ORDER BY c.name");
+      data.courses = await db.all("SELECT c.*,u.name as tutor_name FROM courses c LEFT JOIN users u ON u.id=c.tutor_id WHERE (c.tutor_id IS NULL OR u.id IS NOT NULL) ORDER BY c.name");
       data.audit_logs = await db.all("SELECT a.*,u.name as user_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 50");
       // Sessions happening right now (status='live'), with who's currently in.
       data.live_sessions = await db.all("SELECT s.session_id, s.start_time, s.status, s.room_name, c.name as course_name, u.name as tutor_name, (SELECT COUNT(*) FROM attendance_logs a WHERE a.session_id=s.session_id AND a.leave_time IS NULL) as active_participants FROM sessions s JOIN courses c ON c.id=s.course_id LEFT JOIN users u ON u.id=s.tutor_id WHERE s.status='live' ORDER BY s.start_time DESC");
@@ -805,14 +805,14 @@ app.get('/api/tutors/:id', async (req, res) => {
 // Courses
 app.get('/api/courses', async (req, res) => {
   const user = await requireAuth(req, res); if (!user) return;
-  res.json(await db.all("SELECT c.*,u.name as tutor_name FROM courses c JOIN users u ON u.id=c.tutor_id ORDER BY c.name"));
+  res.json(await db.all("SELECT c.*,u.name as tutor_name FROM courses c LEFT JOIN users u ON u.id=c.tutor_id WHERE (c.tutor_id IS NULL OR u.id IS NOT NULL) ORDER BY c.name"));
 });
 
 app.post('/api/courses', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin','manager']); if (!user) return;
   const { name, category, tutor_id, color, icon } = req.body;
-  if (!name || !category || !tutor_id) return res.status(400).json({ error: 'Name, category, and tutor required' });
-  const r = await db.run("INSERT INTO courses (name,category,tutor_id,color,icon) VALUES (?,?,?,?,?)", [name, category, tutor_id, color || '#3B82F6', icon || 'book']);
+  if (!name || !category) return res.status(400).json({ error: 'Name and category required' });
+  const r = await db.run("INSERT INTO courses (name,category,tutor_id,color,icon) VALUES (?,?,?,?,?)", [name, category, tutor_id || null, color || '#3B82F6', icon || 'book']);
   auditLog(user.id, 'create_course', 'course', r.lastInsertRowid, `Created: ${name}`);
   res.status(201).json({ id: r.lastInsertRowid, message: 'Course created' });
 });
@@ -823,7 +823,7 @@ app.put('/api/courses', async (req, res) => {
   if (!id) return res.status(400).json({ error: 'Course ID required' });
   const allowed = ['name','category','tutor_id','color','icon','status'];
   const sets = []; const vals = [];
-  for (const k of allowed) { if (fields[k] !== undefined) { sets.push(`${k}=?`); vals.push(fields[k]); } }
+  for (const k of allowed) { if (fields[k] !== undefined) { sets.push(`${k}=?`); vals.push(k === 'tutor_id' ? (fields[k] || null) : fields[k]); } }
   if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
   vals.push(id);
   await db.run(`UPDATE courses SET ${sets.join(',')} WHERE id=?`, vals);
@@ -1081,7 +1081,7 @@ app.delete('/api/course-material-managers', async (req, res) => {
 // Enrollments
 app.get('/api/enrollments', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin','manager','advisor']); if (!user) return;
-  res.json(await db.all("SELECT e.*,u.name as student_name,u.email as student_email,u.avatar_color, c.name as course_name,c.category as course_category,t.name as tutor_name FROM enrollments e JOIN users u ON u.id=e.student_id JOIN courses c ON c.id=e.course_id JOIN users t ON t.id=c.tutor_id ORDER BY e.enrollment_date DESC"));
+  res.json(await db.all("SELECT e.*,u.name as student_name,u.email as student_email,u.avatar_color, c.name as course_name,c.category as course_category,t.name as tutor_name FROM enrollments e JOIN users u ON u.id=e.student_id JOIN courses c ON c.id=e.course_id LEFT JOIN users t ON t.id=c.tutor_id ORDER BY e.enrollment_date DESC"));
 });
 
 app.post('/api/enrollments', async (req, res) => {
@@ -1383,7 +1383,7 @@ app.post('/api/end-session', async (req, res) => {
 // canAccessSession), so no course enrollment is needed. Booked sessions hang off
 // one shared hidden '1-on-1 Session' course (tutor_id 0, status 'draft') purely
 // to satisfy sessions.course_id — it stays out of course lists because those
-// INNER JOIN users.
+// only keep courses with no tutor (NULL) or a tutor that exists.
 // ============================================================
 
 // Tutors that have at least one open, future slot (student browse list).

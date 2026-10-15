@@ -337,7 +337,7 @@ export default function StudentPortal() {
           <div className="modal-overlay">
             <div className="modal" style={{ maxWidth: '640px', width: '90%' }}>
               <h3>{viewingCourse.name} — Course Materials</h3>
-              <p style={{ color: '#666', fontSize: '13px', marginTop: '-4px' }}>by {viewingCourse.tutor_name}</p>
+              {viewingCourse.tutor_name && <p style={{ color: '#666', fontSize: '13px', marginTop: '-4px' }}>by {viewingCourse.tutor_name}</p>}
               {materialsLoading && <p>Loading...</p>}
               {materialsError && <p style={{ color: '#dc2626' }}>{materialsError}</p>}
               {!materialsLoading && !materialsError && viewMaterials.length === 0 && (
