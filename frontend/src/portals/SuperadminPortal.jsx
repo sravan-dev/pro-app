@@ -15,6 +15,7 @@ import BlacklistModal from '../components/BlacklistModal';
 import TutorProfile from '../components/TutorProfile';
 import ZoomMeetings from '../components/ZoomMeetings';
 import MeetingsManager from '../components/MeetingsManager';
+import ContactsDirectory from '../components/ContactsDirectory';
 import usePersistedTab from '../hooks/usePersistedTab';
 import downloadCsv, { today } from '../utils/downloadCsv';
 import { formatMoney as fmtMoney } from '../utils/money';
@@ -132,40 +133,21 @@ export default function SuperadminPortal() {
   const [livekitStatus, setLivekitStatus] = useState(null);
   const [livekitTesting, setLivekitTesting] = useState(false);
 
-  // HubSpot CRM integration + contacts list
+  // HubSpot CRM integration
   const [hubspot, setHubspot] = useState({ hubspot_token: '', hubspot_connected: false });
   const [hubspotSaving, setHubspotSaving] = useState(false);
 
   // Zoom Meeting SDK app — lets students join Zoom classes inside the site (/join/<code>)
   const [zoomSdk, setZoomSdk] = useState({ zoom_sdk_key: '', zoom_sdk_secret: '', zoom_sdk_has_secret: false });
   const [zoomSdkSaving, setZoomSdkSaving] = useState(false);
-  const [contacts, setContacts] = useState([]);
-  const [contactsLoading, setContactsLoading] = useState(false);
-  const [contactsError, setContactsError] = useState('');
-  const [contactsTotal, setContactsTotal] = useState(null); // total records in HubSpot
-  const [contactSearch, setContactSearch] = useState('');   // committed search term
-  const [contactSearchInput, setContactSearchInput] = useState(''); // live input box
-  const [contactPage, setContactPage] = useState(0);        // 0-based page index
-  const [contactNextAfter, setContactNextAfter] = useState(''); // cursor for the next page
-  const contactCursors = useRef(['']);  // `after` cursor for each visited page; [0] = first page
-  const contactsInit = useRef(false);   // have we loaded the tab at least once?
 
-  // Kajabi integration + contacts list (mirrors the HubSpot setup; 1-based pages)
+  // Kajabi integration
   const [kajabiCount, setKajabiCount] = useState(null); // total Kajabi contacts
   const [zoomContactsCount, setZoomContactsCount] = useState(null); // people who joined our Zoom meetings
   const [zoomView, setZoomView] = usePersistedTab('tab:superadmin:zoom', 'upcoming');
   const [zoomReload, setZoomReload] = useState(0); // bumped by the sidebar to refetch from Zoom
   const [kajabi, setKajabi] = useState({ kajabi_client_id: '', kajabi_client_secret: '', kajabi_connected: false });
   const [kajabiSaving, setKajabiSaving] = useState(false);
-  const [kajabiContacts, setKajabiContacts] = useState([]);
-  const [kajabiLoading, setKajabiLoading] = useState(false);
-  const [kajabiError, setKajabiError] = useState('');
-  const [kajabiTotal, setKajabiTotal] = useState(null);
-  const [kajabiSearch, setKajabiSearch] = useState('');
-  const [kajabiSearchInput, setKajabiSearchInput] = useState('');
-  const [kajabiPage, setKajabiPage] = useState(1);          // 1-based page
-  const [kajabiHasNext, setKajabiHasNext] = useState(false);
-  const kajabiInit = useRef(false);
 
   const [showCourseForm, setShowCourseForm] = useState(false);
   const [showCourseMgr, setShowCourseMgr] = useState(false);
@@ -194,8 +176,6 @@ export default function SuperadminPortal() {
   const [showEnrollForm, setShowEnrollForm] = useState(false);
   const [editingEnroll, setEditingEnroll] = useState(null);
   const [enrollForm, setEnrollForm] = useState({ student_id: '', course_id: '', progress_percentage: 0, grade: '', status: 'active' });
-  const [pendingEnrollContact, setPendingEnrollContact] = useState(null); // contact awaiting "create student" confirm
-  const [enrollBusy, setEnrollBusy] = useState(false);
 
   // Quick "Assign Course" action from a student row: pick a course and enroll.
   const [assignCourseStudent, setAssignCourseStudent] = useState(null); // the student being assigned, or null (modal closed)
@@ -384,67 +364,6 @@ export default function SuperadminPortal() {
     }).catch(() => {});
   }, []);
 
-  // Load one server-side page of HubSpot contacts. `pageIndex` looks up its
-  // cursor in contactCursors; `q` is the active search term. The CRM is paged
-  // 100 at a time so this scales to the full contact list (tens of thousands).
-  const loadContacts = useCallback((pageIndex = 0, q = contactSearch) => {
-    setContactsLoading(true);
-    setContactsError('');
-    const after = contactCursors.current[pageIndex] || '';
-    api.getHubspotContacts({ after, q })
-      .then((r) => {
-        setContacts(r.contacts || []);
-        if (typeof r.total === 'number') setContactsTotal(r.total);
-        contactCursors.current[pageIndex + 1] = r.after || ''; // remember the next page's cursor
-        setContactNextAfter(r.after || '');
-        setContactPage(pageIndex);
-      })
-      .catch((err) => setContactsError(err.message))
-      .finally(() => setContactsLoading(false));
-  }, [contactSearch]);
-
-  // Run a new search: reset paging back to the first page, then fetch.
-  const runContactSearch = useCallback((term) => {
-    const q = term.trim();
-    setContactSearch(q);
-    contactCursors.current = ['']; // cursors are query-specific — start fresh
-    loadContacts(0, q);
-  }, [loadContacts]);
-
-  // Debounce the search box so we don't hit HubSpot on every keystroke.
-  useEffect(() => {
-    if (!contactsInit.current) return; // don't fire before the tab's first load
-    const t = setTimeout(() => {
-      if (contactSearchInput.trim() !== contactSearch) runContactSearch(contactSearchInput);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [contactSearchInput]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Load one page of Kajabi contacts (1-based pages).
-  const loadKajabiContacts = useCallback((page = 1, q = kajabiSearch) => {
-    setKajabiLoading(true);
-    setKajabiError('');
-    api.getKajabiContacts({ page, q })
-      .then((r) => {
-        setKajabiContacts(r.contacts || []);
-        if (typeof r.total === 'number') setKajabiTotal(r.total);
-        setKajabiHasNext(!!r.has_next);
-        setKajabiPage(r.page || page);
-      })
-      .catch((err) => setKajabiError(err.message))
-      .finally(() => setKajabiLoading(false));
-  }, [kajabiSearch]);
-
-  // Debounce the Kajabi search box.
-  useEffect(() => {
-    if (!kajabiInit.current) return;
-    const t = setTimeout(() => {
-      const q = kajabiSearchInput.trim();
-      if (q !== kajabiSearch) { setKajabiSearch(q); loadKajabiContacts(1, q); }
-    }, 400);
-    return () => clearTimeout(t);
-  }, [kajabiSearchInput]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const formatMoney = (amount) => fmtMoney(amount, appSettings.currency);
 
   // Lazy fetch for tabs
@@ -471,18 +390,6 @@ export default function SuperadminPortal() {
     if (activeTab !== 'students') setStudentDetail(null);
   }, [activeTab]);
 
-  // Load HubSpot contacts once the tab is active AND the connection status is
-  // known. `hubspot_connected` resolves asynchronously after mount (via
-  // getAppSettings), so when the persisted tab is already 'contacts' on login
-  // the [activeTab]-only effect above runs before the connection is known.
-  // Depending on hubspot_connected here lets the load fire when it flips true.
-  useEffect(() => {
-    if (activeTab === 'contacts' && hubspot.hubspot_connected && !contactsInit.current) {
-      contactsInit.current = true;
-      loadContacts(0, '');
-    }
-  }, [activeTab, hubspot.hubspot_connected]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Salary / Payroll — recomputes whenever the tab or selected month changes.
   useEffect(() => {
     if (activeTab === 'payroll') api.getPayroll(payrollPeriod).then(setPayroll).catch(() => setPayroll(null));
@@ -499,14 +406,6 @@ export default function SuperadminPortal() {
       api.getUsers().then((us) => setStaffList(us.filter((u) => ['tutor', 'advisor', 'manager'].includes(u.role)))).catch(() => {});
     }
   }, [activeTab, staffAttPeriod]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Same lazy-load pattern for the Kajabi Contacts tab.
-  useEffect(() => {
-    if (activeTab === 'kajabi' && kajabi.kajabi_connected && !kajabiInit.current) {
-      kajabiInit.current = true;
-      loadKajabiContacts(1, '');
-    }
-  }, [activeTab, kajabi.kajabi_connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openStudentDetail = async (student) => {
     setStudentDetail(null);
@@ -931,70 +830,6 @@ export default function SuperadminPortal() {
     setEditingEnroll(enroll);
     setEnrollForm({ progress_percentage: enroll.progress_percentage, grade: enroll.grade, status: enroll.status });
     setShowEnrollForm(true);
-  };
-
-  // Open the enrollment modal pre-selected for a given student id.
-  const openEnrollFor = (studentId) => {
-    setEditingEnroll(null);
-    setEnrollForm({ student_id: String(studentId), course_id: '', progress_percentage: 0, grade: '', status: 'active' });
-    setShowEnrollForm(true);
-  };
-
-  // Enroll a HubSpot contact. If a student already matches the contact's email,
-  // jump straight to the enrollment modal; otherwise open a confirm modal that
-  // offers to create a student account first.
-  // Record the enrollment intimation and notify all managers & advisors.
-  // Fire-and-forget: a failure here shouldn't block the enrollment itself.
-  const notifyContactEnroll = async (contact) => {
-    try {
-      const r = await api.createContactEnrollment({
-        hubspot_contact_id: contact.id,
-        name: contact.name && contact.name !== '—' ? contact.name : '',
-        email: contact.email || '',
-        phone: contact.phone || '',
-        company: contact.company || '',
-        stage: contact.lifecycle_stage || '',
-      });
-      const who = r.emailed > 0
-        ? `${r.emailed} of ${r.recipients} emailed`
-        : `${r.recipients} notified in-app`;
-      showMsg(`Managers & advisors intimated (${who}).`, 'success');
-    } catch (err) {
-      showMsg(`Enrolled, but intimation failed: ${err.message}`, 'error');
-    }
-  };
-
-  const enrollContact = (contact) => {
-    const email = (contact.email || '').trim();
-    const student = email
-      ? students.find((s) => (s.email || '').toLowerCase() === email.toLowerCase())
-      : null;
-    if (student) { notifyContactEnroll(contact); openEnrollFor(student.id); return; }
-    if (!email) { showMsg('This contact has no email — add one in HubSpot before enrolling.', 'error'); return; }
-    setPendingEnrollContact(contact); // styled confirm modal handles the rest
-  };
-
-  // Confirmed: create a student account from the pending contact, then enroll.
-  const confirmCreateAndEnroll = async () => {
-    const contact = pendingEnrollContact;
-    if (!contact) return;
-    const email = (contact.email || '').trim();
-    const label = contact.name && contact.name !== '—' ? contact.name : email;
-    setEnrollBusy(true);
-    try {
-      const created = await api.createUser({ name: label, email, role: 'student' });
-      await fetchData();                                  // refresh users so the dropdown has the new student
-      await api.getStudents().then(setAllStudents).catch(() => {});
-      showMsg('Student account created', 'success');
-      notifyContactEnroll(contact);                       // intimate managers & advisors
-      setPendingEnrollContact(null);
-      openEnrollFor(created.id);
-    } catch (err) {
-      showMsg(err.message, 'error');
-      setPendingEnrollContact(null);
-    } finally {
-      setEnrollBusy(false);
-    }
   };
 
   const saveEnroll = async (e) => {
@@ -1435,20 +1270,6 @@ export default function SuperadminPortal() {
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
     { key: 'created', label: 'Created', accessor: 'created_at', render: (r) => new Date(r.created_at).toLocaleDateString() },
     { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser) },
-  ];
-
-  const contactColumns = [
-    { key: 'name', label: 'Name', accessor: 'name' },
-    { key: 'email', label: 'Email', accessor: 'email' },
-    { key: 'phone', label: 'Phone', accessor: 'phone' },
-    { key: 'company', label: 'Company', accessor: 'company' },
-    { key: 'lifecycle_stage', label: 'Stage', accessor: 'lifecycle_stage', render: (r) => r.lifecycle_stage ? <span className="role-badge role-advisor">{r.lifecycle_stage}</span> : '—' },
-    { key: 'created_at', label: 'Created', accessor: 'created_at', render: (r) => r.created_at ? new Date(r.created_at).toLocaleDateString() : '—' },
-    { key: 'actions', label: 'Actions', sortable: false, render: (r) => (
-      <div className="table-actions">
-        <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); enrollContact(r); }}>Enroll</button>
-      </div>
-    ) },
   ];
 
   const courseColumns = [
@@ -2445,24 +2266,6 @@ export default function SuperadminPortal() {
     </div>
   );
 
-  const enrollContactModal = pendingEnrollContact && (
-    <div className="modal-overlay">
-      <div className="modal" style={{ maxWidth: 460 }}>
-        <h3>Enroll {pendingEnrollContact.name && pendingEnrollContact.name !== '—' ? pendingEnrollContact.name : pendingEnrollContact.email}</h3>
-        <p style={{ color: 'var(--color-text-secondary)' }}>
-          This contact isn’t a student yet. A student account will be created for{' '}
-          <strong>{pendingEnrollContact.email}</strong> and a welcome email with a temporary password will be sent. Continue to enroll?
-        </p>
-        <div className="form-actions">
-          <button type="button" className="btn btn-ghost" onClick={() => setPendingEnrollContact(null)} disabled={enrollBusy}>Cancel</button>
-          <button type="button" className="btn btn-primary" onClick={confirmCreateAndEnroll} disabled={enrollBusy}>
-            {enrollBusy ? 'Creating…' : 'Create & Continue'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
   const sessionFormModal = showSessionForm && (
     <div className="modal-overlay">
       <div className="modal">
@@ -2654,7 +2457,6 @@ export default function SuperadminPortal() {
         {categoryMgrModal}
         {materialsMgrModal}
         {enrollFormModal}
-        {enrollContactModal}
         {assignCourseModal}
         {assignTutorModal}
         {studentContextMenu}
@@ -2726,152 +2528,12 @@ export default function SuperadminPortal() {
           </div>
         )}
 
-        {/* ===== CONTACTS (HubSpot) ===== */}
+        {/* ===== CONTACTS (HubSpot / Kajabi) ===== */}
         {activeTab === 'contacts' && (
-          <div className="portal-page">
-            <div className="page-header">
-              <h2>Contacts</h2>
-              {hubspot.hubspot_connected && (
-                <button className="btn btn-ghost" onClick={() => loadContacts(contactPage)} disabled={contactsLoading}>
-                  {contactsLoading ? 'Refreshing…' : '↻ Refresh'}
-                </button>
-              )}
-            </div>
-            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
-              Contact list synced from your HubSpot CRM account.
-            </p>
-
-            {!hubspot.hubspot_connected ? (
-              <div className="alert" style={{ background: 'rgba(245,158,11,0.12)', color: '#92400e' }}>
-                HubSpot isn’t connected yet. Go to <button className="btn btn-ghost btn-sm" onClick={() => setActiveTab('settings')}>Settings → HubSpot</button> and add a private-app access token to load your contacts.
-              </div>
-            ) : contactsError ? (
-              <div className="alert" style={{ background: 'rgba(239,68,68,0.12)', color: '#991b1b' }}>
-                Failed to load contacts: {contactsError}
-              </div>
-            ) : contactsLoading && contacts.length === 0 ? (
-              <div><div className="spinner" /><p>Loading contacts…</p></div>
-            ) : (
-              <div className="data-table-container">
-                <div className="data-table-toolbar">
-                  <input
-                    type="text"
-                    placeholder="Search name, email, phone…"
-                    value={contactSearchInput}
-                    onChange={(e) => setContactSearchInput(e.target.value)}
-                    className="data-table-search"
-                  />
-                  <span className="data-table-count">
-                    {contactsTotal != null ? `${contactsTotal.toLocaleString()} records` : `${contacts.length} records`}
-                  </span>
-                </div>
-
-                <div className="data-table-wrapper">
-                  <table className="data-table">
-                    <thead>
-                      <tr>{contactColumns.map((col) => <th key={col.key}>{col.label}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                      {contacts.length === 0 ? (
-                        <tr><td colSpan={contactColumns.length} className="no-data">No contacts found</td></tr>
-                      ) : (
-                        contacts.map((row) => (
-                          <tr key={row.id}>
-                            {contactColumns.map((col) => (
-                              <td key={col.key}>{col.render ? col.render(row) : (row[col.accessor] || '—')}</td>
-                            ))}
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="data-table-pagination">
-                  <button onClick={() => loadContacts(contactPage - 1)} disabled={contactPage === 0 || contactsLoading}>Prev</button>
-                  <span>
-                    Page {contactPage + 1}
-                    {contactsTotal != null ? ` of ${Math.max(1, Math.ceil(contactsTotal / 100)).toLocaleString()}` : ''}
-                  </span>
-                  <button onClick={() => loadContacts(contactPage + 1)} disabled={!contactNextAfter || contactsLoading}>Next</button>
-                </div>
-              </div>
-            )}
-          </div>
+          <ContactsDirectory source="hubspot" title="Contacts" onMessage={showMsg} onOpenSettings={() => setActiveTab('integrations')} onEnrolled={() => { fetchData(); api.getEnrollments().then(setAllEnrollments).catch(() => {}); }} />
         )}
-
-        {/* ===== KAJABI CONTACTS ===== */}
         {activeTab === 'kajabi' && (
-          <div className="portal-page">
-            <div className="page-header">
-              <h2>Kajabi Contacts</h2>
-              {kajabi.kajabi_connected && (
-                <button className="btn btn-ghost" onClick={() => loadKajabiContacts(kajabiPage)} disabled={kajabiLoading}>
-                  {kajabiLoading ? 'Refreshing…' : '↻ Refresh'}
-                </button>
-              )}
-            </div>
-            <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
-              Contact list synced from your Kajabi account. Use <strong>Enroll</strong> to bring a contact into the academy.
-            </p>
-
-            {!kajabi.kajabi_connected ? (
-              <div className="alert" style={{ background: 'rgba(245,158,11,0.12)', color: '#92400e' }}>
-                Kajabi isn’t connected yet. Go to <button className="btn btn-ghost btn-sm" onClick={() => setActiveTab('integrations')}>Settings → Integrations → Kajabi</button> and add your API credentials to load contacts.
-              </div>
-            ) : kajabiError ? (
-              <div className="alert" style={{ background: 'rgba(239,68,68,0.12)', color: '#991b1b' }}>
-                Failed to load Kajabi contacts: {kajabiError}
-              </div>
-            ) : kajabiLoading && kajabiContacts.length === 0 ? (
-              <div><div className="spinner" /><p>Loading contacts…</p></div>
-            ) : (
-              <div className="data-table-container">
-                <div className="data-table-toolbar">
-                  <input
-                    type="text"
-                    placeholder="Search name, email, phone…"
-                    value={kajabiSearchInput}
-                    onChange={(e) => setKajabiSearchInput(e.target.value)}
-                    className="data-table-search"
-                  />
-                  <span className="data-table-count">
-                    {kajabiTotal != null ? `${kajabiTotal.toLocaleString()} records` : `${kajabiContacts.length} records`}
-                  </span>
-                </div>
-
-                <div className="data-table-wrapper">
-                  <table className="data-table">
-                    <thead>
-                      <tr>{contactColumns.map((col) => <th key={col.key}>{col.label}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                      {kajabiContacts.length === 0 ? (
-                        <tr><td colSpan={contactColumns.length} className="no-data">No contacts found</td></tr>
-                      ) : (
-                        kajabiContacts.map((row) => (
-                          <tr key={row.id}>
-                            {contactColumns.map((col) => (
-                              <td key={col.key}>{col.render ? col.render(row) : (row[col.accessor] || '—')}</td>
-                            ))}
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="data-table-pagination">
-                  <button onClick={() => loadKajabiContacts(kajabiPage - 1)} disabled={kajabiPage <= 1 || kajabiLoading}>Prev</button>
-                  <span>
-                    Page {kajabiPage}
-                    {kajabiTotal != null ? ` of ${Math.max(1, Math.ceil(kajabiTotal / 100)).toLocaleString()}` : ''}
-                  </span>
-                  <button onClick={() => loadKajabiContacts(kajabiPage + 1)} disabled={!kajabiHasNext || kajabiLoading}>Next</button>
-                </div>
-              </div>
-            )}
-          </div>
+          <ContactsDirectory source="kajabi" title="Kajabi Contacts" onMessage={showMsg} onOpenSettings={() => setActiveTab('integrations')} onEnrolled={() => { fetchData(); api.getEnrollments().then(setAllEnrollments).catch(() => {}); }} />
         )}
 
         {/* ===== STUDENTS ===== */}
@@ -3810,8 +3472,6 @@ export default function SuperadminPortal() {
                 try {
                   const result = await api.saveHubspotSettings({ hubspot_token: hubspot.hubspot_token });
                   setHubspot({ hubspot_token: '', hubspot_connected: !!result.hubspot_connected });
-                  setContacts([]);
-                  setContactsError('');
                   showMsg(result.message, 'success');
                 } catch (err) { showMsg(err.message, 'error'); }
                 finally { setHubspotSaving(false); }
@@ -3840,8 +3500,6 @@ export default function SuperadminPortal() {
                         try {
                           const result = await api.saveHubspotSettings({ hubspot_token: '' });
                           setHubspot({ hubspot_token: '', hubspot_connected: !!result.hubspot_connected });
-                          setContacts([]);
-                          setContactsError('');
                           showMsg(result.message, 'success');
                         } catch (err) { showMsg(err.message, 'error'); }
                         finally { setHubspotSaving(false); }
@@ -3875,7 +3533,6 @@ export default function SuperadminPortal() {
                   setKajabi({ kajabi_client_id: '', kajabi_client_secret: '', kajabi_connected: !!result.kajabi_connected });
                   setKajabiContacts([]);
                   setKajabiError('');
-                  kajabiInit.current = false;
                   showMsg(result.message, 'success');
                   api.getKajabiStatus().then((st) => { if (st?.connected && typeof st.count === 'number') setKajabiCount(st.count); }).catch(() => {});
                 } catch (err) { showMsg(err.message, 'error'); }
@@ -3916,7 +3573,6 @@ export default function SuperadminPortal() {
                           setKajabiContacts([]);
                           setKajabiError('');
                           setKajabiCount(null);
-                          kajabiInit.current = false;
                           showMsg(result.message, 'success');
                         } catch (err) { showMsg(err.message, 'error'); }
                         finally { setKajabiSaving(false); }

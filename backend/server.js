@@ -2149,16 +2149,20 @@ app.post('/api/users', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
   const { name, email, phone, role, password, specialization, avatar_color, gender, team_id, payout_rate, payout_type, shift_rates } = req.body;
   if (!name || !email || !role) return res.status(400).json({ error: 'Name, email, role required' });
-  if (user.role === 'manager' && role !== 'tutor') return res.status(403).json({ error: 'Managers can only create tutor accounts' });
+  if (user.role === 'manager' && !['tutor','student'].includes(role)) return res.status(403).json({ error: 'Managers can only create tutor and student accounts' });
   if (!['student','tutor','advisor','manager','superadmin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (await db.get("SELECT 1 FROM users WHERE email=?", [email])) return res.status(400).json({ error: 'Email exists' });
   // No password given: generate a random one (it goes out in the welcome email
   // and must be changed on first login) rather than a guessable default.
   const plainPassword = password || makeTempPassword();
   const hash = bcrypt.hashSync(plainPassword, 10);
+  // A student a manager adds lands in that manager's (first) team, so it shows
+  // up under their My Team.
+  let teamId = team_id || null;
+  if (!teamId && user.role === 'manager' && role === 'student') teamId = (await managerTeamIds(user.id))[0] || null;
   const r = await db.run(
     "INSERT INTO users (name,email,phone,portal,role,password_hash,avatar_color,specialization,gender,team_id,payout_rate,payout_type,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)",
-    [name, email, phone || '', role, role, hash, avatar_color || '#4F46E5', specialization || '', gender || '', team_id || null,
+    [name, email, phone || '', role, role, hash, avatar_color || '#4F46E5', specialization || '', gender || '', teamId,
      Number(payout_rate) || 0, payout_type || (STAFF_ROLES.includes(role) ? 'shift' : 'monthly')]
   );
   await saveShiftRates(r.lastInsertRowid, shift_rates);
@@ -3237,7 +3241,7 @@ async function hubspotContactCount(token) {
 
 // One page of contacts (100 at a time), paged server-side.
 app.get('/api/hubspot/contacts', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const user = await requireRole(req, res, ['superadmin','manager']); if (!user) return;
   const token = await getHubspotToken();
   if (!token) return res.status(400).json({ error: 'HubSpot is not connected. Add a private-app token in Settings.' });
 
@@ -3397,7 +3401,7 @@ app.get('/api/kajabi-status', async (req, res) => {
 // One page of Kajabi contacts (100 at a time), paged server-side via JSON:API
 // page[number]/page[size]. `q` is passed as a best-effort filter.
 app.get('/api/kajabi/contacts', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const user = await requireRole(req, res, ['superadmin','manager']); if (!user) return;
   const { clientId, clientSecret } = await getKajabiCreds();
   if (!clientId || !clientSecret) return res.status(400).json({ error: 'Kajabi is not connected. Add API credentials in Settings.' });
 
@@ -3432,7 +3436,7 @@ app.get('/api/kajabi/contacts', async (req, res) => {
 // ============================================================
 // Record an enrollment for a HubSpot contact and email every manager & advisor.
 app.post('/api/contact-enrollments', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const user = await requireRole(req, res, ['superadmin','manager']); if (!user) return;
   const { hubspot_contact_id, name, email, phone, company, stage } = req.body || {};
   if (!name && !email) return res.status(400).json({ error: 'Contact name or email is required' });
 

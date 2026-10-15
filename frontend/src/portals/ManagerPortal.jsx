@@ -9,6 +9,7 @@ import Tickets from '../components/Tickets';
 import RatingsView from '../components/RatingsView';
 import StaffAttendanceSelf from '../components/StaffAttendanceSelf';
 import TutorManagement from '../components/TutorManagement';
+import ContactsDirectory from '../components/ContactsDirectory';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
 
@@ -169,6 +170,10 @@ export default function ManagerPortal() {
         )}
 
         {activeTab === 'tutors' && <TutorManagement showMsg={showMsg} />}
+
+        {activeTab === 'contacts' && <ContactsDirectory source="hubspot" onMessage={showMsg} onEnrolled={loadData} />}
+
+        {activeTab === 'kajabi' && <ContactsDirectory source="kajabi" onMessage={showMsg} onEnrolled={loadData} />}
 
         {activeTab === 'ratings' && <RatingsView />}
 
