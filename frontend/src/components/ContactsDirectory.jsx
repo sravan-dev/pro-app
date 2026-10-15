@@ -5,9 +5,10 @@ const PAGE_SIZE = 100;
 const contactName = (c) => (c.name && c.name !== '—' ? c.name : '');
 
 // HubSpot or Kajabi contact list — read-only, paged 100 at a time server-side —
-// with an Enroll action. A contact whose email matches a student goes straight
-// to the course picker; otherwise a student account is created first. Every
-// enrollment also intimates managers & advisors (in-app + email).
+// with an Enroll action. Enroll always asks for confirmation first; a contact
+// whose email matches a student then goes to the course picker, otherwise a
+// student account is created first. Each completed enrollment also intimates
+// managers & advisors (in-app + email).
 // `onOpenSettings` (superadmin only) links the "not connected" notice to
 // Settings; `onEnrolled` lets the parent refresh its own lists.
 export default function ContactsDirectory({ source, title, onMessage, onOpenSettings, onEnrolled }) {
@@ -25,8 +26,8 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
   const cursors = useRef(['']); // HubSpot: `after` cursor for each visited page; [0] = first page
 
   const [busy, setBusy] = useState(false);
-  const [pendingContact, setPendingContact] = useState(null); // awaiting "create student" confirm
-  const [enrollFor, setEnrollFor] = useState(null);           // { student } for the course picker
+  const [pending, setPending] = useState(null);     // { contact, student|null } awaiting confirmation
+  const [enrollFor, setEnrollFor] = useState(null); // { student, contact } for the course picker
   const [courses, setCourses] = useState([]);
   const [courseId, setCourseId] = useState('');
 
@@ -66,9 +67,9 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
     return () => clearTimeout(t);
   }, [searchInput]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Record the intimation and notify managers & advisors. Fire-and-forget: a
-  // failure here shouldn't block the enrollment itself.
-  const notify = async (c) => {
+  // Record the intimation and notify managers & advisors. Runs after the
+  // enrollment is saved; a failure here doesn't undo it.
+  const notify = async (c, enrolledName) => {
     try {
       const r = await api.createContactEnrollment({
         hubspot_contact_id: c.id,
@@ -79,18 +80,20 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
         stage: c.lifecycle_stage || '',
       });
       const who = r.emailed > 0 ? `${r.emailed} of ${r.recipients} emailed` : `${r.recipients} notified in-app`;
-      onMessage(`Managers & advisors intimated (${who}).`, 'success');
+      onMessage(`${enrolledName} enrolled. Managers & advisors intimated (${who}).`, 'success');
     } catch (err) {
-      onMessage(`Enrolled, but intimation failed: ${err.message}`, 'error');
+      onMessage(`${enrolledName} enrolled, but intimation failed: ${err.message}`, 'error');
     }
   };
 
-  const openCoursePicker = (student) => {
+  const openCoursePicker = (student, contact) => {
     setCourseId('');
-    setEnrollFor({ student });
+    setEnrollFor({ student, contact });
     api.getCourses().then((cs) => setCourses(cs.filter((c) => c.status !== 'archived'))).catch(() => {});
   };
 
+  // Enroll clicked: find out whether the contact is already a student, then ask
+  // for confirmation before doing anything.
   const enroll = async (c) => {
     const email = (c.email || '').trim();
     if (!email) { onMessage(`This contact has no email — add one in ${label} before enrolling.`, 'error'); return; }
@@ -98,8 +101,7 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
     try {
       const students = await api.getStudents();
       const student = students.find((s) => (s.email || '').toLowerCase() === email.toLowerCase());
-      if (student) { notify(c); openCoursePicker(student); }
-      else setPendingContact(c); // confirm modal offers to create the student
+      setPending({ contact: c, student: student || null });
     } catch (err) {
       onMessage(err.message, 'error');
     } finally {
@@ -107,21 +109,22 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
     }
   };
 
-  // Confirmed: create a student account from the pending contact, then enroll.
-  const confirmCreate = async () => {
-    const c = pendingContact;
+  // Confirmed: use the matching student, or create one from the contact, then
+  // pick a course.
+  const confirmEnroll = async () => {
+    const { contact: c, student } = pending;
+    if (student) { setPending(null); openCoursePicker(student, c); return; }
     const email = c.email.trim();
     const name = contactName(c) || email;
     setBusy(true);
     try {
       const created = await api.createUser({ name, email, phone: c.phone || '', role: 'student' });
       onMessage('Student account created', 'success');
-      notify(c);
-      setPendingContact(null);
-      openCoursePicker({ id: created.id, name, email });
+      setPending(null);
+      openCoursePicker({ id: created.id, name, email }, c);
     } catch (err) {
       onMessage(err.message, 'error');
-      setPendingContact(null);
+      setPending(null);
     } finally {
       setBusy(false);
     }
@@ -132,7 +135,7 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
     setBusy(true);
     try {
       await api.createEnrollment({ student_id: enrollFor.student.id, course_id: courseId });
-      onMessage(`${enrollFor.student.name} enrolled`, 'success');
+      notify(enrollFor.contact, enrollFor.student.name);
       setEnrollFor(null);
       onEnrolled?.();
     } catch (err) {
@@ -232,18 +235,22 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
         </div>
       )}
 
-      {pendingContact && (
+      {pending && (
         <div className="modal-overlay">
           <div className="modal" style={{ maxWidth: 460 }}>
-            <h3>Enroll {contactName(pendingContact) || pendingContact.email}</h3>
+            <h3>Enroll {contactName(pending.contact) || pending.contact.email}?</h3>
             <p style={{ color: 'var(--color-text-secondary)' }}>
-              This contact isn’t a student yet. A student account will be created for{' '}
-              <strong>{pendingContact.email}</strong> and a welcome email with a temporary password will be sent. Continue to enroll?
+              {pending.student ? (
+                <>Do you really want to enroll <strong>{pending.student.name}</strong> ({pending.contact.email})? They are already a student — you’ll pick the course next.</>
+              ) : (
+                <>Do you really want to enroll this contact? They aren’t a student yet, so a student account will be created for{' '}
+                  <strong>{pending.contact.email}</strong> and a welcome email with a temporary password will be sent. You’ll pick the course next.</>
+              )}
             </p>
             <div className="form-actions">
-              <button type="button" className="btn btn-ghost" onClick={() => setPendingContact(null)} disabled={busy}>Cancel</button>
-              <button type="button" className="btn btn-primary" onClick={confirmCreate} disabled={busy}>
-                {busy ? 'Creating…' : 'Create & Continue'}
+              <button type="button" className="btn btn-ghost" onClick={() => setPending(null)} disabled={busy}>Cancel</button>
+              <button type="button" className="btn btn-primary" onClick={confirmEnroll} disabled={busy} autoFocus>
+                {busy ? 'Creating…' : pending.student ? 'Yes, Enroll' : 'Yes, Create & Enroll'}
               </button>
             </div>
           </div>
