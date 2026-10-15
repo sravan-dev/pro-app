@@ -27,6 +27,14 @@ export default function ManagerPortal() {
   const [message, setMessage] = useState(null);
   const showMsg = (text, type = 'info') => { setMessage({ text, type }); setTimeout(() => setMessage(null), 4000); };
 
+  // Contact totals for the dashboard cards (null until loaded / not connected).
+  const [hubspotCount, setHubspotCount] = useState(null);
+  const [kajabiCount, setKajabiCount] = useState(null);
+  useEffect(() => {
+    api.getHubspotStatus().then((r) => setHubspotCount(typeof r.count === 'number' ? r.count : null)).catch(() => {});
+    api.getKajabiStatus().then((r) => setKajabiCount(typeof r.count === 'number' ? r.count : null)).catch(() => {});
+  }, []);
+
   const loadData = useCallback(async () => {
     try {
       const [portalData, reportData] = await Promise.all([api.portalData(), api.reports()]);
@@ -127,6 +135,8 @@ export default function ManagerPortal() {
               <KPICard title="Enrollments" value={stats.total_enrollments} icon="layers" color="#F59E0B" />
               <KPICard title="Total Sessions" value={stats.total_sessions} icon="video" color="#06B6D4" />
               <KPICard title="Completed Sessions" value={stats.completed_sessions} icon="check-circle" color="#EC4899" />
+              <KPICard title="HubSpot Contacts" value={hubspotCount == null ? '—' : hubspotCount.toLocaleString()} icon="contact" color="#FF7A59" onClick={() => setActiveTab('contacts')} />
+              <KPICard title="Kajabi Contacts" value={kajabiCount == null ? '—' : kajabiCount.toLocaleString()} icon="contact" color="#1A6DFF" onClick={() => setActiveTab('kajabi')} />
             </div>
 
             {data?.enrollment_by_category && (
