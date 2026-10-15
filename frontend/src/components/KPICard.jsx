@@ -2,7 +2,7 @@ import React from 'react';
 
 const iconMap = {
   users: '👥', book: '📚', video: '🎥', award: '🏆',
-  'trending-up': '📈', clock: '🕐', dollar: '💰',
+  'trending-up': '📈', clock: '🕐', rupee: '₹',
   'check-circle': '✅', alert: '⚠️', activity: '📊',
   layers: '📋', star: '⭐', percent: '📐', calendar: '📅',
   contact: '📇',

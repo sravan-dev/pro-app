@@ -6,6 +6,7 @@ import TutorProfile from './TutorProfile';
 import BlacklistModal from './BlacklistModal';
 import usePersistedTab from '../hooks/usePersistedTab';
 import downloadCsv, { today } from '../utils/downloadCsv';
+import { formatMoney as fmtMoney } from '../utils/money';
 
 // Manager → Tutor Management: the same Tutors / Applications tabs the
 // superadmin has, limited to tutor accounts (the server enforces that too).
@@ -43,7 +44,7 @@ export default function TutorManagement({ showMsg }) {
     api.getAppSettings().then((s) => setCurrency(s.currency || '')).catch(() => {});
   }, [loadTutors]);
 
-  const formatMoney = (n) => `${currency} ${(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  const formatMoney = (n) => fmtMoney(n, currency);
 
   const loadFormLists = (userId) => {
     api.getShiftRates(userId).then(({ shifts, rates }) => {

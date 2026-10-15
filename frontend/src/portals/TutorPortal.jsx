@@ -11,6 +11,7 @@ import TutorMyProfile from '../components/TutorMyProfile';
 import MeetingsManager from '../components/MeetingsManager';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
+import { formatMoney as fmtMoney } from '../utils/money';
 
 export default function TutorPortal() {
   const { user } = useAuth();
@@ -197,7 +198,7 @@ export default function TutorPortal() {
     )},
   ];
 
-  const formatMoney = (n) => `${currency} ${Math.round(n || 0).toLocaleString()}`;
+  const formatMoney = (n) => fmtMoney(Math.round(n || 0), currency, 0);
 
   // Payout rate/type are configured per tutor by the admin (Settings → Users).
   const payoutInfo = data?.payout || { payout_rate: 0, payout_type: 'shift' };
@@ -513,8 +514,8 @@ export default function TutorPortal() {
             <h2>Payouts & Earnings</h2>
             <div className="kpi-grid">
               <KPICard title="Paid Hours" value={`${monthHours.toFixed(2)}h`} subtitle="this month" icon="clock" color="#3B82F6" />
-              <KPICard title="Payout Basis" value={payoutType === 'shift' ? 'Shift-wise' : formatMoney(payoutRate)} subtitle={payoutUnitLabel} icon="dollar" color="#10B981" />
-              <KPICard title="Earned This Month" value={formatMoney(monthPayout)} subtitle={payoutPeriod} icon="dollar" color="#F59E0B" />
+              <KPICard title="Payout Basis" value={payoutType === 'shift' ? 'Shift-wise' : formatMoney(payoutRate)} subtitle={payoutUnitLabel} icon="rupee" color="#10B981" />
+              <KPICard title="Earned This Month" value={formatMoney(monthPayout)} subtitle={payoutPeriod} icon="rupee" color="#F59E0B" />
               <KPICard
                 title="Payment"
                 value={currentRun?.paid ? 'Paid' : 'Pending'}

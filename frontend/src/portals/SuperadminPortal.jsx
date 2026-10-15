@@ -17,6 +17,7 @@ import ZoomMeetings from '../components/ZoomMeetings';
 import MeetingsManager from '../components/MeetingsManager';
 import usePersistedTab from '../hooks/usePersistedTab';
 import downloadCsv, { today } from '../utils/downloadCsv';
+import { formatMoney as fmtMoney } from '../utils/money';
 
 // Simple horizontal bar chart built from the existing .stats-bars styles
 // (no charting library). rows = [{ label, value }].
@@ -444,10 +445,7 @@ export default function SuperadminPortal() {
     return () => clearTimeout(t);
   }, [kajabiSearchInput]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const formatMoney = (amount) => {
-    const n = Number(amount) || 0;
-    return `${appSettings.currency} ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-  };
+  const formatMoney = (amount) => fmtMoney(amount, appSettings.currency);
 
   // Lazy fetch for tabs
   useEffect(() => {
@@ -3200,7 +3198,7 @@ export default function SuperadminPortal() {
             {payroll && (
               <>
                 <div className="kpi-grid">
-                  <KPICard title="Total Payroll" value={formatMoney(payroll.totals.gross_total)} subtitle={new Date(payrollPeriod + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} icon="dollar" color="#10B981" />
+                  <KPICard title="Total Payroll" value={formatMoney(payroll.totals.gross_total)} subtitle={new Date(payrollPeriod + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} icon="rupee" color="#10B981" />
                   <KPICard title="Staff" value={payroll.totals.staff_count} icon="users" color="#3B82F6" />
                   <KPICard title="Paid" value={`${payroll.totals.paid_count} · ${formatMoney(payroll.totals.paid_total)}`} icon="check-circle" color="#8B5CF6" />
                   <KPICard title="Pending" value={payroll.totals.pending_count} icon="alert" color="#F59E0B" />
