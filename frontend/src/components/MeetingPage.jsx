@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   LiveKitRoom as LKRoom,
@@ -31,6 +31,17 @@ export default function MeetingPage() {
   const [conn, setConn] = useState(null);
   const needsPasscode = !!info?.passcode_required;
 
+  // Once joined, this tab remembers the name (and passcode) so a reload drops
+  // straight back into the meeting. Leaving clears it.
+  const savedKey = `meeting:${code}`;
+  const saveJoin = (v) => {
+    try {
+      if (v) sessionStorage.setItem(savedKey, JSON.stringify(v));
+      else sessionStorage.removeItem(savedKey);
+    } catch { /* storage blocked: no auto-rejoin */ }
+  };
+  const autoJoinTried = useRef(false);
+
   useEffect(() => {
     let mounted = true;
     api.getMeetingInfo(code)
@@ -39,19 +50,42 @@ export default function MeetingPage() {
     return () => { mounted = false; };
   }, [code]);
 
-  const join = async (e) => {
-    e.preventDefault();
+  const joinWith = async (n, p) => {
     setJoining(true);
     setError('');
     try {
-      const c = await api.getMeetingToken(code, passcode.trim(), name.trim() || 'Guest');
+      const c = await api.getMeetingToken(code, p.trim(), n.trim() || 'Guest');
+      saveJoin({ name: n, passcode: p });
       setConn(c);
     } catch (err) {
+      saveJoin(null);
       setError(err.message || 'Could not join');
     } finally {
       setJoining(false);
     }
   };
+
+  const join = (e) => {
+    e.preventDefault();
+    joinWith(name, passcode);
+  };
+
+  const leave = () => {
+    saveJoin(null);
+    setConn(null);
+  };
+
+  useEffect(() => {
+    if (!info?.active || autoJoinTried.current) return;
+    autoJoinTried.current = true;
+    let saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(savedKey) || 'null'); } catch { /* none */ }
+    if (!saved) return;
+    setName(saved.name || '');
+    setPasscode(saved.passcode || '');
+    joinWith(saved.name || '', saved.passcode || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info]);
 
   if (conn) {
     return (
@@ -66,7 +100,7 @@ export default function MeetingPage() {
           data-lk-theme="default"
           style={{ height: '100%' }}
         >
-          <MeetingStage title={conn.title} onLeave={() => setConn(null)} />
+          <MeetingStage title={conn.title} onLeave={leave} />
           <RoomAudioRenderer />
         </LKRoom>
       </div>
