@@ -1229,6 +1229,10 @@ export default function SuperadminPortal() {
           title={`${r.course_names} — click to manage`}
           style={{ display: 'inline-block', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle', background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--color-primary, #E97A2B)', cursor: 'pointer', textDecoration: 'underline' }}>{r.course_names}</button>
       : <span style={{ color: 'var(--color-text-secondary)' }}>—</span> },
+    // Date of the student's first course enrollment.
+    { key: 'enrolled_at', label: 'Enrolled', accessor: 'enrolled_at', render: (r) => r.enrolled_at
+      ? <span style={{ whiteSpace: 'nowrap' }}>{new Date(r.enrolled_at).toLocaleDateString()}</span>
+      : <span style={{ color: 'var(--color-text-secondary)' }}>—</span> },
     { key: 'progress', label: 'Avg Progress', accessor: 'avg_progress', render: (r) => progressCol(r, 'avg_progress') },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
     { key: 'actions', label: 'Actions', sortable: false, render: actionBtns(openEditUser, deactivateUser, 'Deactivate', permanentDeleteUser, (r) => (
