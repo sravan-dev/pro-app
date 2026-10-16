@@ -180,6 +180,7 @@ export default function SuperadminPortal() {
   // Quick "Assign Course" action from a student row: pick a course and enroll.
   const [assignCourseStudent, setAssignCourseStudent] = useState(null); // the student being assigned, or null (modal closed)
   const [assignCourseId, setAssignCourseId] = useState('');
+  const [assignCourseQuery, setAssignCourseQuery] = useState(''); // search box filtering the course picker
   const [assignCourseBusy, setAssignCourseBusy] = useState(false);
 
   // Quick "Assign Tutor" action from a student row: sets users.assigned_tutor_id.
@@ -854,6 +855,7 @@ export default function SuperadminPortal() {
   const openAssignCourse = (student) => {
     setAssignCourseStudent(student);
     setAssignCourseId('');
+    setAssignCourseQuery('');
     api.getCourses().then(setAllCourses).catch(() => {});
   };
 
@@ -2064,6 +2066,20 @@ export default function SuperadminPortal() {
   // Only active courses are assignable — this excludes archived courses and the
   // hidden __test_call__ sentinel course (created as a 'draft').
   const assignableCourses = allCourses.filter((c) => c.status === 'active');
+  // The search box narrows the list by name or category. The currently selected
+  // course always stays in the list so the select keeps its value.
+  const courseQuery = assignCourseQuery.trim().toLowerCase();
+  const courseMatches = courseQuery
+    ? assignableCourses.filter((c) => [c.name, c.category].some((v) => v && String(v).toLowerCase().includes(courseQuery)))
+    : assignableCourses;
+  const selectedCourse = assignableCourses.find((c) => String(c.id) === assignCourseId);
+  const courseOptions = selectedCourse && !courseMatches.includes(selectedCourse) ? [selectedCourse, ...courseMatches] : courseMatches;
+  // Enter in the search box picks the first match instead of submitting the form.
+  const onCourseSearchKeyDown = (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (courseMatches.length) setAssignCourseId(String(courseMatches[0].id));
+  };
   const assignCourseModal = assignCourseStudent && (
     <div className="modal-overlay">
       <div className="modal" style={{ maxWidth: 460 }}>
@@ -2075,12 +2091,25 @@ export default function SuperadminPortal() {
           </div>
           <div className="form-group">
             <label>Course *</label>
-            <select value={assignCourseId} onChange={(e) => setAssignCourseId(e.target.value)} required autoFocus>
+            <input
+              type="search"
+              placeholder="Search courses by name or category…"
+              value={assignCourseQuery}
+              onChange={(e) => setAssignCourseQuery(e.target.value)}
+              onKeyDown={onCourseSearchKeyDown}
+              autoFocus
+            />
+            <select value={assignCourseId} onChange={(e) => setAssignCourseId(e.target.value)} required>
               <option value="">Select course...</option>
-              {assignableCourses.map((c) => (
+              {courseOptions.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}{c.category ? ` — ${c.category}` : ''}</option>
               ))}
             </select>
+            {courseQuery && assignableCourses.length > 0 && (
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>
+                {courseMatches.length === 0 ? `No courses match "${assignCourseQuery.trim()}".` : `${courseMatches.length} of ${assignableCourses.length} courses match.`}
+              </p>
+            )}
             {assignableCourses.length === 0 && (
               <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>No active courses available to assign. Create or unarchive a course first.</p>
             )}
