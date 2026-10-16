@@ -1570,6 +1570,39 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
 .vr .class-progress.over .class-progress-bar > span { background: #FF0D00; }
 .vr .class-progress.over .class-progress-label { color: #C40A00; }
 
+/* Shared whiteboard (LiveKit rooms): light panel matching the call cards */
+.wb-panel {
+  flex: none; padding: 10px; border-radius: 16px;
+  background: #F5F4FA; border: 1px solid #E3E1EE;
+}
+.wb-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.wb-title { font-family: 'Montserrat', sans-serif; font-size: 0.85rem; font-weight: 700; color: #2E2B70; margin-right: 4px; }
+.wb-group { display: inline-flex; align-items: center; gap: 4px; }
+.wb-swatch {
+  width: 22px; height: 22px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 1px solid rgba(27, 25, 53, 0.2);
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+.wb-swatch:hover { transform: scale(1.08); }
+.wb-swatch.is-active { box-shadow: 0 0 0 2px #F5F4FA, 0 0 0 4px #2E2B70; }
+.wb-widths { padding: 2px; border-radius: 999px; background: #fff; border: 1px solid #E3E1EE; }
+.wb-width {
+  width: 28px; height: 24px; padding: 0; border: none; border-radius: 999px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; background: transparent;
+}
+.wb-width i { display: block; border-radius: 50%; background: #2E2B70; }
+.wb-width:hover { background: #F5F4FA; }
+.wb-width.is-active { background: #2E2B70; }
+.wb-width.is-active i { background: #fff; }
+.wb-swatch:focus-visible, .wb-width:focus-visible { outline: 3px solid rgba(1, 161, 228, 0.5); outline-offset: 2px; }
+.wb-note { font-size: 0.8rem; color: #75728C; }
+.wb-hide { margin-left: auto; }
+.wb-canvas {
+  display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 48vh;
+  border-radius: 12px; border: 1px solid #E3E1EE; background: #fff; touch-action: none;
+}
+.session-dock-mini .wb-panel { display: none; }
+
 /* Connecting / waiting room / error screens */
 .video-room.vr-state { align-items: center; justify-content: center; }
 .vr-state-card {

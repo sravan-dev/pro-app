@@ -13,6 +13,7 @@ import { useDataChannel, useLocalParticipant, useParticipants } from '@livekit/c
 //   { t: 'sync',  strokes }                               answer to 'req'
 //   { t: 'open',  open }                                  show/hide for everyone
 const COLORS = ['#111827', '#dc2626', '#2563eb', '#16a34a', '#f59e0b', '#ffffff'];
+const COLOR_NAMES = ['Black', 'Red', 'Blue', 'Green', 'Amber', 'White'];
 const WIDTHS = [2, 4, 8, 16];
 
 // Only one participant answers a state request, otherwise every board in the
@@ -181,77 +182,69 @@ export default function Whiteboard({ canDraw = true, canClear = true, onClose = 
   };
 
   return (
-    <div style={{ background: '#0f172a', borderRadius: 10, padding: 8, marginBottom: 8 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#e5e7eb' }}>Whiteboard</span>
+    <div className="wb-panel">
+      <div className="wb-toolbar">
+        <span className="wb-title">Whiteboard</span>
         {canDraw && (
           <>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {COLORS.map((c) => (
+            <div className="wb-group" role="group" aria-label="Pen colour">
+              {COLORS.map((c, i) => (
                 <button
                   key={c}
+                  type="button"
+                  className={`wb-swatch${color === c && !erasing ? ' is-active' : ''}`}
                   onClick={() => { setColor(c); setErasing(false); }}
-                  title={c}
-                  style={{ width: 20, height: 20, borderRadius: '50%', background: c, cursor: 'pointer',
-                    border: color === c && !erasing ? '2px solid #6366f1' : '1px solid rgba(255,255,255,0.35)' }}
+                  title={COLOR_NAMES[i]}
+                  aria-label={COLOR_NAMES[i]}
+                  aria-pressed={color === c && !erasing}
+                  style={{ background: c }}
                 />
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 4 }}>
+            <div className="wb-group wb-widths" role="group" aria-label="Pen size">
               {WIDTHS.map((w) => (
                 <button
                   key={w}
+                  type="button"
+                  className={`wb-width${width === w ? ' is-active' : ''}`}
                   onClick={() => setWidth(w)}
                   title={`${w}px`}
-                  style={{ width: 24, height: 22, borderRadius: 6, cursor: 'pointer', color: '#e5e7eb', fontSize: 11,
-                    background: width === w ? '#4338ca' : 'rgba(255,255,255,0.08)', border: 'none' }}
+                  aria-label={`Pen size ${w}`}
+                  aria-pressed={width === w}
                 >
-                  {w}
+                  <i style={{ width: Math.min(w, 14), height: Math.min(w, 14) }} />
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => setErasing((v) => !v)}
-              style={{ borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer', color: '#e5e7eb',
-                background: erasing ? '#4338ca' : 'rgba(255,255,255,0.08)', border: 'none' }}
-            >
+            <button type="button" className={`vr-mini-btn${erasing ? ' is-primary' : ''}`} onClick={() => setErasing((v) => !v)} aria-pressed={erasing}>
               Eraser
             </button>
-            <button
-              onClick={undoMine}
-              style={{ borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer', color: '#e5e7eb', background: 'rgba(255,255,255,0.08)', border: 'none' }}
-            >
+            <button type="button" className="vr-mini-btn" onClick={undoMine}>
               Undo
             </button>
           </>
         )}
         {canClear && (
-          <button
-            onClick={clearAll}
-            style={{ borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer', color: '#fecaca', background: 'rgba(220,38,38,0.25)', border: 'none' }}
-          >
+          <button type="button" className="vr-mini-btn is-danger" onClick={clearAll}>
             Clear
           </button>
         )}
-        {!canDraw && <span style={{ fontSize: 12, color: '#94a3b8' }}>View only — ask to be put on stage to draw.</span>}
+        {!canDraw && <span className="wb-note">View only — ask to be put on stage to draw.</span>}
         {onClose && (
-          <button
-            onClick={onClose}
-            style={{ marginLeft: 'auto', borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer', color: '#e5e7eb', background: 'rgba(255,255,255,0.08)', border: 'none' }}
-          >
+          <button type="button" className="vr-mini-btn wb-hide" onClick={onClose}>
             Hide
           </button>
         )}
       </div>
       <canvas
         ref={canvasRef}
+        className="wb-canvas"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endStroke}
         onPointerCancel={endStroke}
         onPointerLeave={endStroke}
-        style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: '48vh', display: 'block', borderRadius: 8,
-          background: '#fff', touchAction: 'none', cursor: canDraw ? 'crosshair' : 'default' }}
+        style={{ cursor: canDraw ? 'crosshair' : 'default' }}
       />
     </div>
   );
