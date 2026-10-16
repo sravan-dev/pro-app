@@ -185,6 +185,7 @@ export default function SuperadminPortal() {
   // Quick "Assign Tutor" action from a student row: sets users.assigned_tutor_id.
   const [assignTutorStudent, setAssignTutorStudent] = useState(null); // the student being assigned, or null (modal closed)
   const [assignTutorId, setAssignTutorId] = useState('');
+  const [assignTutorQuery, setAssignTutorQuery] = useState(''); // search box filtering the tutor picker
   const [assignTutorBusy, setAssignTutorBusy] = useState(false);
 
   // Right-click context menu on a student row → Add Additional Faculty / Edit Batch.
@@ -877,6 +878,7 @@ export default function SuperadminPortal() {
   const openAssignTutor = (student) => {
     setAssignTutorStudent(student);
     setAssignTutorId(student.assigned_tutor_id ? String(student.assigned_tutor_id) : '');
+    setAssignTutorQuery('');
     api.getTutors().then(setAllTutors).catch(() => {});
   };
 
@@ -2094,6 +2096,20 @@ export default function SuperadminPortal() {
 
   // Only active tutors are assignable. "No tutor" clears the assignment.
   const assignableTutors = allTutors.filter((t) => t.status === 'active');
+  // The search box narrows the list by name, specialization or email. The
+  // currently selected tutor always stays in the list so the select keeps its value.
+  const tutorQuery = assignTutorQuery.trim().toLowerCase();
+  const tutorMatches = tutorQuery
+    ? assignableTutors.filter((t) => [t.name, t.specialization, t.email].some((v) => v && String(v).toLowerCase().includes(tutorQuery)))
+    : assignableTutors;
+  const selectedTutor = assignableTutors.find((t) => String(t.id) === assignTutorId);
+  const tutorOptions = selectedTutor && !tutorMatches.includes(selectedTutor) ? [selectedTutor, ...tutorMatches] : tutorMatches;
+  // Enter in the search box picks the first match instead of submitting the form.
+  const onTutorSearchKeyDown = (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (tutorMatches.length) setAssignTutorId(String(tutorMatches[0].id));
+  };
   const assignTutorModal = assignTutorStudent && (
     <div className="modal-overlay">
       <div className="modal" style={{ maxWidth: 460 }}>
@@ -2105,12 +2121,25 @@ export default function SuperadminPortal() {
           </div>
           <div className="form-group">
             <label>Tutor</label>
-            <select value={assignTutorId} onChange={(e) => setAssignTutorId(e.target.value)} autoFocus>
+            <input
+              type="search"
+              placeholder="Search tutors by name, specialization or email…"
+              value={assignTutorQuery}
+              onChange={(e) => setAssignTutorQuery(e.target.value)}
+              onKeyDown={onTutorSearchKeyDown}
+              autoFocus
+            />
+            <select value={assignTutorId} onChange={(e) => setAssignTutorId(e.target.value)}>
               <option value="">— No tutor —</option>
-              {assignableTutors.map((t) => (
+              {tutorOptions.map((t) => (
                 <option key={t.id} value={t.id}>{t.name}{t.specialization ? ` — ${t.specialization}` : ''}</option>
               ))}
             </select>
+            {tutorQuery && assignableTutors.length > 0 && (
+              <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>
+                {tutorMatches.length === 0 ? `No tutors match "${assignTutorQuery.trim()}".` : `${tutorMatches.length} of ${assignableTutors.length} tutors match.`}
+              </p>
+            )}
             {assignableTutors.length === 0 && (
               <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>No active tutors available. Add a tutor first.</p>
             )}
