@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { Icon, CallTimer, RoomTitle, Avatar, formatRoomDate } from './roomUi';
 
 // STUN finds the public address; TURN relays media when a direct path can't be
 // established (different networks, symmetric NAT, restrictive firewalls).
@@ -19,40 +20,6 @@ const ICE_SERVERS = [
     credential: 'openrelayproject',
   },
 ];
-
-// Inline icons (Lucide paths) for the call controls.
-const ICONS = {
-  mic: <><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><path d="M12 19v3" /></>,
-  micOff: <><path d="m2 2 20 20" /><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" /><path d="M5 10v2a7 7 0 0 0 12 5" /><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12" /><path d="M12 19v3" /></>,
-  video: <><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" /><rect x="2" y="6" width="14" height="12" rx="2" /></>,
-  videoOff: <><path d="M10.66 6H14a2 2 0 0 1 2 2v2.5l5.248-3.062A.5.5 0 0 1 22 7.87v8.196" /><path d="M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2" /><path d="m2 2 20 20" /></>,
-  share: <><path d="M13 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3" /><path d="M8 21h8" /><path d="M12 17v4" /><path d="m17 8 5-5" /><path d="M17 3h5v5" /></>,
-  phoneOff: <><path d="M10.1 13.9a14 14 0 0 0 3.732 2.668 1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2 18 18 0 0 1-12.728-5.272" /><path d="M22 2 2 22" /><path d="M4.76 13.582A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 .244.473" /></>,
-  expand: <><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="m21 3-7 7" /><path d="m3 21 7-7" /></>,
-  users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>,
-};
-
-function Icon({ name, size = 20 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {ICONS[name]}
-    </svg>
-  );
-}
-
-// Time since this user joined, ticking every second. Kept in its own component
-// so the tick re-renders only the clock, not the whole room.
-function CallTimer() {
-  const [start] = useState(() => Date.now());
-  const [now, setNow] = useState(start);
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const secs = Math.floor((now - start) / 1000);
-  const pad = (n) => String(n).padStart(2, '0');
-  return <>{pad(Math.floor(secs / 3600))}:{pad(Math.floor(secs / 60) % 60)}:{pad(secs % 60)}</>;
-}
 
 export default function VideoRoom({ session, onLeave }) {
   const { user } = useAuth();
@@ -419,10 +386,6 @@ export default function VideoRoom({ session, onLeave }) {
   };
 
   const everyone = [{ id: user?.id, name: user?.name, role: user?.role, you: true }, ...participants];
-  const initial = (name) => name?.trim()?.[0]?.toUpperCase() || '?';
-  const startAt = session.start_time ? new Date(session.start_time) : null;
-  const dateLine = (startAt && !isNaN(startAt) ? startAt : new Date())
-    .toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
   const showCamCover = (!localVideoOn || isVideoOff) && !isScreenSharing;
   const diagnostics = [
     `local cam: ${localVideoOn ? (isVideoOff ? 'off' : 'on') : 'none'}`,
@@ -437,11 +400,11 @@ export default function VideoRoom({ session, onLeave }) {
       <div className="video-body vr-body">
         <section className="vr-stage vr-card" ref={stageRef}>
           <header className="vr-stage-head">
-            <div style={{ minWidth: 0 }}>
-              <div className="vr-kicker"><span className="vr-dots" aria-hidden="true"><i /><i /><i /><i /></span>Live class</div>
-              <h3 className="vr-title">{session.course_name || 'Live Session'}</h3>
-              <p className="vr-subtitle">{dateLine}{session.tutor_name ? ` · ${session.tutor_name}` : ''}</p>
-            </div>
+            <RoomTitle
+              kicker="Live class"
+              title={session.course_name || 'Live Session'}
+              subtitle={`${formatRoomDate(session.start_time)}${session.tutor_name ? ` · ${session.tutor_name}` : ''}`}
+            />
             <div className="vr-timer">
               <div className="vr-timer-label"><span className="vr-live-dot" /> In call</div>
               <div className="vr-timer-value"><CallTimer /></div>
@@ -450,16 +413,18 @@ export default function VideoRoom({ session, onLeave }) {
 
           {error && <div className="vr-alert" role="status">{error}</div>}
 
-          <div className="vr-grid" data-count={Math.min(everyone.length, 7)}>
-            <div className="vr-tile">
-              <video ref={localVideoRef} autoPlay playsInline muted className="local-video" />
-              {showCamCover && (
-                <div className="vr-tile-cover"><span className="vr-avatar vr-avatar-lg vr-ring-0">{initial(user?.name)}</span></div>
-              )}
-              {isMuted && <span className="vr-tile-muted" title="Your mic is off"><Icon name="micOff" size={14} /></span>}
-              <span className="vr-tile-name">You · {user?.name}</span>
+          <div className="vr-stage-body">
+            <div className="vr-grid" data-count={Math.min(everyone.length, 7)}>
+              <div className="vr-tile">
+                <video ref={localVideoRef} autoPlay playsInline muted className="local-video" />
+                {showCamCover && (
+                  <div className="vr-tile-cover"><Avatar name={user?.name} large /></div>
+                )}
+                {isMuted && <span className="vr-tile-muted" title="Your mic is off"><Icon name="micOff" size={14} /></span>}
+                <span className="vr-tile-name">You · {user?.name}</span>
+              </div>
+              <div id="remote-videos" className="vr-remote" />
             </div>
-            <div id="remote-videos" className="vr-remote" />
           </div>
 
           <div className="vr-controls">
@@ -490,8 +455,8 @@ export default function VideoRoom({ session, onLeave }) {
             <ul className="vr-people">
               {everyone.map((p, i) => (
                 <li key={p.id ?? p.name} className="vr-person">
-                  <span className={`vr-avatar vr-ring-${i % 4}`}>{initial(p.name)}</span>
-                  <div>
+                  <Avatar name={p.name} index={i} />
+                  <div className="vr-person-main">
                     <div className="vr-person-name">{p.name}{p.you && <span className="vr-you">You</span>}</div>
                     {p.role && <div className="vr-person-role">{p.role}</div>}
                   </div>

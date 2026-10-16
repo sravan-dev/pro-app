@@ -16,6 +16,7 @@ import '@livekit/components-styles';
 import Whiteboard from './Whiteboard';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { Icon, CallTimer, RoomTitle, Avatar, formatRoomDate } from './roomUi';
 
 const HOST_ROLES = ['tutor', 'advisor', 'manager', 'superadmin'];
 
@@ -48,6 +49,13 @@ const formatClock = (ms) => {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 };
 
+// Whether the session has a usable schedule window (ad-hoc rooms don't).
+const hasSchedule = (startTime, endTime) => {
+  const start = new Date(startTime).getTime();
+  const end = new Date(endTime).getTime();
+  return Number.isFinite(start) && Number.isFinite(end) && end > start;
+};
+
 // How far the class is through its scheduled window. start_time/end_time are
 // plain 'YYYY-MM-DDTHH:MM' strings in the academy's local zone — the same way
 // the rest of the app reads them — so `new Date(...)` parses them as local.
@@ -60,10 +68,10 @@ function ClassProgress({ startTime, endTime }) {
     return () => clearInterval(timer);
   }, []);
 
+  // Ad-hoc rooms carry no schedule; they just don't get a timer.
+  if (!hasSchedule(startTime, endTime)) return null;
   const start = new Date(startTime).getTime();
   const end = new Date(endTime).getTime();
-  // Ad-hoc rooms carry no schedule; they just don't get a timer.
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
 
   const total = end - start;
   const elapsed = now - start;
@@ -130,36 +138,45 @@ export default function LiveKitRoom({ session, onLeave }) {
     onLeave?.();
   };
 
+  const title = session.course_name || 'Live Session';
   if (error) {
     return (
-      <div className="video-room" style={{ padding: '2rem' }}>
-        <div className="alert alert-error">{error}</div>
-        <button className="btn btn-ghost" onClick={onLeave} style={{ marginTop: '1rem' }}>← Back</button>
+      <div className="video-room vr vr-state">
+        <div className="vr-card vr-state-card">
+          <RoomTitle kicker="Live class" title={title} />
+          <div className="vr-alert vr-alert-error">{error}</div>
+          <button className="btn btn-ghost" onClick={onLeave}>← Back</button>
+        </div>
       </div>
     );
   }
   if (lobby) {
     const waiting = lobby === 'waiting';
     return (
-      <div className="video-room" style={{ alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '2rem', gap: '0.75rem' }}>
-        {waiting && <div className="spinner" />}
-        <h3 style={{ color: '#fff', margin: 0 }}>{session.course_name || 'Live Session'}</h3>
-        <p style={{ color: '#cbd5e1', margin: 0 }}>
-          {waiting
-            ? 'You are in the waiting room. The host will let you in shortly.'
-            : 'The host did not admit you to this session.'}
-        </p>
-        <button className="btn btn-ghost" style={{ color: '#fff', marginTop: '0.5rem' }} onClick={handleLeave}>
-          {waiting ? 'Leave waiting room' : '← Back'}
-        </button>
+      <div className="video-room vr vr-state">
+        <div className="vr-card vr-state-card">
+          {waiting && <div className="spinner" />}
+          <RoomTitle kicker={waiting ? 'Waiting room' : 'Not admitted'} title={title} />
+          <p className="vr-state-text">
+            {waiting
+              ? 'You are in the waiting room. The host will let you in shortly.'
+              : 'The host did not admit you to this session.'}
+          </p>
+          <button className="btn btn-ghost" onClick={handleLeave}>
+            {waiting ? 'Leave waiting room' : '← Back'}
+          </button>
+        </div>
       </div>
     );
   }
   if (!conn) {
     return (
-      <div className="video-room" style={{ alignItems: 'center', justifyContent: 'center' }}>
-        <div className="spinner" />
-        <p style={{ color: '#cbd5e1' }}>Connecting to session…</p>
+      <div className="video-room vr vr-state">
+        <div className="vr-card vr-state-card">
+          <div className="spinner" />
+          <RoomTitle kicker="Live class" title={title} />
+          <p className="vr-state-text">Connecting to session…</p>
+        </div>
       </div>
     );
   }
@@ -199,6 +216,7 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
   const { localParticipant, isMicrophoneEnabled, lastMicrophoneError } = useLocalParticipant();
   const room = useRoomContext();
   const stageBodyRef = useRef(null);
+  const stageRef = useRef(null);
 
   // Reactive: a student promoted mid-session gets canPublish flipped by the
   // server, which updates localParticipant.permissions and re-renders this.
@@ -511,14 +529,9 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
     const ref = cameraByIdentity[p.identity] || { participant: p, source: Track.Source.Camera };
     const isMe = p.identity === localParticipant?.identity;
     return (
-      <div key={p.identity} className="meeting-tile">
-        <ParticipantTile
-          trackRef={ref}
-          style={{ width: '100%', height: '100%', borderRadius: '10px', overflow: 'hidden', outline: isMe ? '2px solid #6366f1' : '1px solid rgba(255,255,255,0.08)' }}
-        />
-        {isMe && (
-          <span style={{ position: 'absolute', top: 4, left: 4, fontSize: 10, fontWeight: 700, color: '#fff', background: 'rgba(99,102,241,0.9)', borderRadius: 4, padding: '1px 5px' }}>You</span>
-        )}
+      <div key={p.identity} className="meeting-tile vr-tile">
+        <ParticipantTile trackRef={ref} style={{ width: '100%', height: '100%' }} />
+        {isMe && <span className="vr-you-badge">You</span>}
       </div>
     );
   });
@@ -532,244 +545,301 @@ function Stage({ session, initialCanPublish, serverUrl, onLeave, deviceError, se
     (el.requestFullscreen || el.webkitRequestFullscreen)?.call(el);
   };
 
+  const scheduled = hasSchedule(session.start_time, session.end_time);
+  const serverHost = (() => { try { return new URL(serverUrl).host; } catch { return serverUrl; } })();
+
   return (
-    <div className="video-room" style={{ height: '100%' }}>
-      <div className="video-room-header">
-        <h3>{session.course_name || 'Live Session'}</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <ClassProgress startTime={session.start_time} endTime={session.end_time} />
-          <span
-            title={serverUrl}
-            style={{ fontSize: '12px', fontWeight: 600, padding: '2px 10px', borderRadius: '999px', background: '#F59E0B', color: '#111' }}
-          >
-            LiveKit · Webinar{serverUrl ? ` · ${serverUrl}` : ''}
-          </span>
-          <span className="participants-count">{participants.length} in room</span>
-        </div>
-      </div>
+    <div className="video-room vr" style={{ height: '100%' }}>
+      <div className="video-body vr-body">
+        <section className="vr-stage vr-card" ref={stageRef}>
+          <header className="vr-stage-head">
+            <RoomTitle
+              kicker="Live class"
+              title={session.course_name || 'Live Session'}
+              subtitle={`${formatRoomDate(session.start_time)}${session.tutor_name ? ` · ${session.tutor_name}` : ''}`}
+            />
+            <div className="vr-timer">
+              <div className="vr-timer-label">
+                <span className="vr-live-dot" /> {recState === 'recording' ? 'Recording' : (scheduled ? 'Class time' : 'In call')}
+              </div>
+              {scheduled
+                ? <ClassProgress startTime={session.start_time} endTime={session.end_time} />
+                : <div className="vr-timer-value"><CallTimer /></div>}
+            </div>
+          </header>
 
-      <div className="video-body">
-      <div ref={stageBodyRef} className="video-stage" style={{ flex: 1, minWidth: 0, minHeight: 0, padding: '8px', overflowY: 'auto' }}>
-        {wbOpen && (
-          <Whiteboard
-            canDraw={canPublish}
-            canClear={isHost}
-            onClose={isHost ? () => toggleWhiteboard(false) : null}
-          />
-        )}
+          {(unmuteAsked || deviceError || recNotice) && (
+            <div className="vr-notices">
+              {unmuteAsked && (
+                <div className="vr-alert vr-alert-info" role="status">
+                  <span>The host asked you to unmute.</span>
+                  <span className="vr-alert-actions">
+                    <button type="button" className="vr-mini-btn is-primary" onClick={async () => { await enableMic(); setUnmuteAsked(false); }}>Unmute</button>
+                    <button type="button" className="vr-mini-btn" onClick={() => setUnmuteAsked(false)}>Dismiss</button>
+                  </span>
+                </div>
+              )}
+              {deviceError && (
+                <div className="vr-alert vr-alert-error" role="alert">
+                  <span>{deviceError}</span>
+                  <button type="button" className="vr-alert-close" onClick={() => setDeviceError?.('')} title="Dismiss" aria-label="Dismiss"><Icon name="x" size={16} /></button>
+                </div>
+              )}
+              {recNotice && (
+                <div className={`vr-alert ${recNotice === 'Recording saved.' ? 'vr-alert-success' : 'vr-alert-error'}`} role="status">
+                  <span>{recNotice}</span>
+                  <button type="button" className="vr-alert-close" onClick={() => setRecNotice('')} title="Dismiss" aria-label="Dismiss"><Icon name="x" size={16} /></button>
+                </div>
+              )}
+            </div>
+          )}
 
-        {screenShares.length > 0 ? (
-          /* While someone shares, the share takes the stage and the camera
-             tiles dock to a narrow strip on the left. */
-          <div className="share-layout">
-            <div className="share-strip">{cameraTiles}</div>
-            <div className="share-main">
-              {screenShares.map((t) => {
-                const mine = isOwnShare(t);
-                // Sharing the whole monitor always loops (and flickers as each
-                // copy is re-encoded), so only a window or tab share may preview.
-                const surface = mine ? t.publication?.track?.mediaStreamTrack?.getSettings?.().displaySurface : null;
-                const canPreview = surface === 'window' || surface === 'browser';
-                const covered = mine && (!showOwnShare || !canPreview);
-                return (
-                  <div key={`ss-${t.participant.identity}`} className="share-tile">
-                    <ParticipantTile trackRef={t} style={{ width: '100%', height: '100%' }} />
-                    {covered ? (
-                      <div className="share-self-cover">
-                        <strong>You are sharing your screen</strong>
-                        <span>
-                          {canPreview
-                            ? "Everyone in the session can see it. Your own copy is hidden so it doesn't repeat inside itself."
-                            : 'Everyone in the session can see it. A preview of your entire screen would repeat inside itself and flicker, so it stays hidden. Share a single window or tab if you want to preview it.'}
-                        </span>
-                        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                          {canPreview && (
-                            <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#fff' }} onClick={() => setShowOwnShare(true)}>Show preview</button>
-                          )}
-                          <button type="button" className="btn btn-sm btn-danger" onClick={() => localParticipant?.setScreenShareEnabled(false)}>Stop sharing</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        {mine && (
-                          <button type="button" className="share-hide-preview" onClick={() => setShowOwnShare(false)}>Hide preview</button>
+          <div ref={stageBodyRef} className="video-stage vr-stage-body">
+            {wbOpen && (
+              <Whiteboard
+                canDraw={canPublish}
+                canClear={isHost}
+                onClose={isHost ? () => toggleWhiteboard(false) : null}
+              />
+            )}
+
+            {screenShares.length > 0 ? (
+              /* While someone shares, the share takes the stage and the camera
+                 tiles dock to a narrow strip on the left. */
+              <div className="share-layout">
+                <div className="share-strip">{cameraTiles}</div>
+                <div className="share-main">
+                  {screenShares.map((t) => {
+                    const mine = isOwnShare(t);
+                    // Sharing the whole monitor always loops (and flickers as each
+                    // copy is re-encoded), so only a window or tab share may preview.
+                    const surface = mine ? t.publication?.track?.mediaStreamTrack?.getSettings?.().displaySurface : null;
+                    const canPreview = surface === 'window' || surface === 'browser';
+                    const covered = mine && (!showOwnShare || !canPreview);
+                    return (
+                      <div key={`ss-${t.participant.identity}`} className="share-tile">
+                        <ParticipantTile trackRef={t} style={{ width: '100%', height: '100%' }} />
+                        {covered ? (
+                          <div className="share-self-cover">
+                            <strong>You are sharing your screen</strong>
+                            <span>
+                              {canPreview
+                                ? "Everyone in the session can see it. Your own copy is hidden so it doesn't repeat inside itself."
+                                : 'Everyone in the session can see it. A preview of your entire screen would repeat inside itself and flicker, so it stays hidden. Share a single window or tab if you want to preview it.'}
+                            </span>
+                            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                              {canPreview && (
+                                <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#fff' }} onClick={() => setShowOwnShare(true)}>Show preview</button>
+                              )}
+                              <button type="button" className="btn btn-sm btn-danger" onClick={() => localParticipant?.setScreenShareEnabled(false)}>Stop sharing</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {mine && (
+                              <button type="button" className="share-hide-preview" onClick={() => setShowOwnShare(false)}>Hide preview</button>
+                            )}
+                            <button
+                              type="button"
+                              className="share-fullscreen"
+                              onClick={(e) => toggleFullscreen(e.currentTarget.parentElement)}
+                              title="Full screen"
+                              aria-label="Full screen"
+                            >
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+                              </svg>
+                            </button>
+                          </>
                         )}
-                        <button
-                          type="button"
-                          className="share-fullscreen"
-                          onClick={(e) => toggleFullscreen(e.currentTarget.parentElement)}
-                          title="Full screen"
-                          aria-label="Full screen"
-                        >
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-                          </svg>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              /* One tile per participant; columns follow the head count. */
+              <div className="meeting-gallery vr-grid" data-count={Math.min(participants.length, 7)}>{cameraTiles}</div>
+            )}
+          </div>
+
+          <div className="vr-controls">
+            <button type="button" className="vr-btn vr-controls-side" onClick={() => stageRef.current && toggleFullscreen(stageRef.current)} title="Full screen" aria-label="Full screen">
+              <Icon name="expand" />
+            </button>
+            {canPublish ? (
+              /* Screen share for anyone on stage, students included: a promoted
+                 student needs to show work, not just talk. */
+              <>
+                <ControlBar
+                  variation="minimal"
+                  controls={{ microphone: true, camera: true, screenShare: false, chat: false, leave: false, settings: false }}
+                />
+                {/* Our own share button: ControlBar's offers this very tab in the
+                    picker, and sharing the class tab only shows it inside itself. */}
+                <TrackToggle
+                  source={Track.Source.ScreenShare}
+                  captureOptions={{ audio: true, selfBrowserSurface: 'exclude' }}
+                  showIcon
+                  title="Share screen"
+                />
+                {!isMicrophoneEnabled && (
+                  <button type="button" className="vr-pill-btn" onClick={enableMic} title="Turn on your microphone">
+                    <Icon name="mic" size={18} /> Unmute
+                  </button>
+                )}
+              </>
+            ) : (
+              <button
+                type="button"
+                className={`vr-btn${handRaised ? ' is-on' : ''}`}
+                onClick={() => broadcastHand(!handRaised)}
+                title={handRaised ? 'Lower hand' : 'Raise hand'}
+                aria-label={handRaised ? 'Lower hand' : 'Raise hand'}
+                aria-pressed={handRaised}
+              >
+                <Icon name="hand" />
+              </button>
+            )}
+            {isHost && (
+              <button
+                type="button"
+                className={`vr-btn${wbOpen ? ' is-on' : ''}`}
+                onClick={() => toggleWhiteboard(!wbOpen)}
+                title={wbOpen ? 'Close whiteboard for everyone' : 'Open whiteboard for everyone'}
+                aria-label={wbOpen ? 'Close whiteboard' : 'Open whiteboard'}
+                aria-pressed={wbOpen}
+              >
+                <Icon name="pen" />
+              </button>
+            )}
+            {isHost && (
+              recState === 'uploading' ? (
+                <button type="button" className="vr-btn" disabled title="Saving recording…" aria-label="Saving recording">
+                  <Icon name="loader" className="vr-spin" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={`vr-btn${recState === 'recording' ? ' is-off' : ''}`}
+                  onClick={recState === 'recording' ? stopRecording : startRecording}
+                  title={recState === 'recording' ? 'Stop & save recording' : 'Record session'}
+                  aria-label={recState === 'recording' ? 'Stop and save recording' : 'Record session'}
+                >
+                  <Icon name={recState === 'recording' ? 'stop' : 'record'} />
+                </button>
+              )
+            )}
+            <button type="button" className="vr-leave" onClick={confirmLeave} title="Leave session">
+              <Icon name="phoneOff" size={18} /><span className="vr-leave-text">Leave class</span>
+            </button>
+          </div>
+        </section>
+
+        <aside className="vr-side">
+          {isHost && handCount > 0 && (
+            <div className="vr-card vr-side-card vr-side-card-hands">
+              <div className="vr-side-head">
+                <h4 className="vr-side-title"><Icon name="hand" size={18} /> Raised hands</h4>
+                <span className="vr-count">{handCount}</span>
+              </div>
+              <ul className="vr-people">
+                {Object.entries(raisedHands).map(([identity, name], i) => (
+                  <li key={identity} className="vr-person">
+                    <Avatar name={name} index={i} />
+                    <div className="vr-person-main"><div className="vr-person-name">{name}</div></div>
+                    <button type="button" className="vr-mini-btn is-primary" onClick={() => setStageAccess(identity, true)}>Promote</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {isHost && (
+            <div className="vr-card vr-side-card">
+              <div className="vr-side-head">
+                <h4 className="vr-side-title"><Icon name="door" size={18} /> Waiting room</h4>
+                {waiting.length > 1 ? (
+                  <button type="button" className="vr-mini-btn is-primary" disabled={lobbyBusy !== null} onClick={() => decideLobby('all', true)}>Admit all</button>
+                ) : (
+                  <span className="vr-count">{waiting.length}</span>
+                )}
+              </div>
+              {lobbyError && <p className="vr-side-empty is-error">{lobbyError}</p>}
+              {waiting.length === 0 ? (
+                <p className="vr-side-empty">No one is waiting.</p>
+              ) : (
+                <ul className="vr-people">
+                  {waiting.map((w, i) => (
+                    <li key={w.user_id} className="vr-person">
+                      <Avatar name={w.name} index={i} />
+                      <div className="vr-person-main"><div className="vr-person-name" title={w.name}>{w.name || `User ${w.user_id}`}</div></div>
+                      <div className="vr-person-actions">
+                        <button type="button" className="vr-mini-btn is-primary" disabled={lobbyBusy !== null} onClick={() => decideLobby(w.user_id, true)}>Admit</button>
+                        <button type="button" className="vr-mini-btn is-danger" disabled={lobbyBusy !== null} onClick={() => decideLobby(w.user_id, false)}>Deny</button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          <div className="vr-card vr-side-card">
+            <div className="vr-side-head">
+              <h4 className="vr-side-title"><Icon name="users" size={18} /> In session</h4>
+              <span className="vr-count">{participants.length}</span>
+            </div>
+            <ul className="vr-people">
+              {participants.map((p, i) => {
+                const isMe = p.identity === localParticipant?.identity;
+                const onStage = p.permissions?.canPublish !== false;
+                const micOn = p.isMicrophoneEnabled;
+                return (
+                  <li key={p.identity} className="vr-person">
+                    <Avatar name={p.name || p.identity} index={i} />
+                    <div className="vr-person-main">
+                      <div className="vr-person-name">
+                        {p.name || p.identity}
+                        {isMe && <span className="vr-you">You</span>}
+                      </div>
+                      <div className="vr-person-role">
+                        {onStage ? 'On stage' : 'Viewer'}
+                        {raisedHands[p.identity] && <span className="vr-hand-chip">Hand up</span>}
+                      </div>
+                    </div>
+                    <span className={`vr-mic-state${micOn ? '' : ' is-off'}`} title={micOn ? 'Mic on' : 'Mic off'}>
+                      <Icon name={micOn ? 'mic' : 'micOff'} size={16} />
+                    </span>
+                    {isHost && !isMe && (
+                      <div className="vr-person-actions vr-person-actions-row">
+                        {micOn ? (
+                          <button type="button" className="vr-mini-btn" disabled={participantBusy === p.identity} onClick={() => muteParticipant(p.identity)}>Mute</button>
+                        ) : (
+                          <button type="button" className="vr-mini-btn" disabled={!onStage} onClick={() => askUnmute(p.identity)} title={onStage ? 'Ask them to turn their mic on' : 'Put them on stage first'}>Ask to unmute</button>
+                        )}
+                        <button type="button" className={`vr-mini-btn ${onStage ? 'is-danger' : 'is-primary'}`} onClick={() => setStageAccess(p.identity, !onStage)}>
+                          {onStage ? 'Revoke mic' : 'Allow mic'}
                         </button>
-                      </>
+                      </div>
                     )}
-                  </div>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           </div>
-        ) : (
-          /* Small, wrapping gallery — one capped tile per participant. */
-          <div className="meeting-gallery">{cameraTiles}</div>
-        )}
-      </div>
 
-      {isHost && (
-        <aside className="waiting-panel">
-          <div className="waiting-panel-head">
-            <span>Waiting room{waiting.length ? ` (${waiting.length})` : ''}</span>
-            {waiting.length > 1 && (
-              <button className="btn btn-sm btn-primary" disabled={lobbyBusy !== null} onClick={() => decideLobby('all', true)}>Admit all</button>
-            )}
-          </div>
-          {lobbyError && <p className="waiting-panel-empty" style={{ color: '#fca5a5' }}>{lobbyError}</p>}
-          {waiting.length === 0 ? (
-            <p className="waiting-panel-empty">No one is waiting.</p>
-          ) : waiting.map((w) => (
-            <div key={w.user_id} className="waiting-row">
-              <span className="waiting-name" title={w.name}>{w.name || `User ${w.user_id}`}</span>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn btn-sm btn-primary" disabled={lobbyBusy !== null} onClick={() => decideLobby(w.user_id, true)}>Admit</button>
-                <button className="btn btn-sm btn-ghost text-danger" disabled={lobbyBusy !== null} onClick={() => decideLobby(w.user_id, false)}>Deny</button>
-              </div>
+          <div className="vr-card vr-side-card">
+            <div className="vr-side-head">
+              <h4 className="vr-side-title"><Icon name="signal" size={18} /> Connection</h4>
             </div>
-          ))}
+            <div className="vr-meta">
+              <div className="vr-meta-row">Provider <span className="vr-pill vr-pill-livekit">LiveKit · Webinar</span></div>
+              {serverHost && <div className="vr-meta-row">Server <strong className="vr-meta-value" title={serverUrl}>{serverHost}</strong></div>}
+              <div className="vr-meta-row">You are <strong>{canPublish ? 'On stage' : 'Viewer'}</strong></div>
+            </div>
+          </div>
         </aside>
-      )}
-      </div>
-
-      {isHost && participants.length > 1 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', padding: '6px 12px', background: 'rgba(255,255,255,0.06)' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: '#cbd5e1' }}>Mic & stage:</span>
-          {participants
-            .filter((p) => p.identity !== localParticipant?.identity)
-            .map((p) => {
-              const onStage = p.permissions?.canPublish !== false;
-              return (
-                <span key={p.identity} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#e5e7eb' }}>
-                  <span>{p.name || p.identity}{p.isMicrophoneEnabled ? ' 🎤' : ' 🔇'}</span>
-                  {p.isMicrophoneEnabled ? (
-                    <button className="btn btn-sm btn-ghost" disabled={participantBusy === p.identity} onClick={() => muteParticipant(p.identity)}>Mute</button>
-                  ) : (
-                    <button className="btn btn-sm btn-ghost" disabled={!onStage} onClick={() => askUnmute(p.identity)} title={onStage ? 'Ask them to turn their mic on' : 'Put them on stage first'}>Ask to unmute</button>
-                  )}
-                  <button
-                    className={`btn btn-sm ${onStage ? 'btn-ghost text-danger' : 'btn-primary'}`}
-                    onClick={() => setStageAccess(p.identity, !onStage)}
-                  >
-                    {onStage ? 'Revoke mic' : 'Allow mic'}
-                  </button>
-                </span>
-              );
-            })}
-        </div>
-      )}
-
-      {isHost && handCount > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', padding: '6px 12px', background: 'rgba(245,158,11,0.12)' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: '#fbbf24' }}>✋ Raised hands ({handCount}):</span>
-          {Object.entries(raisedHands).map(([identity, name]) => (
-            <span key={identity} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#e5e7eb' }}>
-              {name}
-              <button className="btn btn-sm btn-primary" onClick={() => setStageAccess(identity, true)}>Promote</button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="video-controls">
-        {canPublish ? (
-          /* Screen share for anyone on stage, students included: a promoted
-             student needs to show work, not just talk. */
-          <>
-            <ControlBar
-              variation="minimal"
-              controls={{ microphone: true, camera: true, screenShare: false, chat: false, leave: false, settings: false }}
-            />
-            {/* Our own share button: ControlBar's offers this very tab in the
-                picker, and sharing the class tab only shows it inside itself. */}
-            <TrackToggle
-              source={Track.Source.ScreenShare}
-              captureOptions={{ audio: true, selfBrowserSurface: 'exclude' }}
-              showIcon
-              title="Share screen"
-            />
-            {!isMicrophoneEnabled && (
-              <button className="btn-control" onClick={enableMic} title="Turn on your microphone">🎤 Unmute</button>
-            )}
-          </>
-        ) : (
-          <button
-            className={`btn-control ${handRaised ? 'active' : ''}`}
-            onClick={() => broadcastHand(!handRaised)}
-            title={handRaised ? 'Lower hand' : 'Raise hand'}
-          >
-            ✋
-          </button>
-        )}
-        {unmuteAsked && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, padding: '4px 10px',
-            borderRadius: '999px', background: '#2563eb', color: '#fff' }}>
-            The host asked you to unmute
-            <button className="btn btn-sm btn-primary" onClick={async () => { await enableMic(); setUnmuteAsked(false); }}>Unmute</button>
-            <button className="btn btn-sm btn-ghost" style={{ color: '#fff' }} onClick={() => setUnmuteAsked(false)}>Dismiss</button>
-          </span>
-        )}
-        {deviceError && (
-          <span
-            onClick={() => setDeviceError?.('')}
-            title="Dismiss"
-            style={{ cursor: 'pointer', fontSize: '12px', fontWeight: 600, padding: '4px 10px', borderRadius: '999px',
-              background: '#dc2626', color: '#fff', maxWidth: '420px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          >
-            {deviceError}
-          </span>
-        )}
-        {recNotice && (
-          <span
-            onClick={() => setRecNotice('')}
-            title="Dismiss"
-            style={{ cursor: 'pointer', fontSize: '12px', fontWeight: 600, padding: '4px 10px', borderRadius: '999px',
-              background: recNotice === 'Recording saved.' ? '#16a34a' : '#dc2626', color: '#fff', maxWidth: '340px',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          >
-            {recNotice}
-          </span>
-        )}
-        {isHost && (
-          <button
-            className={`btn-control ${wbOpen ? 'active' : ''}`}
-            onClick={() => toggleWhiteboard(!wbOpen)}
-            title={wbOpen ? 'Close whiteboard for everyone' : 'Open whiteboard for everyone'}
-          >
-            🖊
-          </button>
-        )}
-        {isHost && (
-          recState === 'uploading' ? (
-            <button className="btn-control" disabled title="Saving recording…">⏳</button>
-          ) : (
-            <button
-              className={`btn-control ${recState === 'recording' ? 'active' : ''}`}
-              onClick={recState === 'recording' ? stopRecording : startRecording}
-              title={recState === 'recording' ? 'Stop & save recording' : 'Record session'}
-            >
-              {recState === 'recording' ? '⏹' : '⏺'}
-            </button>
-          )
-        )}
-        <button className="btn-control btn-leave" onClick={confirmLeave} title="Leave session">📞</button>
-        <span
-          title={`${participants.length} participant(s) in this session`}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '14px', fontWeight: 600, padding: '6px 14px',
-            borderRadius: '999px', background: '#374151', color: '#e5e7eb' }}
-        >
-          👥 {participants.length}
-        </span>
       </div>
     </div>
   );

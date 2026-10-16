@@ -15,6 +15,7 @@ import { Track, RoomEvent } from 'livekit-client';
 import Whiteboard from './Whiteboard';
 import '@livekit/components-styles';
 import { api } from '../api';
+import { Icon, CallTimer, RoomTitle, Avatar, formatRoomDate } from './roomUi';
 
 // Public, account-less meeting page. Anyone with the link enters their name (and
 // the 5-digit passcode, if the meeting has one), then joins a LiveKit room
@@ -198,14 +199,9 @@ function MeetingStage({ title, onLeave }) {
     const ref = cameraByIdentity[p.identity] || { participant: p, source: Track.Source.Camera };
     const isMe = p.identity === localParticipant?.identity;
     return (
-      <div key={p.identity} className="meeting-tile">
-        <ParticipantTile
-          trackRef={ref}
-          style={{ width: '100%', height: '100%', borderRadius: '10px', overflow: 'hidden', outline: isMe ? '2px solid #6366f1' : '1px solid rgba(255,255,255,0.08)' }}
-        />
-        {isMe && (
-          <span style={{ position: 'absolute', top: 4, left: 4, fontSize: 10, fontWeight: 700, color: '#fff', background: 'rgba(99,102,241,0.9)', borderRadius: 4, padding: '1px 5px' }}>You</span>
-        )}
+      <div key={p.identity} className="meeting-tile vr-tile">
+        <ParticipantTile trackRef={ref} style={{ width: '100%', height: '100%' }} />
+        {isMe && <span className="vr-you-badge">You</span>}
       </div>
     );
   });
@@ -218,60 +214,104 @@ function MeetingStage({ title, onLeave }) {
     }
     (el.requestFullscreen || el.webkitRequestFullscreen)?.call(el);
   };
+  const stageRef = useRef(null);
 
   return (
-    <div className="video-room" style={{ height: '100%' }}>
-      <div className="video-room-header">
-        <h3>{title || 'Meeting'}</h3>
-        <span className="participants-count">{participants.length} in room</span>
-      </div>
-
-      <div style={{ flex: 1, minHeight: 0, padding: '8px', overflowY: 'auto' }}>
-        {wbOpen && <Whiteboard onClose={() => toggleWhiteboard(false)} />}
-
-        {screenShares.length > 0 ? (
-          /* While someone shares, the share fills the stage (letterboxed, so a
-             portrait phone screen shows whole) and the camera tiles dock to a
-             narrow strip on the left. */
-          <div className="share-layout">
-            <div className="share-strip">{cameraTiles}</div>
-            <div className="share-main">
-              {screenShares.map((t) => (
-                <div key={`ss-${t.participant.identity}`} className="share-tile">
-                  <ParticipantTile trackRef={t} style={{ width: '100%', height: '100%' }} />
-                  <button
-                    type="button"
-                    className="share-fullscreen"
-                    onClick={(e) => toggleFullscreen(e.currentTarget.parentElement)}
-                    title="Full screen"
-                    aria-label="Full screen"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
+    <div className="video-room vr" style={{ height: '100%' }}>
+      <div className="video-body vr-body">
+        <section className="vr-stage vr-card" ref={stageRef}>
+          <header className="vr-stage-head">
+            <RoomTitle kicker="Meeting" title={title || 'Meeting'} subtitle={`${formatRoomDate()} · Tiju's Academy`} />
+            <div className="vr-timer">
+              <div className="vr-timer-label"><span className="vr-live-dot" /> In call</div>
+              <div className="vr-timer-value"><CallTimer /></div>
             </div>
-          </div>
-        ) : (
-          <div className="meeting-gallery">{cameraTiles}</div>
-        )}
-      </div>
+          </header>
 
-      <div className="video-controls">
-        <ControlBar
-          variation="minimal"
-          controls={{ microphone: true, camera: true, screenShare: true, chat: false, leave: false, settings: false }}
-        />
-        <button
-          className={`btn-control ${wbOpen ? 'active' : ''}`}
-          onClick={() => toggleWhiteboard(!wbOpen)}
-          title={wbOpen ? 'Close whiteboard for everyone' : 'Open whiteboard for everyone'}
-        >
-          🖊
-        </button>
-        <button className="btn-control btn-leave" onClick={onLeave} title="Leave meeting">📞</button>
+          <div className="video-stage vr-stage-body">
+            {wbOpen && <Whiteboard onClose={() => toggleWhiteboard(false)} />}
+
+            {screenShares.length > 0 ? (
+              /* While someone shares, the share fills the stage (letterboxed, so a
+                 portrait phone screen shows whole) and the camera tiles dock to a
+                 narrow strip on the left. */
+              <div className="share-layout">
+                <div className="share-strip">{cameraTiles}</div>
+                <div className="share-main">
+                  {screenShares.map((t) => (
+                    <div key={`ss-${t.participant.identity}`} className="share-tile">
+                      <ParticipantTile trackRef={t} style={{ width: '100%', height: '100%' }} />
+                      <button
+                        type="button"
+                        className="share-fullscreen"
+                        onClick={(e) => toggleFullscreen(e.currentTarget.parentElement)}
+                        title="Full screen"
+                        aria-label="Full screen"
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="meeting-gallery vr-grid" data-count={Math.min(participants.length, 7)}>{cameraTiles}</div>
+            )}
+          </div>
+
+          <div className="vr-controls">
+            <button type="button" className="vr-btn vr-controls-side" onClick={() => stageRef.current && toggleFullscreen(stageRef.current)} title="Full screen" aria-label="Full screen">
+              <Icon name="expand" />
+            </button>
+            <ControlBar
+              variation="minimal"
+              controls={{ microphone: true, camera: true, screenShare: true, chat: false, leave: false, settings: false }}
+            />
+            <button
+              type="button"
+              className={`vr-btn${wbOpen ? ' is-on' : ''}`}
+              onClick={() => toggleWhiteboard(!wbOpen)}
+              title={wbOpen ? 'Close whiteboard for everyone' : 'Open whiteboard for everyone'}
+              aria-label={wbOpen ? 'Close whiteboard' : 'Open whiteboard'}
+              aria-pressed={wbOpen}
+            >
+              <Icon name="pen" />
+            </button>
+            <button type="button" className="vr-leave" onClick={onLeave} title="Leave meeting">
+              <Icon name="phoneOff" size={18} /><span className="vr-leave-text">Leave meeting</span>
+            </button>
+          </div>
+        </section>
+
+        <aside className="vr-side">
+          <div className="vr-card vr-side-card">
+            <div className="vr-side-head">
+              <h4 className="vr-side-title"><Icon name="users" size={18} /> In meeting</h4>
+              <span className="vr-count">{participants.length}</span>
+            </div>
+            <ul className="vr-people">
+              {participants.map((p, i) => {
+                const micOn = p.isMicrophoneEnabled;
+                return (
+                  <li key={p.identity} className="vr-person">
+                    <Avatar name={p.name || p.identity} index={i} />
+                    <div className="vr-person-main">
+                      <div className="vr-person-name">
+                        {p.name || p.identity}
+                        {p.identity === localParticipant?.identity && <span className="vr-you">You</span>}
+                      </div>
+                    </div>
+                    <span className={`vr-mic-state${micOn ? '' : ' is-off'}`} title={micOn ? 'Mic on' : 'Mic off'}>
+                      <Icon name={micOn ? 'mic' : 'micOff'} size={16} />
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </aside>
       </div>
     </div>
   );
