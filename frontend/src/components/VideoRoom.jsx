@@ -20,6 +20,40 @@ const ICE_SERVERS = [
   },
 ];
 
+// Inline icons (Lucide paths) for the call controls.
+const ICONS = {
+  mic: <><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><path d="M12 19v3" /></>,
+  micOff: <><path d="m2 2 20 20" /><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" /><path d="M5 10v2a7 7 0 0 0 12 5" /><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12" /><path d="M12 19v3" /></>,
+  video: <><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" /><rect x="2" y="6" width="14" height="12" rx="2" /></>,
+  videoOff: <><path d="M10.66 6H14a2 2 0 0 1 2 2v2.5l5.248-3.062A.5.5 0 0 1 22 7.87v8.196" /><path d="M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2" /><path d="m2 2 20 20" /></>,
+  share: <><path d="M13 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3" /><path d="M8 21h8" /><path d="M12 17v4" /><path d="m17 8 5-5" /><path d="M17 3h5v5" /></>,
+  phoneOff: <><path d="M10.1 13.9a14 14 0 0 0 3.732 2.668 1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2 18 18 0 0 1-12.728-5.272" /><path d="M22 2 2 22" /><path d="M4.76 13.582A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 .244.473" /></>,
+  expand: <><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="m21 3-7 7" /><path d="m3 21 7-7" /></>,
+  users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>,
+};
+
+function Icon({ name, size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {ICONS[name]}
+    </svg>
+  );
+}
+
+// Time since this user joined, ticking every second. Kept in its own component
+// so the tick re-renders only the clock, not the whole room.
+function CallTimer() {
+  const [start] = useState(() => Date.now());
+  const [now, setNow] = useState(start);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const secs = Math.floor((now - start) / 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return <>{pad(Math.floor(secs / 3600))}:{pad(Math.floor(secs / 60) % 60)}:{pad(secs % 60)}</>;
+}
+
 export default function VideoRoom({ session, onLeave }) {
   const { user } = useAuth();
   const [participants, setParticipants] = useState([]);
@@ -42,6 +76,8 @@ export default function VideoRoom({ session, onLeave }) {
   const lastIdRef = useRef(0);
   const remoteVideosRef = useRef({});
   const pendingCandidatesRef = useRef({});
+  const namesRef = useRef({}); // remote user id -> display name, for tile labels
+  const stageRef = useRef(null);
 
   // ICE candidates can arrive before the remote description is set. Adding one
   // then throws and the candidate is lost, which can leave the connection unable
@@ -83,12 +119,20 @@ export default function VideoRoom({ session, onLeave }) {
 
       let videoEl = remoteVideosRef.current[remoteUserId];
       if (!videoEl) {
+        // Each remote video sits in a tile with a name label, like the local one.
+        const tile = document.createElement('div');
+        tile.className = 'vr-tile';
+        tile.id = `tile-${remoteUserId}`;
         videoEl = document.createElement('video');
         videoEl.autoplay = true;
         videoEl.playsInline = true;
         videoEl.className = 'remote-video';
         videoEl.id = `video-${remoteUserId}`;
-        container.appendChild(videoEl);
+        const label = document.createElement('span');
+        label.className = 'vr-tile-name';
+        label.textContent = namesRef.current[remoteUserId] || 'Participant';
+        tile.append(videoEl, label);
+        container.appendChild(tile);
         remoteVideosRef.current[remoteUserId] = videoEl;
       }
       videoEl.srcObject = e.streams[0];
@@ -148,7 +192,7 @@ export default function VideoRoom({ session, onLeave }) {
     }
     const videoEl = remoteVideosRef.current[userId];
     if (videoEl) {
-      videoEl.remove();
+      (videoEl.closest('.vr-tile') || videoEl).remove();
       delete remoteVideosRef.current[userId];
     }
     delete pendingCandidatesRef.current[userId];
@@ -164,6 +208,7 @@ export default function VideoRoom({ session, onLeave }) {
       // or rejoined — tear the stale connection down so we renegotiate cleanly
       // against their new RTCPeerConnection instead of reusing a dead one.
       if (peersRef.current[from_user_id]) removePeer(from_user_id);
+      namesRef.current[from_user_id] = info.name;
       setParticipants((prev) => {
         if (prev.find((p) => p.id === from_user_id)) return prev;
         return [...prev, { id: from_user_id, name: info.name, role: info.role }];
@@ -360,98 +405,132 @@ export default function VideoRoom({ session, onLeave }) {
     onLeave?.();
   };
 
+  // A join can arrive after the peer's video tile was built — fix up its label.
+  useEffect(() => {
+    participants.forEach((p) => {
+      const label = document.querySelector(`#tile-${p.id} .vr-tile-name`);
+      if (label && p.name) label.textContent = p.name;
+    });
+  }, [participants]);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else stageRef.current?.requestFullscreen?.().catch(() => {});
+  };
+
+  const everyone = [{ id: user?.id, name: user?.name, role: user?.role, you: true }, ...participants];
+  const initial = (name) => name?.trim()?.[0]?.toUpperCase() || '?';
+  const startAt = session.start_time ? new Date(session.start_time) : null;
+  const dateLine = (startAt && !isNaN(startAt) ? startAt : new Date())
+    .toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
+  const showCamCover = (!localVideoOn || isVideoOff) && !isScreenSharing;
+  const diagnostics = [
+    `local cam: ${localVideoOn ? (isVideoOff ? 'off' : 'on') : 'none'}`,
+    ...participants.map((p) => {
+      const s = debug[p.id] || {};
+      return `${p.name}: ice=${s.ice || '—'} conn=${s.conn || '—'} video=${s.videoTrack || '—'} audio=${s.audioTrack || '—'}`;
+    }),
+  ].join('\n');
+
   return (
-    <div className="video-room">
-      <div className="video-room-header">
-        <h3>{session.course_name || 'Live Session'}</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {videoProvider && (
-            <span
-              style={{
-                fontSize: '12px', fontWeight: 600, padding: '2px 10px', borderRadius: '999px',
-                background: videoProvider === 'zoom' ? '#2D8CFF' : '#10b981', color: '#fff',
-              }}
-              title="Active video provider (Settings → Video / Meeting Provider)"
-            >
-              {videoProvider === 'zoom' ? 'Zoom' : 'WebRTC'}
-            </span>
-          )}
-          {videoProvider === 'zoom' && zoomStatus && (
-            <span
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#cbd5e1' }}
-              title={zoomStatus.error || (zoomStatus.connected ? 'Zoom API reachable' : 'Zoom API not connected')}
-            >
-              <span style={{
-                width: '8px', height: '8px', borderRadius: '50%',
-                background: zoomStatus.connected ? '#22c55e' : (zoomStatus.configured === false ? '#9ca3af' : '#ef4444'),
-              }} />
-              {zoomStatus.connected ? 'API connected' : (zoomStatus.configured === false ? 'Not configured' : 'API error')}
-            </span>
-          )}
-          <span className="participants-count">{participants.length + 1} participant(s)</span>
-        </div>
-      </div>
+    <div className="video-room vr">
+      <div className="video-body vr-body">
+        <section className="vr-stage vr-card" ref={stageRef}>
+          <header className="vr-stage-head">
+            <div style={{ minWidth: 0 }}>
+              <div className="vr-kicker"><span className="vr-dots" aria-hidden="true"><i /><i /><i /><i /></span>Live class</div>
+              <h3 className="vr-title">{session.course_name || 'Live Session'}</h3>
+              <p className="vr-subtitle">{dateLine}{session.tutor_name ? ` · ${session.tutor_name}` : ''}</p>
+            </div>
+            <div className="vr-timer">
+              <div className="vr-timer-label"><span className="vr-live-dot" /> In call</div>
+              <div className="vr-timer-value"><CallTimer /></div>
+            </div>
+          </header>
 
-      {error && <div className="alert alert-error">{error}</div>}
+          {error && <div className="vr-alert" role="status">{error}</div>}
 
-      <div style={{ padding: '4px 12px', fontSize: '11px', fontFamily: 'monospace', color: '#9ca3af', background: 'rgba(0,0,0,0.3)' }}>
-        local cam: {localVideoOn ? (isVideoOff ? 'off' : 'on') : 'none'}
-        {participants.map((p) => {
-          const s = debug[p.id] || {};
-          return (
-            <span key={p.id} style={{ marginLeft: 12 }}>
-              | {p.name}: ice={s.ice || '—'} conn={s.conn || '—'} video={s.videoTrack || '—'} audio={s.audioTrack || '—'}
-            </span>
-          );
-        })}
-      </div>
+          <div className="vr-grid" data-count={Math.min(everyone.length, 7)}>
+            <div className="vr-tile">
+              <video ref={localVideoRef} autoPlay playsInline muted className="local-video" />
+              {showCamCover && (
+                <div className="vr-tile-cover"><span className="vr-avatar vr-avatar-lg vr-ring-0">{initial(user?.name)}</span></div>
+              )}
+              {isMuted && <span className="vr-tile-muted" title="Your mic is off"><Icon name="micOff" size={14} /></span>}
+              <span className="vr-tile-name">You · {user?.name}</span>
+            </div>
+            <div id="remote-videos" className="vr-remote" />
+          </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', padding: '8px 12px' }}>
-        <span style={{ fontSize: '12px', fontWeight: 600, color: '#9ca3af', marginRight: '4px' }}>
-          In session ({participants.length + 1}):
-        </span>
-        {[{ id: user?.id, name: user?.name, role: user?.role, you: true }, ...participants].map((p) => (
-          <span
-            key={p.id ?? p.name}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: '6px',
-              background: 'rgba(255,255,255,0.08)', borderRadius: '999px', padding: '3px 10px 3px 3px',
-              fontSize: '12px', color: '#e5e7eb',
-            }}
-          >
-            <span style={{
-              width: '22px', height: '22px', borderRadius: '50%', background: '#4F46E5', color: '#fff',
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 600,
-            }}>
-              {p.name?.[0]?.toUpperCase()}
-            </span>
-            {p.name}{p.you ? ' (You)' : ''}
-            {p.role && <span style={{ color: '#9ca3af', textTransform: 'capitalize' }}>· {p.role}</span>}
-          </span>
-        ))}
-      </div>
+          <div className="vr-controls">
+            <button type="button" className="vr-btn vr-controls-side" onClick={toggleFullscreen} title="Full screen" aria-label="Full screen">
+              <Icon name="expand" />
+            </button>
+            <button type="button" className={`vr-btn${isMuted ? ' is-off' : ''}`} onClick={toggleMute} title={isMuted ? 'Unmute' : 'Mute'} aria-label={isMuted ? 'Unmute' : 'Mute'} aria-pressed={isMuted}>
+              <Icon name={isMuted ? 'micOff' : 'mic'} />
+            </button>
+            <button type="button" className={`vr-btn${isVideoOff ? ' is-off' : ''}`} onClick={toggleVideo} title={isVideoOff ? 'Turn on camera' : 'Turn off camera'} aria-label={isVideoOff ? 'Turn on camera' : 'Turn off camera'} aria-pressed={isVideoOff}>
+              <Icon name={isVideoOff ? 'videoOff' : 'video'} />
+            </button>
+            <button type="button" className={`vr-btn${isScreenSharing ? ' is-on' : ''}`} onClick={toggleScreenShare} title={isScreenSharing ? 'Stop sharing' : 'Share screen'} aria-label={isScreenSharing ? 'Stop sharing' : 'Share screen'} aria-pressed={isScreenSharing}>
+              <Icon name="share" />
+            </button>
+            <button type="button" className="vr-leave" onClick={handleLeave} title="Leave session">
+              <Icon name="phoneOff" size={18} /><span className="vr-leave-text">Leave class</span>
+            </button>
+          </div>
+        </section>
 
-      <div className="video-grid">
-        <div className="video-container local">
-          <video ref={localVideoRef} autoPlay playsInline muted className="local-video" />
-          <span className="video-label">You ({user?.name})</span>
-        </div>
-        <div id="remote-videos" className="remote-videos-container" />
-      </div>
+        <aside className="vr-side">
+          <div className="vr-card vr-side-card">
+            <div className="vr-side-head">
+              <h4 className="vr-side-title"><Icon name="users" size={18} /> In session</h4>
+              <span className="vr-count">{everyone.length}</span>
+            </div>
+            <ul className="vr-people">
+              {everyone.map((p, i) => (
+                <li key={p.id ?? p.name} className="vr-person">
+                  <span className={`vr-avatar vr-ring-${i % 4}`}>{initial(p.name)}</span>
+                  <div>
+                    <div className="vr-person-name">{p.name}{p.you && <span className="vr-you">You</span>}</div>
+                    {p.role && <div className="vr-person-role">{p.role}</div>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
 
-      <div className="video-controls">
-        <button className={`btn-control ${isMuted ? 'active' : ''}`} onClick={toggleMute} title={isMuted ? 'Unmute' : 'Mute'}>
-          {isMuted ? '🔇' : '🎤'}
-        </button>
-        <button className={`btn-control ${isVideoOff ? 'active' : ''}`} onClick={toggleVideo} title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
-          {isVideoOff ? '📷' : '🎥'}
-        </button>
-        <button className={`btn-control ${isScreenSharing ? 'active' : ''}`} onClick={toggleScreenShare} title="Share screen">
-          🖥️
-        </button>
-        <button className="btn-control btn-leave" onClick={handleLeave} title="Leave session">
-          📞
-        </button>
+          <div className="vr-card vr-side-card">
+            <div className="vr-side-head">
+              <h4 className="vr-side-title">Connection</h4>
+            </div>
+            <div className="vr-meta">
+              {videoProvider && (
+                <div className="vr-meta-row" title="Active video provider (Settings → Video / Meeting Provider)">
+                  Provider
+                  <span className={`vr-pill ${videoProvider === 'zoom' ? 'vr-pill-zoom' : 'vr-pill-webrtc'}`}>{videoProvider === 'zoom' ? 'Zoom' : 'WebRTC'}</span>
+                </div>
+              )}
+              {videoProvider === 'zoom' && zoomStatus && (
+                <div className="vr-meta-row" title={zoomStatus.error || (zoomStatus.connected ? 'Zoom API reachable' : 'Zoom API not connected')}>
+                  Zoom API
+                  <strong>
+                    <span className="vr-status-dot" style={{ background: zoomStatus.connected ? '#77DD77' : (zoomStatus.configured === false ? '#C9C6D9' : '#FF0D00') }} />
+                    {zoomStatus.connected ? 'Connected' : (zoomStatus.configured === false ? 'Not configured' : 'Error')}
+                  </strong>
+                </div>
+              )}
+              <div className="vr-meta-row">
+                Your camera
+                <strong>{localVideoOn ? (isVideoOff ? 'Off' : 'On') : 'Unavailable'}</strong>
+              </div>
+              <details className="vr-diag">
+                <summary>Connection details</summary>
+                <pre>{diagnostics}</pre>
+              </details>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   );
