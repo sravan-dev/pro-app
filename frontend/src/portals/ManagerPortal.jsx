@@ -10,6 +10,7 @@ import RatingsView from '../components/RatingsView';
 import StaffAttendanceSelf from '../components/StaffAttendanceSelf';
 import TutorManagement from '../components/TutorManagement';
 import ContactsDirectory from '../components/ContactsDirectory';
+import StudentRoster from '../components/StudentRoster';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
 
@@ -178,6 +179,8 @@ export default function ManagerPortal() {
             )}
           </div>
         )}
+
+        {activeTab === 'students' && <StudentRoster showMsg={showMsg} onEnrolled={loadData} />}
 
         {activeTab === 'tutors' && <TutorManagement showMsg={showMsg} />}
 

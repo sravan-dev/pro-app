@@ -36,6 +36,7 @@ const menuItems = {
     { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
     { key: 'teams', label: 'Team Performance', icon: 'users' },
     { key: 'myteam', label: 'My Team', icon: 'users' },
+    { key: 'students', label: 'Students', icon: 'student' },
     { key: 'tutors', label: 'Tutor Management', icon: 'tutor' },
     { key: 'contacts', label: 'HubSpot Contacts', icon: 'contact' },
     { key: 'kajabi', label: 'Kajabi Contacts', icon: 'contact' },
