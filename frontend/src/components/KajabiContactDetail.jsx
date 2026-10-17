@@ -8,12 +8,13 @@ import { formatMoney } from '../utils/money';
 // when they're also a Kajabi customer — products, offers and purchases. Also
 // shows whether the email already belongs to an LMS account. `contact` is the
 // list row (shown straight away while the rest loads); `onEnroll` reuses the
-// list's Enroll flow.
+// list's Enroll flow. Money is shown in the app's currency (Settings), not the
+// currency Kajabi tags its offers with — amounts are displayed as-is.
 const muted = { color: 'var(--color-text-secondary)' };
 const card = { background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow)', padding: '1.25rem' };
 const fmtDate = (v) => (v ? new Date(v).toLocaleDateString() : '—');
 const fmtDateTime = (v) => (v ? new Date(v).toLocaleString() : '—');
-const cents = (n, currency) => formatMoney((Number(n) || 0) / 100, currency || 'USD');
+const cents = (n, currency) => formatMoney((Number(n) || 0) / 100, currency);
 
 function Field({ label, children }) {
   return (
@@ -27,6 +28,11 @@ function Field({ label, children }) {
 export default function KajabiContactDetail({ contact, onBack, onEnroll, enrollBusy }) {
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState('');
+  const [currency, setCurrency] = useState('INR');
+
+  useEffect(() => {
+    api.getAppSettings().then((s) => { if (s.currency) setCurrency(s.currency); }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setDetail(null);
@@ -41,7 +47,6 @@ export default function KajabiContactDetail({ contact, onBack, onEnroll, enrollB
   const addressLines = [addr.line1, addr.line2, [addr.city, addr.state, addr.zip].filter(Boolean).join(', '), addr.country].filter(Boolean);
   const cust = detail?.customer;
   const lms = detail?.lms_user;
-  const currency = detail?.purchases?.[0]?.currency || detail?.offers?.[0]?.currency || 'USD';
 
   return (
     <div>
@@ -158,7 +163,7 @@ export default function KajabiContactDetail({ contact, onBack, onEnroll, enrollB
               <DataTable
                 columns={[
                   { key: 'title', label: 'Offer', accessor: 'title' },
-                  { key: 'price', label: 'Price', accessor: 'price_in_cents', render: (r) => (r.free ? 'Free' : cents(r.price_in_cents, r.currency)) },
+                  { key: 'price', label: 'Price', accessor: 'price_in_cents', render: (r) => (r.free ? 'Free' : cents(r.price_in_cents, currency)) },
                   { key: 'payment_type', label: 'Payment', accessor: 'payment_type', render: (r) => r.price_description || r.payment_type || '—' },
                 ]}
                 data={detail.offers}
@@ -174,7 +179,7 @@ export default function KajabiContactDetail({ contact, onBack, onEnroll, enrollB
                 columns={[
                   { key: 'created_at', label: 'Date', accessor: 'created_at', render: (r) => fmtDate(r.created_at) },
                   { key: 'offer', label: 'Offer', accessor: 'offer_title', render: (r) => r.offer_title || '—' },
-                  { key: 'amount', label: 'Amount', accessor: 'amount_in_cents', render: (r) => cents(r.amount_in_cents, r.currency) },
+                  { key: 'amount', label: 'Amount', accessor: 'amount_in_cents', render: (r) => cents(r.amount_in_cents, currency) },
                   { key: 'payment_type', label: 'Payment', accessor: 'payment_type' },
                   { key: 'coupon', label: 'Coupon', accessor: 'coupon_code', render: (r) => r.coupon_code || '—' },
                   { key: 'status', label: 'Status', accessor: 'deactivated_at', render: (r) => (r.deactivated_at
