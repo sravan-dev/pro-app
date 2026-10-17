@@ -3750,6 +3750,91 @@ async function resolveStudentTeam(student) {
 }
 
 // --- Teams CRUD ---
+// --- Packages: priced course offerings, managed by admins and managers ---
+const PACKAGE_CLASS_TYPES = ['one_to_one', 'group'];
+const PACKAGE_COUNTS = { sessions_count: 'number of classes', session_minutes: 'minutes per class', validity_days: 'validity' };
+
+// Validate a package body. Returns { fields } (only whitelisted columns) or
+// { error }. On an edit (partial) the name is only checked when it was sent.
+function packageFields(body, partial) {
+  const b = body || {};
+  const f = {};
+  if (b.name !== undefined || !partial) {
+    const name = String(b.name ?? '').trim();
+    if (!name) return { error: 'Package name required' };
+    f.name = name.slice(0, 200);
+  }
+  if (b.course_id !== undefined) f.course_id = parseInt(b.course_id, 10) || null;
+  if (b.class_type !== undefined) {
+    if (!PACKAGE_CLASS_TYPES.includes(b.class_type)) return { error: 'Invalid class type' };
+    f.class_type = b.class_type;
+  }
+  for (const [k, label] of Object.entries(PACKAGE_COUNTS)) {
+    if (b[k] === undefined) continue;
+    const n = Number(b[k]);
+    if (!Number.isInteger(n) || n < 0) return { error: `Invalid ${label}` };
+    f[k] = n;
+  }
+  if (b.price !== undefined) {
+    const p = Number(b.price);
+    if (!Number.isFinite(p) || p < 0) return { error: 'Invalid price' };
+    f.price = Math.round(p * 100) / 100;
+  }
+  if (b.description !== undefined) f.description = String(b.description ?? '').slice(0, 5000);
+  if (b.status !== undefined) {
+    if (!['active', 'archived'].includes(b.status)) return { error: 'Invalid status' };
+    f.status = b.status;
+  }
+  return { fields: f };
+}
+
+app.get('/api/packages', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
+  res.json(await db.all(
+    `SELECT p.*, c.name AS course_name, u.name AS created_by_name
+     FROM packages p LEFT JOIN courses c ON c.id=p.course_id LEFT JOIN users u ON u.id=p.created_by
+     ORDER BY p.status='archived', p.name`));
+});
+
+app.post('/api/packages', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
+  const { fields, error } = packageFields(req.body, false);
+  if (error) return res.status(400).json({ error });
+  if (fields.course_id && !(await db.get("SELECT 1 FROM courses WHERE id=?", [fields.course_id]))) return res.status(400).json({ error: 'Course not found' });
+  const cols = Object.keys(fields);
+  const r = await db.run(
+    `INSERT INTO packages (${cols.join(',')}, created_by) VALUES (${cols.map(() => '?').join(',')}, ?)`,
+    [...cols.map((k) => fields[k]), user.id]);
+  auditLog(user.id, 'create_package', 'package', r.lastInsertRowid, `Created package ${fields.name}`);
+  res.status(201).json({ id: r.lastInsertRowid, message: 'Package created' });
+});
+
+app.put('/api/packages', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
+  const id = parseInt(req.body?.id, 10);
+  if (!id) return res.status(400).json({ error: 'Package ID required' });
+  const { fields, error } = packageFields(req.body, true);
+  if (error) return res.status(400).json({ error });
+  const cols = Object.keys(fields);
+  if (!cols.length) return res.status(400).json({ error: 'No fields' });
+  if (!(await db.get("SELECT 1 FROM packages WHERE id=?", [id]))) return res.status(404).json({ error: 'Package not found' });
+  if (fields.course_id && !(await db.get("SELECT 1 FROM courses WHERE id=?", [fields.course_id]))) return res.status(400).json({ error: 'Course not found' });
+  await db.run(`UPDATE packages SET ${cols.map((k) => `${k}=?`).join(',')} WHERE id=?`, [...cols.map((k) => fields[k]), id]);
+  auditLog(user.id, 'update_package', 'package', id);
+  res.json({ message: 'Package updated' });
+});
+
+// Deleting outright is superadmin-only; managers archive instead.
+app.delete('/api/packages', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const id = parseInt(req.query.id, 10);
+  if (!id) return res.status(400).json({ error: 'Package ID required' });
+  const r = await db.run("DELETE FROM packages WHERE id=?", [id]);
+  if (!r.changes) return res.status(404).json({ error: 'Package not found' });
+  auditLog(user.id, 'delete_package', 'package', id);
+  res.json({ message: 'Package deleted' });
+});
+
 app.get('/api/teams', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
   const where = user.role === 'manager' ? 'WHERE t.manager_id=?' : '';

@@ -496,3 +496,23 @@ CREATE TABLE IF NOT EXISTS user_sessions (
   INDEX idx_user_sessions_expires (expires),
   INDEX idx_user_sessions_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Packages: priced course offerings (e.g. "IELTS 1-on-1, 20 classes, 30 days")
+-- set up by admins and managers. course_id is optional; status is 'active' or
+-- 'archived'.
+CREATE TABLE IF NOT EXISTS packages (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  course_id INT NULL,
+  class_type VARCHAR(20) NOT NULL DEFAULT 'one_to_one',
+  sessions_count INT NOT NULL DEFAULT 0,
+  session_minutes INT NOT NULL DEFAULT 60,
+  validity_days INT NOT NULL DEFAULT 30,
+  price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  description TEXT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  created_by INT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_packages_course (course_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

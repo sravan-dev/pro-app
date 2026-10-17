@@ -16,6 +16,7 @@ import TutorProfile from '../components/TutorProfile';
 import ZoomMeetings from '../components/ZoomMeetings';
 import MeetingsManager from '../components/MeetingsManager';
 import ContactsDirectory from '../components/ContactsDirectory';
+import Packages from '../components/Packages';
 import usePersistedTab from '../hooks/usePersistedTab';
 import downloadCsv, { today } from '../utils/downloadCsv';
 import { formatMoney as fmtMoney } from '../utils/money';
@@ -2844,6 +2845,9 @@ export default function SuperadminPortal() {
             />
           </div>
         )}
+
+        {/* ===== PACKAGES ===== */}
+        {activeTab === 'packages' && <Packages showMsg={showMsg} canDelete />}
 
         {/* ===== RATINGS ===== */}
         {activeTab === 'ratings' && <RatingsView />}

@@ -11,6 +11,7 @@ import StaffAttendanceSelf from '../components/StaffAttendanceSelf';
 import TutorManagement from '../components/TutorManagement';
 import ContactsDirectory from '../components/ContactsDirectory';
 import StudentRoster from '../components/StudentRoster';
+import Packages from '../components/Packages';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { MainSkeleton } from '../components/Skeleton';
 
@@ -183,6 +184,8 @@ export default function ManagerPortal() {
         {activeTab === 'students' && <StudentRoster showMsg={showMsg} onEnrolled={loadData} />}
 
         {activeTab === 'tutors' && <TutorManagement showMsg={showMsg} />}
+
+        {activeTab === 'packages' && <Packages showMsg={showMsg} />}
 
         {activeTab === 'contacts' && <ContactsDirectory source="hubspot" onMessage={showMsg} onEnrolled={loadData} />}
 
