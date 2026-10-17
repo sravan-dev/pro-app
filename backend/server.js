@@ -454,13 +454,13 @@ async function requireRole(req, res, roles) {
   return user;
 }
 
-// Managers run Tutor Management: they may create, edit, invite, blacklist and
-// delete tutor accounts only — never students, other staff or admins. Returns
-// false (and answers 403) when a manager targets anyone else.
-async function managerTutorOnly(actor, res, targetId) {
+// Managers run Tutor Management and the Students page: they may edit, invite,
+// blacklist and deactivate tutor and student accounts — never other staff or
+// admins. Returns false (and answers 403) when a manager targets anyone else.
+async function managerTutorOrStudentOnly(actor, res, targetId) {
   if (actor.role !== 'manager') return true;
   const t = await db.get("SELECT role FROM users WHERE id=?", [targetId]);
-  if (t && t.role !== 'tutor') { res.status(403).json({ error: 'Managers can only manage tutor accounts' }); return false; }
+  if (t && !['tutor', 'student'].includes(t.role)) { res.status(403).json({ error: 'Managers can only manage tutor and student accounts' }); return false; }
   return true;
 }
 
@@ -1966,7 +1966,7 @@ app.delete('/api/staff-attendance', async (req, res) => {
 app.get('/api/shift-rates', async (req, res) => {
   const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
   const userId = parseInt(req.query.user_id);
-  if (userId && !(await managerTutorOnly(admin, res, userId))) return;
+  if (userId && !(await managerTutorOrStudentOnly(admin, res, userId))) return;
   const rates = userId
     ? resolveShiftRates(await db.all("SELECT shift, rate FROM user_shift_rates WHERE user_id=?", [userId]))
     : resolveShiftRates([]);
@@ -2193,8 +2193,11 @@ app.put('/api/users', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
   const { id, password, shift_rates, ...fields } = req.body;
   if (!id) return res.status(400).json({ error: 'User ID required' });
-  if (!(await managerTutorOnly(user, res, id))) return;
-  if (user.role === 'manager' && fields.role !== undefined && fields.role !== 'tutor') return res.status(403).json({ error: 'Managers cannot change roles' });
+  if (!(await managerTutorOrStudentOnly(user, res, id))) return;
+  if (user.role === 'manager' && fields.role !== undefined) {
+    const target = await db.get("SELECT role FROM users WHERE id=?", [id]);
+    if (!target || fields.role !== target.role) return res.status(403).json({ error: 'Managers cannot change roles' });
+  }
   // 'blacklisted' is only entered through the Blacklist action (it needs a
   // reason). Re-saving an already-blacklisted user's form keeps it as is;
   // moving them to another status via Edit clears the stored reason.
@@ -2261,8 +2264,8 @@ app.post('/api/users/invite', async (req, res) => {
   const u = await db.get("SELECT id,name,email,role FROM users WHERE id=?", [user_id]);
   if (!u) return res.status(404).json({ error: 'User not found' });
   // An invite resets the password and hands it back, so letting a manager
-  // invite anyone but a tutor would let them take that account over.
-  if (admin.role === 'manager' && u.role !== 'tutor') return res.status(403).json({ error: 'Managers can only invite tutor accounts' });
+  // invite staff accounts would let them take those over.
+  if (admin.role === 'manager' && !['tutor', 'student'].includes(u.role)) return res.status(403).json({ error: 'Managers can only invite tutor and student accounts' });
   const tempPassword = makeTempPassword();
   await db.run("UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?", [bcrypt.hashSync(tempPassword, 10), u.id]);
   await revokeUserSessions(u.id, req.sessionID);
@@ -2337,7 +2340,7 @@ app.get('/api/users/invite-all/status', async (req, res) => {
 app.post('/api/users/:id/blacklist', async (req, res) => {
   const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
   const id = parseInt(req.params.id, 10);
-  if (!(await managerTutorOnly(admin, res, id))) return;
+  if (!(await managerTutorOrStudentOnly(admin, res, id))) return;
   const reason = String(req.body?.reason ?? '').trim().slice(0, 2000);
   if (!reason) return res.status(400).json({ error: 'A reason is required' });
   if (id === admin.id) return res.status(400).json({ error: 'You cannot blacklist yourself' });
@@ -2352,7 +2355,7 @@ app.post('/api/users/:id/blacklist', async (req, res) => {
 app.post('/api/users/:id/unblacklist', async (req, res) => {
   const admin = await requireRole(req, res, ['superadmin', 'manager']); if (!admin) return;
   const id = parseInt(req.params.id, 10);
-  if (!(await managerTutorOnly(admin, res, id))) return;
+  if (!(await managerTutorOrStudentOnly(admin, res, id))) return;
   const u = await db.get("SELECT id, name, status FROM users WHERE id=?", [id]);
   if (!u) return res.status(404).json({ error: 'User not found' });
   if (u.status !== 'blacklisted') return res.status(400).json({ error: 'User is not blacklisted' });
@@ -2365,9 +2368,13 @@ app.delete('/api/users', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
   const id = parseInt(req.query.id);
   if (!id) return res.status(400).json({ error: 'ID required' });
-  if (!(await managerTutorOnly(user, res, id))) return;
+  if (!(await managerTutorOrStudentOnly(user, res, id))) return;
   if (id === user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
   const permanent = req.query.permanent === 'true';
+  if (permanent && user.role === 'manager') {
+    const target = await db.get("SELECT role FROM users WHERE id=?", [id]);
+    if (target && target.role === 'student') return res.status(403).json({ error: 'Managers can deactivate students but not delete them' });
+  }
   if (permanent) {
     try {
       await txRetry(async (t) => {
@@ -3801,8 +3808,16 @@ app.post('/api/assignments', async (req, res) => {
   if (!student || student.role !== 'student') return res.status(404).json({ error: 'Student not found' });
 
   // Managers may only touch their own team's students, and may only assign
-  // advisors/tutors that belong to one of their teams.
-  if (user.role === 'manager') {
+  // advisors/tutors that belong to one of their teams. A tutor-only change
+  // comes from the Students page, which covers every student, so it only
+  // checks that the tutor is a tutor.
+  const tutorOnly = team_id === undefined && advisor_id === undefined;
+  if (user.role === 'manager' && tutorOnly) {
+    if (assigned_tutor_id) {
+      const t = await db.get("SELECT role FROM users WHERE id=?", [assigned_tutor_id]);
+      if (!t || t.role !== 'tutor') return res.status(400).json({ error: 'Selected tutor not found' });
+    }
+  } else if (user.role === 'manager') {
     const myTeams = await managerTeamIds(user.id);
     if (!myTeams.includes(student.team_id)) return res.status(403).json({ error: 'Student is not in your team' });
     for (const [field, val] of [['advisor', advisor_id], ['tutor', assigned_tutor_id]]) {
