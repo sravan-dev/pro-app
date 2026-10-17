@@ -3406,6 +3406,12 @@ app.get('/api/kajabi-status', async (req, res) => {
   }
 });
 
+// The message from a failed Kajabi (JSON:API) response.
+function kajabiError(data, status) {
+  const e = data && data.errors && data.errors[0];
+  return (e && (e.detail || e.title)) || (data && data.error) || `Kajabi request failed (HTTP ${status})`;
+}
+
 // One page of Kajabi contacts (100 at a time), paged server-side via JSON:API
 // page[number]/page[size]. `q` is passed as a best-effort filter.
 app.get('/api/kajabi/contacts', async (req, res) => {
@@ -3425,7 +3431,7 @@ app.get('/api/kajabi/contacts', async (req, res) => {
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      return res.status(resp.status === 401 ? 401 : 502).json({ error: (data.errors && data.errors[0] && (data.errors[0].detail || data.errors[0].title)) || data.error || `Kajabi request failed (HTTP ${resp.status})` });
+      return res.status(UPSTREAM_FAILED).json({ error: kajabiError(data, resp.status) });
     }
     const records = Array.isArray(data.data) ? data.data : [];
     const contacts = records.map(mapKajabiContact);
@@ -3434,6 +3440,113 @@ app.get('/api/kajabi/contacts', async (req, res) => {
       : (meta.pagination && typeof meta.pagination.total === 'number' ? meta.pagination.total : null);
     const hasNext = !!(data.links && data.links.next) || contacts.length === SIZE;
     res.json({ contacts, page, total, has_next: hasNext });
+  } catch (err) {
+    res.status(UPSTREAM_FAILED).json({ error: err.message });
+  }
+});
+
+// Everything Kajabi holds on one contact, for the contact detail page: profile
+// and address, tags and notes, plus — when the contact is also a customer —
+// their products, offers and purchases. A failed side request just leaves its
+// section empty. `lms_user` is the LMS account with the same email, if any.
+app.get('/api/kajabi/contacts/:id', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin','manager']); if (!user) return;
+  const id = String(req.params.id || '');
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return res.status(400).json({ error: 'Invalid contact id' });
+  const { clientId, clientSecret } = await getKajabiCreds();
+  if (!clientId || !clientSecret) return res.status(400).json({ error: 'Kajabi is not connected. Add API credentials in Settings.' });
+
+  try {
+    const token = await getKajabiToken();
+    const kget = async (p) => {
+      const r = await fetch(`${KAJABI_API_BASE}${p}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+      return { ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) };
+    };
+    const main = await kget(`/v1/contacts/${id}?include=customer,offers,tags`);
+    if (main.status === 404) return res.status(404).json({ error: 'Contact not found in Kajabi' });
+    if (!main.ok || !main.body.data) return res.status(UPSTREAM_FAILED).json({ error: kajabiError(main.body, main.status) });
+
+    const rec = main.body.data;
+    const a = rec.attributes || {};
+    const included = main.body.included || [];
+    const ofType = (list, type) => list.filter((x) => x.type === type);
+    const custRef = rec.relationships && rec.relationships.customer && rec.relationships.customer.data;
+    const custId = custRef && custRef.id;
+
+    // Customer products, notes and purchases in parallel. Results are also
+    // filtered here in case Kajabi ignores a filter and returns everything.
+    const [custRes, notesRes, purchasesRes] = await Promise.allSettled([
+      custId ? kget(`/v1/customers/${custId}?include=products`) : null,
+      kget(`/v1/contact_notes?filter[contact_id]=${id}&page[size]=50`),
+      custId ? kget(`/v1/purchases?filter[customer_id]=${custId}&include=offer&page[size]=50`) : null,
+    ]);
+    const ok = (r) => (r.status === 'fulfilled' && r.value && r.value.ok ? r.value.body : null);
+    const custBody = ok(custRes);
+    const notesBody = ok(notesRes);
+    const purchasesBody = ok(purchasesRes);
+
+    const customerRec = (custBody && custBody.data) || ofType(included, 'customers')[0] || null;
+    const ca = (customerRec && customerRec.attributes) || {};
+    const offerList = [...ofType(included, 'offers'), ...ofType((purchasesBody && purchasesBody.included) || [], 'offers')];
+    const offerTitle = (oid) => { const o = offerList.find((x) => x.id === oid); return o ? o.attributes.title : ''; };
+
+    const lms = a.email ? await db.get("SELECT id, name, role, status FROM users WHERE LOWER(email)=LOWER(?)", [a.email]) : null;
+    if (lms && lms.role === 'student') {
+      lms.courses = (await db.all("SELECT c.name FROM enrollments e JOIN courses c ON c.id=e.course_id WHERE e.student_id=? ORDER BY c.name", [lms.id])).map((r) => r.name);
+    }
+
+    res.json({
+      contact: {
+        id: String(rec.id),
+        name: (a.name || '').trim(),
+        email: a.email || '',
+        phone: a.phone_number || '',
+        business_number: a.business_number || '',
+        address: {
+          line1: a.address_line_1 || '', line2: a.address_line_2 || '', city: a.address_city || '',
+          state: a.address_state || '', zip: a.address_zip || '', country: a.address_country_name || a.address_country || '',
+        },
+        subscribed: a.subscribed,
+        external_user_id: a.external_user_id || '',
+        created_at: a.created_at || '',
+        updated_at: a.updated_at || '',
+      },
+      tags: ofType(included, 'contact_tags').concat(ofType(included, 'tags')).map((t) => t.attributes && t.attributes.name).filter(Boolean),
+      customer: customerRec ? {
+        id: String(customerRec.id),
+        net_revenue: ca.net_revenue ?? null,
+        sign_in_count: ca.sign_in_count ?? null,
+        last_request_at: ca.last_request_at || '',
+        bounced_at: ca.bounced_at || '',
+        public_bio: ca.public_bio || '',
+        public_location: ca.public_location || '',
+        public_website: ca.public_website || '',
+        created_at: ca.created_at || '',
+      } : null,
+      products: ofType((custBody && custBody.included) || [], 'products').map((p) => ({
+        id: String(p.id), title: p.attributes.title || '', type: p.attributes.product_type_name || '',
+        status: p.attributes.publish_status || p.attributes.status || '', members: p.attributes.members_aggregate_count ?? null,
+      })),
+      offers: ofType(included, 'offers').map((o) => ({
+        id: String(o.id), title: o.attributes.title || '', price_in_cents: o.attributes.price_in_cents ?? 0,
+        currency: o.attributes.currency || '', payment_type: o.attributes.payment_type || '',
+        price_description: o.attributes.price_description || '', free: !!o.attributes.free,
+      })),
+      purchases: ((purchasesBody && purchasesBody.data) || [])
+        .filter((p) => p.relationships && p.relationships.customer && p.relationships.customer.data && p.relationships.customer.data.id === custId)
+        .map((p) => ({
+          id: String(p.id), amount_in_cents: p.attributes.amount_in_cents ?? 0, currency: p.attributes.currency || '',
+          payment_type: p.attributes.payment_type || '', created_at: p.attributes.created_at || '',
+          deactivated_at: p.attributes.deactivated_at || '', coupon_code: p.attributes.coupon_code || '',
+          source: p.attributes.source || '',
+          offer_title: offerTitle(p.relationships.offer && p.relationships.offer.data && p.relationships.offer.data.id),
+        })),
+      notes: ((notesBody && notesBody.data) || [])
+        .filter((n) => n.relationships && n.relationships.contact && n.relationships.contact.data && String(n.relationships.contact.data.id) === id)
+        .map((n) => ({ id: String(n.id), body: n.attributes.body || '', created_at: n.attributes.created_at || '' }))
+        .sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))),
+      lms_user: lms || null,
+    });
   } catch (err) {
     res.status(UPSTREAM_FAILED).json({ error: err.message });
   }

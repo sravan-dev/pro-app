@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api';
+import KajabiContactDetail from './KajabiContactDetail';
 
 const PAGE_SIZE = 100;
 const contactName = (c) => (c.name && c.name !== '—' ? c.name : '');
@@ -8,7 +9,8 @@ const contactName = (c) => (c.name && c.name !== '—' ? c.name : '');
 // with an Enroll action. Enroll always asks for confirmation first; a contact
 // whose email matches a student then goes to the course picker, otherwise a
 // student account is created first. Each completed enrollment also intimates
-// managers & advisors (in-app + email).
+// managers & advisors (in-app + email). Clicking a Kajabi contact opens its
+// full detail page (KajabiContactDetail); the list keeps its page and search.
 // `onOpenSettings` (superadmin only) links the "not connected" notice to
 // Settings; `onEnrolled` lets the parent refresh its own lists.
 export default function ContactsDirectory({ source, title, onMessage, onOpenSettings, onEnrolled }) {
@@ -30,6 +32,8 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
   const [enrollFor, setEnrollFor] = useState(null); // { student, contact } for the course picker
   const [courses, setCourses] = useState([]);
   const [courseId, setCourseId] = useState('');
+  const [detailContact, setDetailContact] = useState(null); // Kajabi contact whose detail page is open
+  const [detailKey, setDetailKey] = useState(0); // bump to reload the open detail page
 
   const load = useCallback((pageIndex, q) => {
     setLoading(true);
@@ -137,6 +141,7 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
       await api.createEnrollment({ student_id: enrollFor.student.id, course_id: courseId });
       notify(enrollFor.contact, enrollFor.student.name);
       setEnrollFor(null);
+      setDetailKey((k) => k + 1); // the open detail page now shows the LMS account
       onEnrolled?.();
     } catch (err) {
       onMessage(err.message, 'error');
@@ -154,7 +159,7 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
     { key: 'created_at', label: 'Created', accessor: 'created_at', render: (r) => r.created_at ? new Date(r.created_at).toLocaleDateString() : '—' },
     { key: 'actions', label: 'Actions', render: (r) => (
       <div className="table-actions">
-        <button className="btn btn-sm btn-primary" onClick={() => enroll(r)} disabled={busy}>Enroll</button>
+        <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); enroll(r); }} disabled={busy}>Enroll</button>
       </div>
     ) },
   ];
@@ -163,6 +168,15 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
 
   return (
     <div className="portal-page">
+      {detailContact ? (
+        <KajabiContactDetail
+          key={`${detailContact.id}-${detailKey}`}
+          contact={detailContact}
+          onBack={() => setDetailContact(null)}
+          onEnroll={enroll}
+          enrollBusy={busy}
+        />
+      ) : (<>
       <div className="page-header">
         <h2>{title || `${label} Contacts`}</h2>
         {!notConnected && (
@@ -173,6 +187,7 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
       </div>
       <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
         Contact list synced from your {label} account. Use <strong>Enroll</strong> to bring a contact into the academy.
+        {!isHubspot && ' Click a contact to see their full details.'}
       </p>
 
       {notConnected ? (
@@ -213,7 +228,7 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
                   <tr><td colSpan={columns.length} className="no-data">No contacts found</td></tr>
                 ) : (
                   contacts.map((row) => (
-                    <tr key={row.id}>
+                    <tr key={row.id} className={isHubspot ? undefined : 'clickable'} onClick={isHubspot ? undefined : () => setDetailContact(row)}>
                       {columns.map((col) => (
                         <td key={col.key}>{col.render ? col.render(row) : (row[col.accessor] || '—')}</td>
                       ))}
@@ -234,6 +249,7 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
           </div>
         </div>
       )}
+      </>)}
 
       {pending && (
         <div className="modal-overlay">
