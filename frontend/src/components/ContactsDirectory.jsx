@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api';
 import KajabiContactDetail from './KajabiContactDetail';
+import EnrollDetailsFields, { emptyEnrollDetails } from './EnrollDetailsFields';
 
 const PAGE_SIZE = 100;
 const contactName = (c) => (c.name && c.name !== '—' ? c.name : '');
-// Enroll form: the course the student goes on, plus main stream, package and
-// booked hours, which are saved with the enrollment and sent in the intimation.
-const emptyEnrollForm = () => ({ main_stream_id: '', course_id: '', package_id: '', individual_hours: '', mock_hours: '' });
 
 // HubSpot or Kajabi contact list — read-only, paged 100 at a time server-side —
-// with an Enroll action. Enroll always asks for confirmation first; a contact
-// whose email matches a student then goes to the course picker, otherwise a
-// student account is created first. Each completed enrollment also intimates
-// managers & advisors (in-app + email). Clicking a Kajabi contact opens its
+// with an Enroll action. Enroll opens the enroll form first (main stream,
+// course, package, hours); nothing is created until it is submitted. A contact
+// whose email matches a student is enrolled as that student; otherwise the
+// student account is created on submit (welcome email), then enrolled. Each
+// completed enrollment also intimates managers & advisors (in-app + email),
+// with the form's details. Clicking a Kajabi contact opens its
 // full detail page (KajabiContactDetail); the list keeps its page and search.
 // `onOpenSettings` (superadmin only) links the "not connected" notice to
 // Settings; `onEnrolled` lets the parent refresh its own lists.
@@ -31,11 +31,8 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
   const cursors = useRef(['']); // HubSpot: `after` cursor for each visited page; [0] = first page
 
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState(null);     // { contact, student|null } awaiting confirmation
-  const [enrollFor, setEnrollFor] = useState(null); // { student, contact } for the course picker
-  const [courses, setCourses] = useState([]);
-  const [packages, setPackages] = useState([]);
-  const [enrollForm, setEnrollForm] = useState(emptyEnrollForm);
+  const [enrollFor, setEnrollFor] = useState(null); // { contact, student|null } while the enroll form is open
+  const [enrollForm, setEnrollForm] = useState(emptyEnrollDetails);
   const [detailContact, setDetailContact] = useState(null); // Kajabi contact whose detail page is open
   const [detailKey, setDetailKey] = useState(0); // bump to reload the open detail page
 
@@ -95,32 +92,8 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
     }
   };
 
-  const openCoursePicker = (student, contact) => {
-    setEnrollForm(emptyEnrollForm());
-    setEnrollFor({ student, contact });
-    api.getCourses().then((cs) => setCourses(cs.filter((c) => c.status !== 'archived' && !c.name.startsWith('__')))).catch(() => {});
-    api.getPackages().then((ps) => setPackages(ps.filter((p) => p.status === 'active'))).catch(() => {});
-  };
-
-  const setEnrollField = (k) => (e) => setEnrollForm((f) => ({ ...f, [k]: e.target.value }));
-
-  // Picking a package fills in what it implies, without overwriting anything
-  // already entered: its course, and for a 1-on-1 package its total hours.
-  const pickPackage = (e) => {
-    const id = e.target.value;
-    const p = packages.find((x) => String(x.id) === id);
-    setEnrollForm((f) => ({
-      ...f,
-      package_id: id,
-      course_id: f.course_id || (p?.course_id ? String(p.course_id) : ''),
-      individual_hours: f.individual_hours !== '' || !p || p.class_type !== 'one_to_one'
-        ? f.individual_hours
-        : String(Math.round((p.sessions_count * p.session_minutes) / 60 * 100) / 100),
-    }));
-  };
-
-  // Enroll clicked: find out whether the contact is already a student, then ask
-  // for confirmation before doing anything.
+  // Enroll clicked: find out whether the contact is already a student, then
+  // open the enroll form. Nothing is created yet.
   const enroll = async (c) => {
     const email = (c.email || '').trim();
     if (!email) { onMessage(`This contact has no email — add one in ${label} before enrolling.`, 'error'); return; }
@@ -128,7 +101,8 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
     try {
       const students = await api.getStudents();
       const student = students.find((s) => (s.email || '').toLowerCase() === email.toLowerCase());
-      setPending({ contact: c, student: student || null });
+      setEnrollForm(emptyEnrollDetails());
+      setEnrollFor({ contact: c, student: student || null });
     } catch (err) {
       onMessage(err.message, 'error');
     } finally {
@@ -136,33 +110,24 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
     }
   };
 
-  // Confirmed: use the matching student, or create one from the contact, then
-  // pick a course.
-  const confirmEnroll = async () => {
-    const { contact: c, student } = pending;
-    if (student) { setPending(null); openCoursePicker(student, c); return; }
-    const email = c.email.trim();
-    const name = contactName(c) || email;
-    setBusy(true);
-    try {
-      const created = await api.createUser({ name, email, phone: c.phone || '', role: 'student' });
-      onMessage('Student account created', 'success');
-      setPending(null);
-      openCoursePicker({ id: created.id, name, email }, c);
-    } catch (err) {
-      onMessage(err.message, 'error');
-      setPending(null);
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  // Form submitted: create the student account if the contact isn't one yet,
+  // then enroll and intimate. A created account is kept on the open form, so
+  // retrying after a failed enrollment doesn't try to create it again.
   const saveEnroll = async (e) => {
     e.preventDefault();
+    const c = enrollFor.contact;
+    let student = enrollFor.student;
     setBusy(true);
     try {
-      await api.createEnrollment({ student_id: enrollFor.student.id, ...enrollForm });
-      notify(enrollFor.contact, enrollFor.student.name, enrollForm);
+      if (!student) {
+        const email = c.email.trim();
+        const name = contactName(c) || email;
+        const created = await api.createUser({ name, email, phone: c.phone || '', role: 'student' });
+        student = { id: created.id, name, email };
+        setEnrollFor((f) => ({ ...f, student }));
+      }
+      await api.createEnrollment({ student_id: student.id, ...enrollForm });
+      notify(c, student.name, enrollForm);
       setEnrollFor(null);
       setDetailKey((k) => k + 1); // the open detail page now shows the LMS account
       onEnrolled?.();
@@ -274,78 +239,33 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
       )}
       </>)}
 
-      {pending && (
-        <div className="modal-overlay">
-          <div className="modal" style={{ maxWidth: 460 }}>
-            <h3>Enroll {contactName(pending.contact) || pending.contact.email}?</h3>
-            <p style={{ color: 'var(--color-text-secondary)' }}>
-              {pending.student ? (
-                <>Do you really want to enroll <strong>{pending.student.name}</strong> ({pending.contact.email})? They are already a student — you’ll pick the course next.</>
-              ) : (
-                <>Do you really want to enroll this contact? They aren’t a student yet, so a student account will be created for{' '}
-                  <strong>{pending.contact.email}</strong> and a welcome email with a temporary password will be sent. You’ll pick the course next.</>
-              )}
-            </p>
-            <div className="form-actions">
-              <button type="button" className="btn btn-ghost" onClick={() => setPending(null)} disabled={busy}>Cancel</button>
-              <button type="button" className="btn btn-primary" onClick={confirmEnroll} disabled={busy} autoFocus>
-                {busy ? 'Creating…' : pending.student ? 'Yes, Enroll' : 'Yes, Create & Enroll'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {enrollFor && (
         <div className="modal-overlay">
           <div className="modal" style={{ maxWidth: 520 }}>
-            <h3>Enroll Student</h3>
+            <h3>Enroll {enrollFor.student?.name || contactName(enrollFor.contact) || enrollFor.contact.email}</h3>
             <form onSubmit={saveEnroll}>
               <div className="form-group">
                 <label>Student</label>
-                <input value={`${enrollFor.student.name} (${enrollFor.student.email})`} disabled />
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Main Stream *</label>
-                  <select value={enrollForm.main_stream_id} onChange={setEnrollField('main_stream_id')} required autoFocus>
-                    <option value="">Select main stream...</option>
-                    {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Course *</label>
-                  <select value={enrollForm.course_id} onChange={setEnrollField('course_id')} required>
-                    <option value="">Select course...</option>
-                    {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="form-group">
-                <label>Package</label>
-                <select value={enrollForm.package_id} onChange={pickPackage}>
-                  <option value="">— No package —</option>
-                  {packages.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}{p.course_name ? ` — ${p.course_name}` : ''}</option>
-                  ))}
-                </select>
-                {packages.length === 0 && (
-                  <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>No active packages yet — add them under Packages.</p>
+                <input value={enrollFor.student
+                  ? `${enrollFor.student.name} (${enrollFor.student.email})`
+                  : `${contactName(enrollFor.contact) || enrollFor.contact.email} (${enrollFor.contact.email.trim()})`} disabled />
+                {!enrollFor.student && (
+                  <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>
+                    Not a student yet — a student account will be created and a welcome email with a temporary password sent when you click Create &amp; Enroll.
+                  </p>
                 )}
               </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Individual hours</label>
-                  <input type="number" min="0" step="0.5" value={enrollForm.individual_hours} onChange={setEnrollField('individual_hours')} placeholder="0" />
-                </div>
-                <div className="form-group">
-                  <label>Mock hours</label>
-                  <input type="number" min="0" step="0.5" value={enrollForm.mock_hours} onChange={setEnrollField('mock_hours')} placeholder="0" />
-                </div>
-              </div>
+              <EnrollDetailsFields
+                value={enrollForm}
+                onChange={setEnrollForm}
+                enrolledCourseNames={(enrollFor.student?.course_names || '').split(', ').filter(Boolean)}
+                autoFocus
+              />
               <div className="form-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setEnrollFor(null)} disabled={busy}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Enrolling…' : 'Enroll'}</button>
+                <button type="submit" className="btn btn-primary" disabled={busy}>
+                  {busy ? 'Enrolling…' : enrollFor.student ? 'Enroll' : 'Create & Enroll'}
+                </button>
               </div>
             </form>
           </div>

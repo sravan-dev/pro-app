@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import DataTable from './DataTable';
+import EnrollDetailsFields, { emptyEnrollDetails } from './EnrollDetailsFields';
 
 // Every student with their courses, plus row actions: Invite, Assign Tutor,
 // Assign Course, Edit and Deactivate. Used by the manager portal; the server
@@ -8,13 +9,11 @@ import DataTable from './DataTable';
 export default function StudentRoster({ showMsg, onEnrolled }) {
   const [students, setStudents] = useState(null); // null until loaded
   const [loadError, setLoadError] = useState('');
-  const [courses, setCourses] = useState([]);
   const [tutors, setTutors] = useState([]);
 
-  // Assign Course modal
+  // Assign Course modal (the shared enroll form: main stream, course, package, hours)
   const [enrollFor, setEnrollFor] = useState(null); // student being enrolled, or null (closed)
-  const [courseId, setCourseId] = useState('');
-  const [query, setQuery] = useState(''); // search box filtering the course picker
+  const [enrollForm, setEnrollForm] = useState(emptyEnrollDetails);
   const [busy, setBusy] = useState(false);
 
   // Assign Tutor modal
@@ -37,22 +36,18 @@ export default function StudentRoster({ showMsg, onEnrolled }) {
   }, []);
   useEffect(() => { loadStudents(); }, [loadStudents]);
 
-  // Fetch courses on open so the picker is always current.
   const openEnroll = (student) => {
     setEnrollFor(student);
-    setCourseId('');
-    setQuery('');
-    api.getCourses().then(setCourses).catch(() => {});
+    setEnrollForm(emptyEnrollDetails());
   };
 
   const submitEnroll = async (e) => {
     e.preventDefault();
-    if (!enrollFor || !courseId) return;
+    if (!enrollFor) return;
     setBusy(true);
     try {
-      await api.createEnrollment({ student_id: enrollFor.id, course_id: courseId });
-      const course = courses.find((c) => String(c.id) === courseId);
-      showMsg?.(`${enrollFor.name} enrolled in ${course?.name || 'the course'}`, 'success');
+      await api.createEnrollment({ student_id: enrollFor.id, ...enrollForm });
+      showMsg?.(`${enrollFor.name} enrolled`, 'success');
       setEnrollFor(null);
       loadStudents();
       onEnrolled?.();
@@ -151,25 +146,6 @@ export default function StudentRoster({ showMsg, onEnrolled }) {
     ) },
   ];
 
-  // Only active courses can take students (archived ones and the hidden
-  // __test_call__ draft are left out). Courses the student is already on stay
-  // listed but disabled.
-  const activeCourses = courses.filter((c) => c.status === 'active');
-  const enrolledNames = new Set((enrollFor?.course_names || '').split(', ').filter(Boolean));
-  const q = query.trim().toLowerCase();
-  const matches = q
-    ? activeCourses.filter((c) => [c.name, c.category].some((v) => v && String(v).toLowerCase().includes(q)))
-    : activeCourses;
-  const selected = activeCourses.find((c) => String(c.id) === courseId);
-  const options = selected && !matches.includes(selected) ? [selected, ...matches] : matches;
-  // Enter in the search box picks the first course the student isn't on yet.
-  const onSearchKeyDown = (e) => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    const first = matches.find((c) => !enrolledNames.has(c.name));
-    if (first) setCourseId(String(first.id));
-  };
-
   // Only active tutors are assignable. "No tutor" clears the assignment; the
   // selected tutor always stays listed so the select keeps its value.
   const activeTutors = tutors.filter((t) => t.status === 'active');
@@ -202,46 +178,22 @@ export default function StudentRoster({ showMsg, onEnrolled }) {
 
       {enrollFor && (
         <div className="modal-overlay">
-          <div className="modal" style={{ maxWidth: 460 }}>
+          <div className="modal" style={{ maxWidth: 520 }}>
             <h3>Assign Course</h3>
             <form onSubmit={submitEnroll}>
               <div className="form-group">
                 <label>Student</label>
                 <input value={`${enrollFor.name}${enrollFor.email ? ` (${enrollFor.email})` : ''}`} disabled />
               </div>
-              <div className="form-group">
-                <label>Course *</label>
-                <input
-                  type="search"
-                  placeholder="Search courses by name or category…"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={onSearchKeyDown}
-                  autoFocus
-                />
-                <select value={courseId} onChange={(e) => setCourseId(e.target.value)} required>
-                  <option value="">Select course...</option>
-                  {options.map((c) => {
-                    const already = enrolledNames.has(c.name);
-                    return (
-                      <option key={c.id} value={c.id} disabled={already}>
-                        {c.name}{c.category ? ` — ${c.category}` : ''}{already ? ' (already enrolled)' : ''}
-                      </option>
-                    );
-                  })}
-                </select>
-                {q && activeCourses.length > 0 && (
-                  <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>
-                    {matches.length === 0 ? `No courses match "${query.trim()}".` : `${matches.length} of ${activeCourses.length} courses match.`}
-                  </p>
-                )}
-                {activeCourses.length === 0 && (
-                  <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>No active courses available.</p>
-                )}
-              </div>
+              <EnrollDetailsFields
+                value={enrollForm}
+                onChange={setEnrollForm}
+                enrolledCourseNames={(enrollFor.course_names || '').split(', ').filter(Boolean)}
+                autoFocus
+              />
               <div className="form-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setEnrollFor(null)} disabled={busy}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={busy || !courseId}>{busy ? 'Assigning…' : 'Assign'}</button>
+                <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Assigning…' : 'Assign'}</button>
               </div>
             </form>
           </div>

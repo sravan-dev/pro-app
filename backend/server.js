@@ -1119,6 +1119,8 @@ app.post('/api/enrollments', async (req, res) => {
   if (existing) return res.status(400).json({ error: 'Already enrolled' });
   const { fields: details, error } = await enrollmentDetails(req.body);
   if (error) return res.status(400).json({ error });
+  // Every enroll form asks for the main stream before enrolling.
+  if (!details.main_stream_id) return res.status(400).json({ error: 'Main stream required' });
   const cols = ['student_id', 'course_id', ...Object.keys(details)];
   const r = await db.run(
     `INSERT INTO enrollments (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`,
@@ -1135,6 +1137,13 @@ app.put('/api/enrollments', async (req, res) => {
   const allowed = ['progress_percentage','grade','status'];
   const sets = []; const vals = [];
   for (const k of allowed) { if (fields[k] !== undefined) { sets.push(`${k}=?`); vals.push(fields[k]); } }
+  // Enroll form details; a blank value that was sent clears that detail.
+  const { fields: details, error } = await enrollmentDetails(fields);
+  if (error) return res.status(400).json({ error });
+  for (const k of ['main_stream_id', 'package_id', 'individual_hours', 'mock_hours']) {
+    if (fields[k] === undefined) continue;
+    sets.push(`${k}=?`); vals.push(k in details ? details[k] : null);
+  }
   if (!sets.length) return res.status(400).json({ error: 'No fields' });
   vals.push(enrollment_id);
   await db.run(`UPDATE enrollments SET ${sets.join(',')} WHERE enrollment_id=?`, vals);

@@ -18,6 +18,7 @@ import MeetingsManager from '../components/MeetingsManager';
 import ContactsDirectory from '../components/ContactsDirectory';
 import Packages from '../components/Packages';
 import { EnrollHours } from '../components/ContactEnrollments';
+import EnrollDetailsFields, { emptyEnrollDetails } from '../components/EnrollDetailsFields';
 import usePersistedTab from '../hooks/usePersistedTab';
 import downloadCsv, { today } from '../utils/downloadCsv';
 import { formatMoney as fmtMoney } from '../utils/money';
@@ -181,8 +182,7 @@ export default function SuperadminPortal() {
 
   // Quick "Assign Course" action from a student row: pick a course and enroll.
   const [assignCourseStudent, setAssignCourseStudent] = useState(null); // the student being assigned, or null (modal closed)
-  const [assignCourseId, setAssignCourseId] = useState('');
-  const [assignCourseQuery, setAssignCourseQuery] = useState(''); // search box filtering the course picker
+  const [assignCourseForm, setAssignCourseForm] = useState(emptyEnrollDetails); // main stream, course, package, hours
   const [assignCourseBusy, setAssignCourseBusy] = useState(false);
 
   // Quick "Assign Tutor" action from a student row: sets users.assigned_tutor_id.
@@ -229,8 +229,6 @@ export default function SuperadminPortal() {
   const [coursesModalStudent, setCoursesModalStudent] = useState(null); // student whose courses are shown, or null (closed)
   const [coursesModalRows, setCoursesModalRows] = useState([]);
   const [coursesModalLoading, setCoursesModalLoading] = useState(false);
-  const [coursesModalAddId, setCoursesModalAddId] = useState(''); // course picked in the modal's "add course" select
-  const [coursesModalAdding, setCoursesModalAdding] = useState(false);
 
   const [showSessionForm, setShowSessionForm] = useState(false);
   const [sessionForm, setSessionForm] = useState({ course_id: '', tutor_id: '', student_id: '', start_time: '', end_time: '' });
@@ -826,13 +824,19 @@ export default function SuperadminPortal() {
   // ===== ENROLLMENT CRUD =====
   const openCreateEnroll = () => {
     setEditingEnroll(null);
-    setEnrollForm({ student_id: '', course_id: '', progress_percentage: 0, grade: '', status: 'active' });
+    setEnrollForm({ student_id: '', ...emptyEnrollDetails(), progress_percentage: 0, grade: '', status: 'active' });
     setShowEnrollForm(true);
   };
 
   const openEditEnroll = (enroll) => {
     setEditingEnroll(enroll);
-    setEnrollForm({ progress_percentage: enroll.progress_percentage, grade: enroll.grade, status: enroll.status });
+    const str = (v) => (v === null || v === undefined ? '' : String(v));
+    setEnrollForm({
+      progress_percentage: enroll.progress_percentage, grade: enroll.grade, status: enroll.status,
+      main_stream_id: str(enroll.main_stream_id), package_id: str(enroll.package_id),
+      individual_hours: enroll.individual_hours == null ? '' : String(Number(enroll.individual_hours)),
+      mock_hours: enroll.mock_hours == null ? '' : String(Number(enroll.mock_hours)),
+    });
     setShowEnrollForm(true);
   };
 
@@ -852,21 +856,18 @@ export default function SuperadminPortal() {
     } catch (err) { showMsg(err.message, 'error'); }
   };
 
-  // Open the "Assign Course" modal for a student and (re)fetch courses from the
-  // DB so the picker is always current.
+  // Open the "Assign Course" modal (the shared enroll form) for a student.
   const openAssignCourse = (student) => {
     setAssignCourseStudent(student);
-    setAssignCourseId('');
-    setAssignCourseQuery('');
-    api.getCourses().then(setAllCourses).catch(() => {});
+    setAssignCourseForm(emptyEnrollDetails());
   };
 
   const submitAssignCourse = async (e) => {
     e.preventDefault();
-    if (!assignCourseStudent || !assignCourseId) { showMsg('Please select a course', 'error'); return; }
+    if (!assignCourseStudent) return;
     setAssignCourseBusy(true);
     try {
-      await api.createEnrollment({ student_id: assignCourseStudent.id, course_id: assignCourseId });
+      await api.createEnrollment({ student_id: assignCourseStudent.id, ...assignCourseForm });
       showMsg(`${assignCourseStudent.name} assigned to course`, 'success');
       setAssignCourseStudent(null);
       api.getStudents().then(setAllStudents).catch(() => {});
@@ -963,13 +964,12 @@ export default function SuperadminPortal() {
     finally { setBatchBusy(false); }
   };
 
-  // Open a modal listing a student's enrolled courses so they can be removed.
+  // Open a modal listing a student's enrolled courses so they can be removed;
+  // "+ Add course" there opens the Assign Course form.
   const openStudentCourses = async (student) => {
     setCoursesModalStudent(student);
     setCoursesModalRows([]);
-    setCoursesModalAddId('');
     setCoursesModalLoading(true);
-    api.getCourses().then(setAllCourses).catch(() => {}); // keep the add-course picker current
     try {
       const all = await api.getEnrollments();
       setAllEnrollments(all);
@@ -991,37 +991,12 @@ export default function SuperadminPortal() {
     } catch (err) { showMsg(err.message || 'Failed to remove course', 'error'); }
   };
 
-  // Enroll the modal's student in one more course (students can take several).
-  const addStudentCourse = async () => {
-    if (!coursesModalStudent || !coursesModalAddId) return;
-    setCoursesModalAdding(true);
-    let created;
-    try {
-      created = await api.createEnrollment({ student_id: coursesModalStudent.id, course_id: coursesModalAddId });
-    } catch (err) {
-      showMsg(err.message || 'Failed to add course', 'error');
-      setCoursesModalAdding(false);
-      return;
-    }
-    showMsg(`Course added for ${coursesModalStudent.name}`, 'success');
-    // Update the modal list from local data so a failed refresh below can't
-    // make the successful add look failed or leave the course re-addable.
-    const course = allCourses.find((c) => String(c.id) === String(coursesModalAddId));
-    setCoursesModalRows((rows) => [...rows, {
-      enrollment_id: created.enrollment_id,
-      student_id: coursesModalStudent.id,
-      course_id: coursesModalAddId,
-      course_name: course?.name || 'Course',
-      course_category: course?.category || '',
-      status: 'active',
-    }]);
-    setCoursesModalAddId('');
-    setCoursesModalAdding(false);
-    // Background refreshes (fire-and-forget, like submitAssignCourse).
-    api.getEnrollments().then(setAllEnrollments).catch(() => {});
-    api.getStudents().then(setAllStudents).catch(() => {});
-    api.getCourses().then(setAllCourses).catch(() => {}); // backend bumped students_count — refresh the Courses tab
-    fetchData();
+  // Enroll the modal's student in one more course (students can take several)
+  // through the Assign Course form, so it asks for the same details.
+  const addStudentCourse = () => {
+    const student = { ...coursesModalStudent, course_names: coursesModalRows.map((r) => r.course_name).join(', ') };
+    setCoursesModalStudent(null);
+    openAssignCourse(student);
   };
 
   const dropEnrollment = async (id) => {
@@ -2024,20 +1999,21 @@ export default function SuperadminPortal() {
                   {students.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.email})</option>)}
                 </select>
               </div>
-              <div className="form-group">
-                <label>Course *</label>
-                <select value={enrollForm.course_id} onChange={(e) => setEnrollForm({ ...enrollForm, course_id: e.target.value })} required>
-                  <option value="">Select course...</option>
-                  {(data?.courses || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
+              <EnrollDetailsFields
+                value={enrollForm}
+                onChange={setEnrollForm}
+                enrolledCourseNames={(allStudents.find((s) => String(s.id) === String(enrollForm.student_id))?.course_names || '').split(', ').filter(Boolean)}
+              />
             </>
           )}
           {editingEnroll && (
-            <div className="form-group">
-              <label>Student / Course</label>
-              <input value={`${editingEnroll.student_name} → ${editingEnroll.course_name}`} disabled />
-            </div>
+            <>
+              <div className="form-group">
+                <label>Student / Course</label>
+                <input value={`${editingEnroll.student_name} → ${editingEnroll.course_name}`} disabled />
+              </div>
+              <EnrollDetailsFields value={enrollForm} onChange={setEnrollForm} editing />
+            </>
           )}
           <div className="form-row">
             <div className="form-group">
@@ -2072,60 +2048,24 @@ export default function SuperadminPortal() {
     </div>
   );
 
-  // Only active courses are assignable — this excludes archived courses and the
-  // hidden __test_call__ sentinel course (created as a 'draft').
-  const assignableCourses = allCourses.filter((c) => c.status === 'active');
-  // The search box narrows the list by name or category. The currently selected
-  // course always stays in the list so the select keeps its value.
-  const courseQuery = assignCourseQuery.trim().toLowerCase();
-  const courseMatches = courseQuery
-    ? assignableCourses.filter((c) => [c.name, c.category].some((v) => v && String(v).toLowerCase().includes(courseQuery)))
-    : assignableCourses;
-  const selectedCourse = assignableCourses.find((c) => String(c.id) === assignCourseId);
-  const courseOptions = selectedCourse && !courseMatches.includes(selectedCourse) ? [selectedCourse, ...courseMatches] : courseMatches;
-  // Enter in the search box picks the first match instead of submitting the form.
-  const onCourseSearchKeyDown = (e) => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    if (courseMatches.length) setAssignCourseId(String(courseMatches[0].id));
-  };
   const assignCourseModal = assignCourseStudent && (
     <div className="modal-overlay">
-      <div className="modal" style={{ maxWidth: 460 }}>
+      <div className="modal" style={{ maxWidth: 520 }}>
         <h3>Assign Course</h3>
         <form onSubmit={submitAssignCourse}>
           <div className="form-group">
             <label>Student</label>
             <input value={`${assignCourseStudent.name}${assignCourseStudent.email ? ` (${assignCourseStudent.email})` : ''}`} disabled />
           </div>
-          <div className="form-group">
-            <label>Course *</label>
-            <input
-              type="search"
-              placeholder="Search courses by name or category…"
-              value={assignCourseQuery}
-              onChange={(e) => setAssignCourseQuery(e.target.value)}
-              onKeyDown={onCourseSearchKeyDown}
-              autoFocus
-            />
-            <select value={assignCourseId} onChange={(e) => setAssignCourseId(e.target.value)} required>
-              <option value="">Select course...</option>
-              {courseOptions.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}{c.category ? ` — ${c.category}` : ''}</option>
-              ))}
-            </select>
-            {courseQuery && assignableCourses.length > 0 && (
-              <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>
-                {courseMatches.length === 0 ? `No courses match "${assignCourseQuery.trim()}".` : `${courseMatches.length} of ${assignableCourses.length} courses match.`}
-              </p>
-            )}
-            {assignableCourses.length === 0 && (
-              <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>No active courses available to assign. Create or unarchive a course first.</p>
-            )}
-          </div>
+          <EnrollDetailsFields
+            value={assignCourseForm}
+            onChange={setAssignCourseForm}
+            enrolledCourseNames={(assignCourseStudent.course_names || '').split(', ').filter(Boolean)}
+            autoFocus
+          />
           <div className="form-actions">
             <button type="button" className="btn btn-ghost" onClick={() => setAssignCourseStudent(null)} disabled={assignCourseBusy}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={assignCourseBusy || !assignCourseId}>{assignCourseBusy ? 'Assigning…' : 'Assign'}</button>
+            <button type="submit" className="btn btn-primary" disabled={assignCourseBusy}>{assignCourseBusy ? 'Assigning…' : 'Assign'}</button>
           </div>
         </form>
       </div>
@@ -2298,36 +2238,16 @@ export default function SuperadminPortal() {
                   <div>{en.course_name}</div>
                   <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{[en.course_category, en.status].filter(Boolean).join(' · ')}</div>
                 </div>
-                <button className="btn btn-sm btn-ghost text-danger" disabled={coursesModalAdding} onClick={() => removeStudentCourse(en)}>🗑 Delete</button>
+                <button className="btn btn-sm btn-ghost text-danger" onClick={() => removeStudentCourse(en)}>🗑 Delete</button>
               </div>
             ))}
           </div>
         )}
-        {!coursesModalLoading && (() => {
-          const enrolledIds = new Set(coursesModalRows.map((en) => String(en.course_id)));
-          const addable = assignableCourses.filter((c) => !enrolledIds.has(String(c.id)));
-          if (assignableCourses.length === 0) {
-            return <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 12 }}>No active courses available to assign. Create or unarchive a course first.</p>;
-          }
-          if (addable.length === 0) {
-            return <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 12 }}>All active courses are already assigned to this student.</p>;
-          }
-          return (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 14 }}>
-              <select value={coursesModalAddId} onChange={(e) => setCoursesModalAddId(e.target.value)} style={{ flex: 1 }} disabled={coursesModalAdding}>
-                <option value="">Add another course...</option>
-                {addable.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}{c.category ? ` — ${c.category}` : ''}</option>
-                ))}
-              </select>
-              <button type="button" className="btn btn-sm btn-primary" disabled={!coursesModalAddId || coursesModalAdding} onClick={addStudentCourse}>
-                {coursesModalAdding ? 'Adding…' : '+ Add'}
-              </button>
-            </div>
-          );
-        })()}
+        {!coursesModalLoading && (
+          <button type="button" className="btn btn-sm btn-primary" style={{ marginTop: 14 }} onClick={addStudentCourse}>+ Add course</button>
+        )}
         <div className="form-actions">
-          <button type="button" className="btn btn-ghost" onClick={() => setCoursesModalStudent(null)} disabled={coursesModalAdding}>Close</button>
+          <button type="button" className="btn btn-ghost" onClick={() => setCoursesModalStudent(null)}>Close</button>
         </div>
       </div>
     </div>
