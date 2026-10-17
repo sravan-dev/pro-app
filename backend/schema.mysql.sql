@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS enrollments (
   grade VARCHAR(10) DEFAULT '',
   status VARCHAR(20) DEFAULT 'active',
   enrollment_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+  main_stream_id INT NULL,
+  package_id INT NULL,
+  individual_hours DECIMAL(8,2) NULL,
+  mock_hours DECIMAL(8,2) NULL,
   UNIQUE KEY uq_enroll (student_id, course_id),
   INDEX idx_enrollments_student (student_id),
   INDEX idx_enrollments_course (course_id)
@@ -372,6 +376,11 @@ CREATE TABLE IF NOT EXISTS contact_enrollments (
   enrolled_by_name VARCHAR(255) DEFAULT '',
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
   notified INT DEFAULT 0,
+  course_id INT NULL,
+  main_stream_id INT NULL,
+  package_id INT NULL,
+  individual_hours DECIMAL(8,2) NULL,
+  mock_hours DECIMAL(8,2) NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_contact_enroll_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -17,6 +17,7 @@ import ZoomMeetings from '../components/ZoomMeetings';
 import MeetingsManager from '../components/MeetingsManager';
 import ContactsDirectory from '../components/ContactsDirectory';
 import Packages from '../components/Packages';
+import { EnrollHours } from '../components/ContactEnrollments';
 import usePersistedTab from '../hooks/usePersistedTab';
 import downloadCsv, { today } from '../utils/downloadCsv';
 import { formatMoney as fmtMoney } from '../utils/money';
@@ -1305,6 +1306,9 @@ export default function SuperadminPortal() {
     { key: 'student', label: 'Student', accessor: 'student_name' },
     { key: 'course', label: 'Course', accessor: 'course_name' },
     { key: 'category', label: 'Category', accessor: 'course_category' },
+    { key: 'main_stream', label: 'Main Stream', accessor: 'main_stream_name', render: (r) => r.main_stream_name || '—' },
+    { key: 'package', label: 'Package', accessor: 'package_name', render: (r) => r.package_name || '—' },
+    { key: 'hours', label: 'Hours', sortable: false, render: (r) => <EnrollHours row={r} /> },
     { key: 'progress', label: 'Progress', render: (r) => progressCol(r) },
     { key: 'grade', label: 'Grade', accessor: 'grade', render: (r) => <span className={`grade-badge grade-${(r.grade || 'na')[0]?.toLowerCase()}`}>{r.grade || '-'}</span> },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },

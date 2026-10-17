@@ -4,6 +4,9 @@ import KajabiContactDetail from './KajabiContactDetail';
 
 const PAGE_SIZE = 100;
 const contactName = (c) => (c.name && c.name !== '—' ? c.name : '');
+// Enroll form: the course the student goes on, plus main stream, package and
+// booked hours, which are saved with the enrollment and sent in the intimation.
+const emptyEnrollForm = () => ({ main_stream_id: '', course_id: '', package_id: '', individual_hours: '', mock_hours: '' });
 
 // HubSpot or Kajabi contact list — read-only, paged 100 at a time server-side —
 // with an Enroll action. Enroll always asks for confirmation first; a contact
@@ -31,7 +34,8 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
   const [pending, setPending] = useState(null);     // { contact, student|null } awaiting confirmation
   const [enrollFor, setEnrollFor] = useState(null); // { student, contact } for the course picker
   const [courses, setCourses] = useState([]);
-  const [courseId, setCourseId] = useState('');
+  const [packages, setPackages] = useState([]);
+  const [enrollForm, setEnrollForm] = useState(emptyEnrollForm);
   const [detailContact, setDetailContact] = useState(null); // Kajabi contact whose detail page is open
   const [detailKey, setDetailKey] = useState(0); // bump to reload the open detail page
 
@@ -73,7 +77,7 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
 
   // Record the intimation and notify managers & advisors. Runs after the
   // enrollment is saved; a failure here doesn't undo it.
-  const notify = async (c, enrolledName) => {
+  const notify = async (c, enrolledName, details) => {
     try {
       const r = await api.createContactEnrollment({
         hubspot_contact_id: c.id,
@@ -82,6 +86,7 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
         phone: c.phone || '',
         company: c.company || '',
         stage: c.lifecycle_stage || '',
+        ...details,
       });
       const who = r.emailed > 0 ? `${r.emailed} of ${r.recipients} emailed` : `${r.recipients} notified in-app`;
       onMessage(`${enrolledName} enrolled. Managers & advisors intimated (${who}).`, 'success');
@@ -91,9 +96,27 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
   };
 
   const openCoursePicker = (student, contact) => {
-    setCourseId('');
+    setEnrollForm(emptyEnrollForm());
     setEnrollFor({ student, contact });
-    api.getCourses().then((cs) => setCourses(cs.filter((c) => c.status !== 'archived'))).catch(() => {});
+    api.getCourses().then((cs) => setCourses(cs.filter((c) => c.status !== 'archived' && !c.name.startsWith('__')))).catch(() => {});
+    api.getPackages().then((ps) => setPackages(ps.filter((p) => p.status === 'active'))).catch(() => {});
+  };
+
+  const setEnrollField = (k) => (e) => setEnrollForm((f) => ({ ...f, [k]: e.target.value }));
+
+  // Picking a package fills in what it implies, without overwriting anything
+  // already entered: its course, and for a 1-on-1 package its total hours.
+  const pickPackage = (e) => {
+    const id = e.target.value;
+    const p = packages.find((x) => String(x.id) === id);
+    setEnrollForm((f) => ({
+      ...f,
+      package_id: id,
+      course_id: f.course_id || (p?.course_id ? String(p.course_id) : ''),
+      individual_hours: f.individual_hours !== '' || !p || p.class_type !== 'one_to_one'
+        ? f.individual_hours
+        : String(Math.round((p.sessions_count * p.session_minutes) / 60 * 100) / 100),
+    }));
   };
 
   // Enroll clicked: find out whether the contact is already a student, then ask
@@ -138,8 +161,8 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
     e.preventDefault();
     setBusy(true);
     try {
-      await api.createEnrollment({ student_id: enrollFor.student.id, course_id: courseId });
-      notify(enrollFor.contact, enrollFor.student.name);
+      await api.createEnrollment({ student_id: enrollFor.student.id, ...enrollForm });
+      notify(enrollFor.contact, enrollFor.student.name, enrollForm);
       setEnrollFor(null);
       setDetailKey((k) => k + 1); // the open detail page now shows the LMS account
       onEnrolled?.();
@@ -275,19 +298,50 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
 
       {enrollFor && (
         <div className="modal-overlay">
-          <div className="modal" style={{ maxWidth: 460 }}>
+          <div className="modal" style={{ maxWidth: 520 }}>
             <h3>Enroll Student</h3>
             <form onSubmit={saveEnroll}>
               <div className="form-group">
                 <label>Student</label>
                 <input value={`${enrollFor.student.name} (${enrollFor.student.email})`} disabled />
               </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Main Stream *</label>
+                  <select value={enrollForm.main_stream_id} onChange={setEnrollField('main_stream_id')} required autoFocus>
+                    <option value="">Select main stream...</option>
+                    {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Course *</label>
+                  <select value={enrollForm.course_id} onChange={setEnrollField('course_id')} required>
+                    <option value="">Select course...</option>
+                    {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
               <div className="form-group">
-                <label>Course *</label>
-                <select value={courseId} onChange={(e) => setCourseId(e.target.value)} required autoFocus>
-                  <option value="">Select course...</option>
-                  {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                <label>Package</label>
+                <select value={enrollForm.package_id} onChange={pickPackage}>
+                  <option value="">— No package —</option>
+                  {packages.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}{p.course_name ? ` — ${p.course_name}` : ''}</option>
+                  ))}
                 </select>
+                {packages.length === 0 && (
+                  <p style={{ color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 }}>No active packages yet — add them under Packages.</p>
+                )}
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Individual hours</label>
+                  <input type="number" min="0" step="0.5" value={enrollForm.individual_hours} onChange={setEnrollField('individual_hours')} placeholder="0" />
+                </div>
+                <div className="form-group">
+                  <label>Mock hours</label>
+                  <input type="number" min="0" step="0.5" value={enrollForm.mock_hours} onChange={setEnrollField('mock_hours')} placeholder="0" />
+                </div>
               </div>
               <div className="form-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setEnrollFor(null)} disabled={busy}>Cancel</button>

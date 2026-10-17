@@ -210,6 +210,15 @@ async function initSchema() {
   await addColumnIfMissing('smtp_settings', 'gmail_user', "gmail_user VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('smtp_settings', 'gmail_app_password', "gmail_app_password VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('sessions', 'student_id', 'student_id INT NULL');
+  // Enroll form details: main stream (a course), package, booked hours. The
+  // contact intimation keeps the same, plus the course the contact went on.
+  for (const table of ['enrollments', 'contact_enrollments']) {
+    await addColumnIfMissing(table, 'main_stream_id', 'main_stream_id INT NULL');
+    await addColumnIfMissing(table, 'package_id', 'package_id INT NULL');
+    await addColumnIfMissing(table, 'individual_hours', 'individual_hours DECIMAL(8,2) NULL');
+    await addColumnIfMissing(table, 'mock_hours', 'mock_hours DECIMAL(8,2) NULL');
+  }
+  await addColumnIfMissing('contact_enrollments', 'course_id', 'course_id INT NULL');
   // A course's tutor is optional ("None" in the course form).
   const courseTutor = await get(
     `SELECT IS_NULLABLE AS nullable FROM information_schema.columns

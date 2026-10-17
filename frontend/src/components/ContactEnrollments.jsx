@@ -2,6 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import DataTable from './DataTable';
 
+// Booked hours from the Enroll form, e.g. "Individual 10 · Mock 5". Also used
+// by the superadmin Enrollments table.
+export function EnrollHours({ row }) {
+  const parts = [['Individual', row.individual_hours], ['Mock', row.mock_hours]]
+    .filter(([, v]) => v !== null && v !== undefined && v !== '')
+    .map(([label, v]) => `${label} ${Number(v)}`);
+  return parts.length ? <span style={{ whiteSpace: 'nowrap' }}>{parts.join(' · ')}</span> : '—';
+}
+
 // Shared "Enrolls" tab — lists contact enrollment intimations created when a
 // superadmin enrolls a HubSpot contact. Shown to managers & advisors.
 export default function ContactEnrollments() {
@@ -27,6 +36,10 @@ export default function ContactEnrollments() {
     { key: 'stage', label: 'Stage', accessor: 'contact_stage', render: (r) => r.contact_stage
       ? <span style={{ padding: '2px 10px', borderRadius: 999, background: 'rgba(99,102,241,0.12)', color: '#6366F1', fontSize: 12, fontWeight: 600 }}>{r.contact_stage}</span>
       : '—' },
+    { key: 'main_stream', label: 'Main Stream', accessor: 'main_stream_name', render: (r) => r.main_stream_name || '—' },
+    { key: 'course', label: 'Course', accessor: 'course_name', render: (r) => r.course_name || '—' },
+    { key: 'package', label: 'Package', accessor: 'package_name', render: (r) => r.package_name || '—' },
+    { key: 'hours', label: 'Hours', sortable: false, render: (r) => <EnrollHours row={r} /> },
     { key: 'by', label: 'Enrolled By', accessor: 'enrolled_by_name', render: (r) => r.enrolled_by_name || '—' },
     { key: 'date', label: 'Date', accessor: 'created_at', render: (r) => r.created_at ? new Date(r.created_at.replace(' ', 'T')).toLocaleString() : '—' },
   ];
@@ -37,7 +50,7 @@ export default function ContactEnrollments() {
         <div>
           <h2 style={{ marginBottom: 4 }}>Enrolls</h2>
           <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>
-            New enrollments from the HubSpot Contacts module.
+            New enrollments from the HubSpot and Kajabi Contacts modules.
           </p>
         </div>
         <button className="btn btn-ghost" onClick={load} disabled={loading}>↻ Refresh</button>

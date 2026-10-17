@@ -1080,9 +1080,35 @@ app.delete('/api/course-material-managers', async (req, res) => {
 });
 
 // Enrollments
+// Optional details picked in the Enroll form: main stream (a course), package
+// and booked individual / mock hours. Blank values are skipped. Returns
+// { fields } holding only these columns, or { error }.
+async function enrollmentDetails(body) {
+  const b = body || {};
+  const blank = (v) => v === undefined || v === null || v === '';
+  const f = {};
+  if (!blank(b.main_stream_id)) {
+    const id = parseInt(b.main_stream_id, 10);
+    if (!id || !(await db.get("SELECT 1 FROM courses WHERE id=?", [id]))) return { error: 'Main stream not found' };
+    f.main_stream_id = id;
+  }
+  if (!blank(b.package_id)) {
+    const id = parseInt(b.package_id, 10);
+    if (!id || !(await db.get("SELECT 1 FROM packages WHERE id=?", [id]))) return { error: 'Package not found' };
+    f.package_id = id;
+  }
+  for (const [k, label] of [['individual_hours', 'individual hours'], ['mock_hours', 'mock hours']]) {
+    if (blank(b[k])) continue;
+    const n = Number(b[k]);
+    if (!Number.isFinite(n) || n < 0 || n > 10000) return { error: `Invalid ${label}` };
+    f[k] = Math.round(n * 100) / 100;
+  }
+  return { fields: f };
+}
+
 app.get('/api/enrollments', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin','manager','advisor']); if (!user) return;
-  res.json(await db.all("SELECT e.*,u.name as student_name,u.email as student_email,u.avatar_color, c.name as course_name,c.category as course_category,t.name as tutor_name FROM enrollments e JOIN users u ON u.id=e.student_id JOIN courses c ON c.id=e.course_id LEFT JOIN users t ON t.id=c.tutor_id ORDER BY e.enrollment_date DESC"));
+  res.json(await db.all("SELECT e.*,u.name as student_name,u.email as student_email,u.avatar_color, c.name as course_name,c.category as course_category,t.name as tutor_name, ms.name as main_stream_name, p.name as package_name FROM enrollments e JOIN users u ON u.id=e.student_id JOIN courses c ON c.id=e.course_id LEFT JOIN users t ON t.id=c.tutor_id LEFT JOIN courses ms ON ms.id=e.main_stream_id LEFT JOIN packages p ON p.id=e.package_id ORDER BY e.enrollment_date DESC"));
 });
 
 app.post('/api/enrollments', async (req, res) => {
@@ -1091,7 +1117,12 @@ app.post('/api/enrollments', async (req, res) => {
   if (!student_id || !course_id) return res.status(400).json({ error: 'Student and Course required' });
   const existing = await db.get("SELECT 1 FROM enrollments WHERE student_id=? AND course_id=?", [student_id, course_id]);
   if (existing) return res.status(400).json({ error: 'Already enrolled' });
-  const r = await db.run("INSERT INTO enrollments (student_id,course_id) VALUES (?,?)", [student_id, course_id]);
+  const { fields: details, error } = await enrollmentDetails(req.body);
+  if (error) return res.status(400).json({ error });
+  const cols = ['student_id', 'course_id', ...Object.keys(details)];
+  const r = await db.run(
+    `INSERT INTO enrollments (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`,
+    [student_id, course_id, ...Object.values(details)]);
   await db.run("UPDATE courses SET students_count=(SELECT COUNT(*) FROM enrollments WHERE course_id=courses.id AND status IN ('active','completed')) WHERE id=?", [course_id]);
   auditLog(user.id, 'create_enrollment', 'enrollment', r.lastInsertRowid);
   res.status(201).json({ enrollment_id: r.lastInsertRowid, message: 'Enrolled' });
@@ -3560,12 +3591,19 @@ app.post('/api/contact-enrollments', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin','manager']); if (!user) return;
   const { hubspot_contact_id, name, email, phone, company, stage } = req.body || {};
   if (!name && !email) return res.status(400).json({ error: 'Contact name or email is required' });
+  const { fields: details, error } = await enrollmentDetails(req.body);
+  if (error) return res.status(400).json({ error });
+  const courseId = parseInt(req.body.course_id, 10) || null;
+  const course = courseId ? await db.get("SELECT name FROM courses WHERE id=?", [courseId]) : null;
+  const mainStream = details.main_stream_id ? await db.get("SELECT name FROM courses WHERE id=?", [details.main_stream_id]) : null;
+  const pkg = details.package_id ? await db.get("SELECT name FROM packages WHERE id=?", [details.package_id]) : null;
 
+  const detailCols = Object.keys(details);
   const r = await db.run(
     `INSERT INTO contact_enrollments
-      (hubspot_contact_id, contact_name, contact_email, contact_phone, contact_company, contact_stage, enrolled_by, enrolled_by_name, status)
-     VALUES (?,?,?,?,?,?,?,?, 'pending')`,
-    [hubspot_contact_id || '', name || '', email || '', phone || '', company || '', stage || '', user.id, user.name]
+      (hubspot_contact_id, contact_name, contact_email, contact_phone, contact_company, contact_stage, enrolled_by, enrolled_by_name, status, course_id${detailCols.map((k) => ', ' + k).join('')})
+     VALUES (?,?,?,?,?,?,?,?, 'pending', ?${detailCols.map(() => ',?').join('')})`,
+    [hubspot_contact_id || '', name || '', email || '', phone || '', company || '', stage || '', user.id, user.name, course ? courseId : null, ...Object.values(details)]
   );
   const enrollId = r.lastInsertRowid;
   auditLog(user.id, 'enroll_contact', 'contact_enrollment', enrollId, `Enrolled ${name || email}`);
@@ -3579,14 +3617,13 @@ app.post('/api/contact-enrollments', async (req, res) => {
   for (const rec of recipients) {
     const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
       <h2 style="color:#E97A2B;margin-bottom:4px">New Contact Enrolled</h2>
-      <p style="color:#555;margin-top:0">Hello <strong>${rec.name}</strong>, a contact was just enrolled from the HubSpot Contacts module.</p>
+      <p style="color:#555;margin-top:0">Hello <strong>${escapeHtml(rec.name)}</strong>, a contact was just enrolled from the Contacts module.</p>
       <table style="border-collapse:collapse;width:100%;margin:16px 0">
-        <tr><td style="padding:6px 10px;color:#888">Name</td><td style="padding:6px 10px;font-weight:600">${name || '—'}</td></tr>
-        <tr><td style="padding:6px 10px;color:#888">Email</td><td style="padding:6px 10px">${email || '—'}</td></tr>
-        <tr><td style="padding:6px 10px;color:#888">Phone</td><td style="padding:6px 10px">${phone || '—'}</td></tr>
-        <tr><td style="padding:6px 10px;color:#888">Company</td><td style="padding:6px 10px">${company || '—'}</td></tr>
-        <tr><td style="padding:6px 10px;color:#888">Stage</td><td style="padding:6px 10px">${stage || '—'}</td></tr>
-        <tr><td style="padding:6px 10px;color:#888">Enrolled by</td><td style="padding:6px 10px">${user.name}</td></tr>
+        ${[
+          ['Name', name], ['Email', email], ['Phone', phone], ['Company', company], ['Stage', stage],
+          ['Main stream', mainStream && mainStream.name], ['Course', course && course.name], ['Package', pkg && pkg.name],
+          ['Individual hours', details.individual_hours], ['Mock hours', details.mock_hours], ['Enrolled by', user.name],
+        ].map(([label, v], i) => `<tr><td style="padding:6px 10px;color:#888">${label}</td><td style="padding:6px 10px${i === 0 ? ';font-weight:600' : ''}">${v === undefined || v === null || v === '' ? '—' : escapeHtml(v)}</td></tr>`).join('')}
       </table>
       <p style="color:#888;font-size:13px">Open the <strong>Enrolls</strong> tab in your portal to review this enrollment.</p>
       <hr style="border:none;border-top:1px solid #eee;margin:20px 0"/>
@@ -3602,7 +3639,11 @@ app.post('/api/contact-enrollments', async (req, res) => {
 // List intimations — feeds the "Enrolls" tab for managers, advisors & superadmin.
 app.get('/api/contact-enrollments', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin', 'manager', 'advisor']); if (!user) return;
-  res.json(await db.all("SELECT * FROM contact_enrollments ORDER BY created_at DESC"));
+  res.json(await db.all(
+    `SELECT ce.*, c.name AS course_name, ms.name AS main_stream_name, p.name AS package_name
+     FROM contact_enrollments ce
+     LEFT JOIN courses c ON c.id=ce.course_id LEFT JOIN courses ms ON ms.id=ce.main_stream_id LEFT JOIN packages p ON p.id=ce.package_id
+     ORDER BY ce.created_at DESC`));
 });
 
 // ============================================================
