@@ -1831,3 +1831,4 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
 .zrec-duration { position: absolute; right: 0.5rem; bottom: 0.5rem; padding: 0.15rem 0.45rem; border-radius: 4px; background: rgba(0, 0, 0, 0.75); color: #fff; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
 .zrec-title { margin-top: 0.6rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .zrec-meta { font-size: 0.82rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zrec-thumb-skeleton { position: absolute; inset: 0; opacity: 1; background: #2b3442; }

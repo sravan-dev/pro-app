@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 import DataTable from './DataTable';
 import usePersistedTab from '../hooks/usePersistedTab';
+import { Skeleton } from './Skeleton';
 
 // Admin → Recordings → Zoom cloud: every host's Zoom cloud recordings in a
 // date range, as a thumbnail grid (like Zoom's own Recordings page) or a list.
@@ -45,6 +46,7 @@ function Thumb({ r }) {
   const ref = useRef(null);
   const [visible, setVisible] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [ready, setReady] = useState(false);
   useEffect(() => {
     const el = ref.current;
     if (!el || visible) return undefined;
@@ -55,11 +57,28 @@ function Thumb({ r }) {
   return (
     <div ref={ref} className="zrec-thumb">
       {r.video_file_id && visible && !failed ? (
-        <video src={`${playUrl(r, r.video_file_id)}#t=8`} preload="metadata" muted playsInline onError={() => setFailed(true)} />
+        <video src={`${playUrl(r, r.video_file_id)}#t=8`} preload="metadata" muted playsInline onLoadedData={() => setReady(true)} onError={() => setFailed(true)} />
       ) : (
         <div className="zrec-thumb-fallback">{r.video_file_id ? '▶' : '🎧'}</div>
       )}
+      {r.video_file_id && !failed && !ready && <Skeleton className="zrec-thumb-skeleton" radius={0} height="100%" />}
       <span className="zrec-duration">{fmtDuration(r.seconds)}</span>
+    </div>
+  );
+}
+
+// Placeholder grid shown while the list loads.
+function GridSkeleton({ count = 8 }) {
+  return (
+    <div className="zrec-grid" aria-busy="true" aria-label="Loading Zoom recordings">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i}>
+          <Skeleton height="auto" style={{ aspectRatio: '16 / 9' }} />
+          <Skeleton height={16} width="85%" style={{ marginTop: '0.7rem' }} />
+          <Skeleton height={12} width="45%" style={{ marginTop: '0.5rem' }} />
+          <Skeleton height={12} width="55%" style={{ marginTop: '0.4rem' }} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -116,12 +135,12 @@ export default function ZoomRecordings() {
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
-      {loading && rows === null ? (
-        <p style={muted}>Loading Zoom recordings…</p>
+      {loading ? (
+        <GridSkeleton />
       ) : shown.length === 0 ? (
         !error && <p style={muted}>{rows?.length ? 'No recordings match your search.' : 'No Zoom cloud recordings in this date range.'}</p>
       ) : view === 'grid' ? (
-        <div className="zrec-grid" style={loading ? { opacity: 0.6 } : undefined}>
+        <div className="zrec-grid">
           {shown.map((r) => (
             <button type="button" key={r.uuid} className="zrec-card" onClick={() => open(r)} title={r.topic}>
               <Thumb r={r} />
@@ -132,7 +151,7 @@ export default function ZoomRecordings() {
           ))}
         </div>
       ) : (
-        <div style={loading ? { opacity: 0.6 } : undefined}>
+        <div>
           <DataTable
             columns={[
               { key: 'topic', label: 'Topic', accessor: 'topic' },
