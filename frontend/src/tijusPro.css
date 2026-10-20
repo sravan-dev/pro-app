@@ -1814,3 +1814,20 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
 .view-toggle button { border: none; background: transparent; padding: 0.45rem 1.1rem; border-radius: 999px; font-size: 0.875rem; font-weight: 500; color: var(--color-text-secondary); cursor: pointer; transition: all var(--transition); }
 .view-toggle button:hover { color: var(--color-text); }
 .view-toggle button.active { background: var(--color-primary); color: #fff; }
+
+/* Zoom cloud recordings grid (Recordings → Zoom cloud) */
+.zrec-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; }
+.zrec-search { flex: 1 1 260px; max-width: 360px; padding: 0.55rem 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); color: var(--color-text); }
+.zrec-dates { display: inline-flex; align-items: center; gap: 0.4rem; }
+.zrec-dates input { padding: 0.5rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); color: var(--color-text); }
+.zrec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.25rem; }
+.zrec-card { display: block; text-align: left; padding: 0; border: none; background: transparent; color: var(--color-text); cursor: pointer; font: inherit; min-width: 0; }
+.zrec-card:hover .zrec-thumb { box-shadow: var(--shadow-lg, var(--shadow)); }
+.zrec-card:hover .zrec-title { color: var(--color-primary); }
+.zrec-card:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 4px; border-radius: var(--radius); }
+.zrec-thumb { position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius); overflow: hidden; background: #1f2937; border: 1px solid var(--color-border); transition: box-shadow var(--transition); }
+.zrec-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.zrec-thumb-fallback { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 2rem; color: rgba(255, 255, 255, 0.7); }
+.zrec-duration { position: absolute; right: 0.5rem; bottom: 0.5rem; padding: 0.15rem 0.45rem; border-radius: 4px; background: rgba(0, 0, 0, 0.75); color: #fff; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+.zrec-title { margin-top: 0.6rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zrec-meta { font-size: 0.82rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

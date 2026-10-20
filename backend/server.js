@@ -2694,15 +2694,19 @@ app.put('/api/zoom-sdk-settings', async (req, res) => {
 // Tokens last an hour; reuse one for 50 minutes. The cache key includes the
 // credentials so saving new ones in Settings takes effect straight away.
 let zoomTokenCache = null;
-async function zoomApi(method, path, body) {
+async function zoomBearer() {
   const s = (await db.get("SELECT zoom_account_id, zoom_client_id, zoom_client_secret FROM app_settings WHERE id=1")) || {};
   const key = `${s.zoom_account_id}:${s.zoom_client_id}:${s.zoom_client_secret}`;
   if (!zoomTokenCache || zoomTokenCache.key !== key || Date.now() > zoomTokenCache.expires) {
     zoomTokenCache = { key, token: await getZoomAccessToken(), expires: Date.now() + 50 * 60 * 1000 };
   }
+  return zoomTokenCache.token;
+}
+async function zoomApi(method, path, body) {
+  const token = await zoomBearer();
   const resp = await fetch(`https://api.zoom.us/v2${path}`, {
     method,
-    headers: { Authorization: `Bearer ${zoomTokenCache.token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (resp.status === 401) zoomTokenCache = null;
@@ -2837,6 +2841,112 @@ app.get('/api/zoom/meetings', async (req, res) => {
   try {
     const data = await zoomApi('GET', `/users/${encodeURIComponent(host)}/meetings?type=${type}&page_size=300`);
     res.json(data.meetings || []);
+  } catch (err) { zoomFail(res, err); }
+});
+
+// ============================================================
+// Zoom cloud recordings  every host's cloud recordings in a date range, for
+// the Recordings page. Files play through /api/zoom/recordings/play, which
+// redirects to Zoom's signed file URL so the video streams straight from Zoom
+// instead of through this server.
+// ============================================================
+// fileId ’ { uuid, url } from listings, so a play request needs no extra API call.
+const zoomRecFiles = new Map();
+const DAY_MS = 24 * 60 * 60 * 1000;
+const isYmd = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
+const toYmd = (ms) => new Date(ms).toISOString().slice(0, 10);
+// Preferred layout for the card thumbnail and the player.
+const ZOOM_VIEW_ORDER = ['shared_screen_with_speaker_view', 'shared_screen_with_speaker_view(CC)', 'speaker_view', 'shared_screen_with_gallery_view', 'gallery_view', 'shared_screen', 'active_speaker'];
+const zoomViewRank = (f) => { const i = ZOOM_VIEW_ORDER.indexOf(f.recording_type); return i === -1 ? ZOOM_VIEW_ORDER.length : i; };
+
+function zoomRememberFiles(m) {
+  if (zoomRecFiles.size > 5000) zoomRecFiles.clear();
+  for (const f of m.recording_files || []) if (f.id && f.download_url) zoomRecFiles.set(f.id, { uuid: m.uuid, url: f.download_url });
+}
+
+function zoomRecordingRow(m, host) {
+  zoomRememberFiles(m);
+  const files = (m.recording_files || []).filter((f) => f.id && f.status !== 'processing');
+  const main = files.filter((f) => f.file_type === 'MP4').sort((a, b) => zoomViewRank(a) - zoomViewRank(b))[0];
+  const seconds = main && main.recording_start && main.recording_end
+    ? Math.max(0, Math.round((Date.parse(main.recording_end) - Date.parse(main.recording_start)) / 1000))
+    : (Number(m.duration) || 0) * 60;
+  return {
+    uuid: m.uuid, meeting_id: String(m.id), topic: m.topic || 'Untitled meeting', start_time: m.start_time,
+    seconds, total_size: Number(m.total_size) || 0, host_name: host.name, host_email: host.email,
+    share_url: m.share_url || null, video_file_id: main ? main.id : null,
+    files: files.map((f) => ({ id: f.id, type: f.file_type, view: f.recording_type || '', size: Number(f.file_size) || 0, ext: f.file_extension || '' })),
+  };
+}
+
+app.get('/api/zoom/recordings', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const to = isYmd(req.query.to) ? req.query.to : toYmd(Date.now());
+  const from = isYmd(req.query.from) ? req.query.from : toYmd(Date.parse(to) - 30 * DAY_MS);
+  if (from > to) return res.status(400).json({ error: 'The start date must be on or before the end date' });
+  if (Date.parse(to) - Date.parse(from) > 366 * DAY_MS) return res.status(400).json({ error: 'Pick a range of one year or less' });
+  // Zoom allows at most a month per request, so walk the range in 30-day windows.
+  const windows = [];
+  for (let start = Date.parse(from); start <= Date.parse(to); start += 30 * DAY_MS) {
+    windows.push([toYmd(start), toYmd(Math.min(start + 29 * DAY_MS, Date.parse(to)))]);
+  }
+  try {
+    const users = (await zoomApi('GET', '/users?status=active&page_size=300')).users || [];
+    const perHost = await Promise.all(users.map(async (u) => {
+      const host = { name: u.display_name || [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email, email: u.email };
+      const rows = [];
+      for (const [f, t] of windows) {
+        let next = '';
+        do {
+          const data = await zoomApi('GET', `/users/${encodeURIComponent(u.id)}/recordings?page_size=300&from=${f}&to=${t}${next ? `&next_page_token=${encodeURIComponent(next)}` : ''}`);
+          for (const m of data.meetings || []) rows.push(zoomRecordingRow(m, host));
+          next = data.next_page_token || '';
+        } while (next);
+      }
+      return rows;
+    }));
+    const seen = new Set();
+    const out = perHost.flat().filter((r) => !seen.has(r.uuid) && seen.add(r.uuid));
+    out.sort((a, b) => String(b.start_time).localeCompare(String(a.start_time)));
+    res.json({ from, to, recordings: out });
+  } catch (err) { zoomFail(res, err); }
+});
+
+// Stream or download one recording file. Zoom answers the file's download_url
+// with a redirect to a short-lived signed URL; the browser is sent there.
+app.get('/api/zoom/recordings/play', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const fileId = String(req.query.file || '');
+  if (!/^[\w-]{1,128}$/.test(fileId)) return res.status(400).json({ error: 'Invalid file id' });
+  try {
+    let hit = zoomRecFiles.get(fileId);
+    if (!hit) {
+      // Not in memory (e.g. after a restart): look the meeting up again.
+      const uuid = String(req.query.meeting || '');
+      if (!uuid || uuid.length > 128) return res.status(404).json({ error: 'Recording not found  refresh the list' });
+      zoomRememberFiles(await zoomApi('GET', `/meetings/${encodeURIComponent(encodeURIComponent(uuid))}/recordings`));
+      hit = zoomRecFiles.get(fileId);
+      if (!hit) return res.status(404).json({ error: 'Recording not found' });
+    }
+    const headers = { Authorization: `Bearer ${await zoomBearer()}` };
+    if (req.headers.range) headers.Range = req.headers.range;
+    const resp = await fetch(hit.url, { headers, redirect: 'manual' });
+    const location = resp.headers.get('location');
+    if (resp.status >= 300 && resp.status < 400 && location) {
+      resp.body?.cancel().catch(() => {});
+      res.set('Cache-Control', 'private, no-store');
+      return res.redirect(302, location);
+    }
+    if (!resp.ok || !resp.body) {
+      if (resp.status === 401) zoomTokenCache = null;
+      return res.status(UPSTREAM_FAILED).json({ error: `Zoom refused the file (HTTP ${resp.status})` });
+    }
+    // No redirect: relay the bytes, keeping range support for seeking.
+    res.status(resp.status);
+    for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'content-disposition']) {
+      const v = resp.headers.get(h); if (v) res.set(h, v);
+    }
+    require('stream').Readable.fromWeb(resp.body).pipe(res);
   } catch (err) { zoomFail(res, err); }
 });
 

@@ -14,6 +14,7 @@ import TutorApplications from '../components/TutorApplications';
 import BlacklistModal from '../components/BlacklistModal';
 import TutorProfile from '../components/TutorProfile';
 import ZoomMeetings from '../components/ZoomMeetings';
+import ZoomRecordings from '../components/ZoomRecordings';
 import MeetingsManager from '../components/MeetingsManager';
 import ContactsDirectory from '../components/ContactsDirectory';
 import Packages from '../components/Packages';
@@ -148,6 +149,7 @@ export default function SuperadminPortal() {
   const [kajabiCount, setKajabiCount] = useState(null); // total Kajabi contacts
   const [zoomContactsCount, setZoomContactsCount] = useState(null); // people who joined our Zoom meetings
   const [zoomView, setZoomView] = usePersistedTab('tab:superadmin:zoom', 'upcoming');
+  const [recSource, setRecSource] = usePersistedTab('tab:superadmin:recordings', 'zoom');
   const [zoomReload, setZoomReload] = useState(0); // bumped by the sidebar to refetch from Zoom
   const [kajabi, setKajabi] = useState({ kajabi_client_id: '', kajabi_client_secret: '', kajabi_connected: false });
   const [kajabiSaving, setKajabiSaving] = useState(false);
@@ -2977,11 +2979,16 @@ export default function SuperadminPortal() {
           <div className="portal-page">
             <div className="page-header">
               <h2>Recordings</h2>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {recSource === 'lms' && <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button className="btn btn-ghost" onClick={() => api.getMeetingRecords().then(setRecordings).catch(() => {})}>↻ Refresh</button>
                 <button className="btn btn-danger" disabled={recordings.length === 0} onClick={deleteAllRecordings}>🗑 Delete All</button>
-              </div>
+              </div>}
             </div>
+            <div className="view-toggle" role="tablist">
+              <button type="button" className={recSource === 'zoom' ? 'active' : ''} onClick={() => setRecSource('zoom')}>Zoom cloud recordings</button>
+              <button type="button" className={recSource === 'lms' ? 'active' : ''} onClick={() => setRecSource('lms')}>LMS session recordings</button>
+            </div>
+            {recSource === 'zoom' ? <ZoomRecordings /> : <>
             <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
               All session recordings captured across every tutor and course.
             </p>
@@ -3040,6 +3047,7 @@ export default function SuperadminPortal() {
                 </div>
               </div>
             )}
+            </>}
           </div>
         )}
 

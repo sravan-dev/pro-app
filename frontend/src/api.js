@@ -221,6 +221,7 @@ export const api = {
   getZoomContactSessions: (key) => request(`/zoom/contacts/sessions?key=${encodeURIComponent(key)}`),
   startZoomContactsSync: () => request('/zoom/contacts/sync', { method: 'POST' }),
   getZoomContactsSync: () => request('/zoom/contacts/sync'),
+  getZoomRecordings: (from, to) => request(`/zoom/recordings?from=${from}&to=${to}`),
   getZoomMeetings: (user, type) => request(`/zoom/meetings?user=${encodeURIComponent(user)}&type=${type}`),
   getZoomMeeting: (id) => request(`/zoom/meetings/${id}`),
   getZoomMeetingSummary: (id, { past, instance } = {}) => request(`/zoom/meetings/${id}/summary?past=${past ? 1 : 0}${instance ? `&instance=${encodeURIComponent(instance)}` : ''}`),
