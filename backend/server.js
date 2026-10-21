@@ -3595,6 +3595,63 @@ app.get('/api/kajabi/contacts', async (req, res) => {
   }
 });
 
+// Kajabi offers (Sales ’ Pricing) for the Packages page, read-only. Offers are
+// fetched per site (Kajabi scopes them to one) with their products included.
+app.get('/api/kajabi/offers', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin','manager']); if (!user) return;
+  const { clientId, clientSecret } = await getKajabiCreds();
+  if (!clientId || !clientSecret) return res.status(400).json({ error: 'Kajabi is not connected. Add API credentials in Settings.' });
+
+  try {
+    const token = await getKajabiToken();
+    const kget = async (p) => {
+      const r = await fetch(`${KAJABI_API_BASE}${p}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+      return { ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) };
+    };
+    // No site list (or no access to it) ’ one unfiltered pass.
+    const sites = await kget('/v1/sites?page[size]=100');
+    const siteIds = sites.ok && Array.isArray(sites.body.data) && sites.body.data.length ? sites.body.data.map((s) => String(s.id)) : [null];
+
+    const offers = [];
+    const products = new Map();
+    for (const siteId of siteIds) {
+      for (let page = 1; page <= 30; page++) {
+        const params = new URLSearchParams({ 'page[size]': '100', 'page[number]': String(page), include: 'products' });
+        if (siteId) params.set('filter[site_id]', siteId);
+        const r = await kget(`/v1/offers?${params.toString()}`);
+        if (!r.ok) return res.status(UPSTREAM_FAILED).json({ error: kajabiError(r.body, r.status) });
+        for (const p of (r.body.included || []).filter((x) => x.type === 'products')) products.set(String(p.id), p.attributes?.title || '');
+        const data = Array.isArray(r.body.data) ? r.body.data : [];
+        offers.push(...data);
+        if (!(r.body.links && r.body.links.next) || data.length < 100) break;
+      }
+    }
+
+    const seen = new Set();
+    res.json(offers.filter((o) => !seen.has(String(o.id)) && seen.add(String(o.id))).map((o) => {
+      const a = o.attributes || {};
+      const productRefs = (o.relationships && o.relationships.products && o.relationships.products.data) || [];
+      return {
+        id: String(o.id),
+        title: a.title || a.internal_title || 'Untitled offer',
+        internal_title: a.internal_title || '',
+        description: a.description || '',
+        image_url: a.image_url || '',
+        price_in_cents: a.price_in_cents ?? null,
+        currency: a.currency || '',
+        payment_type: a.payment_type || '',
+        price_description: a.price_description || '',
+        free: !!a.free,
+        checkout_url: a.checkout_url || '',
+        products: productRefs.map((p) => products.get(String(p.id))).filter(Boolean),
+        created_at: a.created_at || '',
+      };
+    }));
+  } catch (err) {
+    res.status(UPSTREAM_FAILED).json({ error: err.message });
+  }
+});
+
 // Everything Kajabi holds on one contact, for the contact detail page: profile
 // and address, tags and notes, plus â€” when the contact is also a customer â€”
 // their products, offers and purchases. A failed side request just leaves its

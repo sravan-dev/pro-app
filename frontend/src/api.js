@@ -252,6 +252,7 @@ export const api = {
     const qs = params.toString();
     return request(`/kajabi/contacts${qs ? `?${qs}` : ''}`);
   },
+  getKajabiOffers: () => request('/kajabi/offers'),
   getKajabiContact: (id) => request(`/kajabi/contacts/${encodeURIComponent(id)}`),
 
   // Public support request (login page) → emailed to tech support

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import DataTable from './DataTable';
 import { formatMoney } from '../utils/money';
+import KajabiOffers from './KajabiOffers';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 // Admin + manager → Packages: priced course offerings (number of classes,
 // minutes per class, validity, price). Both can add, edit and archive; only
@@ -15,6 +17,7 @@ const emptyForm = () => ({
 
 export default function Packages({ showMsg, canDelete = false }) {
   const [packages, setPackages] = useState(null); // null until loaded
+  const [view, setView] = usePersistedTab('tab:packages', 'packages');
   const [loadError, setLoadError] = useState('');
   const [courses, setCourses] = useState([]);
   const [currency, setCurrency] = useState('');
@@ -121,8 +124,13 @@ export default function Packages({ showMsg, canDelete = false }) {
     <div className="portal-page">
       <div className="page-header">
         <h2>Packages</h2>
-        <button className="btn btn-primary" onClick={openCreate}>+ Add Package</button>
+        {view === 'packages' && <button className="btn btn-primary" onClick={openCreate}>+ Add Package</button>}
       </div>
+      <div className="view-toggle" role="tablist">
+        <button type="button" className={view === 'packages' ? 'active' : ''} onClick={() => setView('packages')}>Packages</button>
+        <button type="button" className={view === 'offers' ? 'active' : ''} onClick={() => setView('offers')}>Kajabi offers</button>
+      </div>
+      {view === 'offers' ? <KajabiOffers currency={currency} /> : <>
       <p style={{ ...muted, marginTop: '-0.5rem', marginBottom: '1rem' }}>
         Course packages with their classes, validity and price.
         {archivedCount > 0 && (
@@ -138,6 +146,7 @@ export default function Packages({ showMsg, canDelete = false }) {
       {packages && (visible.length === 0
         ? <p className="empty-state">{packages.length === 0 ? 'No packages yet. Add one with + Add Package.' : 'No active packages.'}</p>
         : <DataTable columns={columns} data={visible} pageSize={15} onRowClick={openEdit} />)}
+      </>}
 
       {form && (
         <div className="modal-overlay">
