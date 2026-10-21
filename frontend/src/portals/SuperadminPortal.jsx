@@ -846,6 +846,7 @@ export default function SuperadminPortal() {
     setEnrollForm({
       progress_percentage: enroll.progress_percentage, grade: enroll.grade, status: enroll.status,
       main_stream_id: str(enroll.main_stream_id), package_id: str(enroll.package_id),
+      kajabi_offer_id: str(enroll.kajabi_offer_id), kajabi_offer_title: str(enroll.kajabi_offer_title),
       individual_hours: enroll.individual_hours == null ? '' : String(Number(enroll.individual_hours)),
       mock_hours: enroll.mock_hours == null ? '' : String(Number(enroll.mock_hours)),
     });

@@ -1,47 +1,51 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api';
+import SearchSelect from './SearchSelect';
 
 // The fields every Enroll form asks for before enrolling: Main Stream and
-// Course (from the course list), Package (from the Packages module) and
-// booked Individual / Mock hours. Loads its own course and package lists.
-// Picking a package fills in its course and, for a 1-on-1 package, its total
-// hours — never overwriting anything already entered.
+// Course (from the course list), Course Package (a Kajabi offer, from the
+// server's offers cache) and booked Individual / Mock hours. Loads its own
+// course and offer lists. Picking a package fills in the course linked to it
+// (Course Management) — never overwriting a course already picked.
 // `enrolledCourseNames` disables courses the student is already on; `editing`
 // hides the Course picker (an existing enrollment keeps its course) and makes
 // Main Stream optional, since older enrollments have none.
-export const emptyEnrollDetails = () => ({ main_stream_id: '', course_id: '', package_id: '', individual_hours: '', mock_hours: '' });
+export const emptyEnrollDetails = () => ({ main_stream_id: '', course_id: '', kajabi_offer_id: '', kajabi_offer_title: '', individual_hours: '', mock_hours: '' });
 
 const hint = { color: 'var(--color-text-secondary)', fontSize: 12, marginTop: 4 };
 
 export default function EnrollDetailsFields({ value, onChange, enrolledCourseNames = [], editing = false, autoFocus = false }) {
   const [courses, setCourses] = useState([]);
-  const [packages, setPackages] = useState([]);
+  const [offers, setOffers] = useState({ list: null, error: '' });
 
   useEffect(() => {
     api.getCourses().then(setCourses).catch(() => {});
-    api.getPackages().then(setPackages).catch(() => {});
+    api.getKajabiOffers().then((d) => setOffers({ list: d.offers || [], error: '' }))
+      .catch((err) => setOffers({ list: null, error: err.message || 'Could not load course packages' }));
   }, []);
 
-  // Active courses (the hidden __test_call__ draft left out) and active
-  // packages, plus whatever is already selected so an edit keeps its value.
+  // Active courses (the hidden __test_call__ draft left out), plus whatever is
+  // already selected so an edit keeps its value.
   const keep = (id, selected) => String(id) === String(selected);
   const courseOptions = (selected) => courses.filter((c) => (c.status === 'active' && !c.name.startsWith('__')) || keep(c.id, selected));
-  const packageOptions = packages.filter((p) => p.status === 'active' || keep(p.id, value.package_id));
+  const offerList = offers.list || [];
+  const packageOptions = offerList.map((o) => ({ value: o.id, label: o.title, hint: o.products.join(', ') || o.internal_title }))
+    .concat(value.kajabi_offer_id && !offerList.some((o) => o.id === value.kajabi_offer_id)
+      ? [{ value: value.kajabi_offer_id, label: value.kajabi_offer_title || value.kajabi_offer_id, hint: 'No longer in Kajabi' }] : []);
   const enrolled = new Set(enrolledCourseNames);
 
   const set = (k) => (e) => onChange({ ...value, [k]: e.target.value });
 
-  const pickPackage = (e) => {
-    const id = e.target.value;
-    const p = packages.find((x) => String(x.id) === id);
-    const hours = p && p.class_type === 'one_to_one' ? String(Math.round((p.sessions_count * p.session_minutes) / 60 * 100) / 100) : '';
-    const course = p?.course_id ? courses.find((c) => c.id === p.course_id) : null;
+  // Picking a Kajabi package replaces any old LMS package on the enrollment.
+  const pickPackage = (id, opt) => {
+    const course = id ? courses.find((c) => c.kajabi_offer_id === id && c.status === 'active') : null;
     const fillCourse = !editing && !value.course_id && course && !enrolled.has(course.name);
     onChange({
       ...value,
-      package_id: id,
+      kajabi_offer_id: id,
+      kajabi_offer_title: id ? opt.label : '',
+      ...(value.package_id ? { package_id: '' } : {}),
       course_id: fillCourse ? String(course.id) : value.course_id,
-      individual_hours: value.individual_hours !== '' ? value.individual_hours : hours,
     });
   };
 
@@ -69,12 +73,17 @@ export default function EnrollDetailsFields({ value, onChange, enrolledCourseNam
         )}
       </div>
       <div className="form-group">
-        <label>Package</label>
-        <select value={value.package_id} onChange={pickPackage}>
-          <option value="">— No package —</option>
-          {packageOptions.map((p) => <option key={p.id} value={p.id}>{p.name}{p.course_name ? ` — ${p.course_name}` : ''}</option>)}
-        </select>
-        {packageOptions.length === 0 && <p style={hint}>No active packages yet — add them under Packages.</p>}
+        <label>Course Package</label>
+        <SearchSelect
+          value={value.kajabi_offer_id || ''}
+          options={packageOptions}
+          onChange={pickPackage}
+          placeholder="Select a course package…"
+          clearLabel="No package"
+          loading={!offers.list && !offers.error}
+          error={offers.error}
+        />
+        {offers.list && offers.list.length === 0 && <p style={hint}>No Kajabi offers found — sync them under Packages → Kajabi offers.</p>}
       </div>
       <div className="form-row">
         <div className="form-group">

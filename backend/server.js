@@ -1107,6 +1107,15 @@ async function enrollmentDetails(body) {
     if (!id || !(await db.get("SELECT 1 FROM packages WHERE id=?", [id]))) return { error: 'Package not found' };
     f.package_id = id;
   }
+  if (!blank(b.kajabi_offer_id)) {
+    const id = String(b.kajabi_offer_id).trim();
+    if (!/^[\w-]{1,64}$/.test(id)) return { error: 'Course package not found' };
+    const cached = await db.get("SELECT data FROM kajabi_offers WHERE id=?", [id]);
+    let title = '';
+    try { title = cached ? JSON.parse(cached.data).title || '' : ''; } catch { /* fall back to the sent title */ }
+    f.kajabi_offer_id = id;
+    f.kajabi_offer_title = (title || String(b.kajabi_offer_title || '')).trim().slice(0, 255);
+  }
   for (const [k, label] of [['individual_hours', 'individual hours'], ['mock_hours', 'mock hours']]) {
     if (blank(b[k])) continue;
     const n = Number(b[k]);
@@ -1118,7 +1127,7 @@ async function enrollmentDetails(body) {
 
 app.get('/api/enrollments', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin','manager','advisor']); if (!user) return;
-  res.json(await db.all("SELECT e.*,u.name as student_name,u.email as student_email,u.avatar_color, c.name as course_name,c.category as course_category,t.name as tutor_name, ms.name as main_stream_name, p.name as package_name FROM enrollments e JOIN users u ON u.id=e.student_id JOIN courses c ON c.id=e.course_id LEFT JOIN users t ON t.id=c.tutor_id LEFT JOIN courses ms ON ms.id=e.main_stream_id LEFT JOIN packages p ON p.id=e.package_id ORDER BY e.enrollment_date DESC"));
+  res.json(await db.all("SELECT e.*,u.name as student_name,u.email as student_email,u.avatar_color, c.name as course_name,c.category as course_category,t.name as tutor_name, ms.name as main_stream_name, COALESCE(NULLIF(e.kajabi_offer_title,''), p.name) as package_name FROM enrollments e JOIN users u ON u.id=e.student_id JOIN courses c ON c.id=e.course_id LEFT JOIN users t ON t.id=c.tutor_id LEFT JOIN courses ms ON ms.id=e.main_stream_id LEFT JOIN packages p ON p.id=e.package_id ORDER BY e.enrollment_date DESC"));
 });
 
 app.post('/api/enrollments', async (req, res) => {
@@ -1153,6 +1162,10 @@ app.put('/api/enrollments', async (req, res) => {
   for (const k of ['main_stream_id', 'package_id', 'individual_hours', 'mock_hours']) {
     if (fields[k] === undefined) continue;
     sets.push(`${k}=?`); vals.push(k in details ? details[k] : null);
+  }
+  if (fields.kajabi_offer_id !== undefined) {
+    sets.push('kajabi_offer_id=?', 'kajabi_offer_title=?');
+    vals.push(details.kajabi_offer_id || null, details.kajabi_offer_title || null);
   }
   if (!sets.length) return res.status(400).json({ error: 'No fields' });
   vals.push(enrollment_id);
@@ -3688,7 +3701,8 @@ async function cachedKajabiOffers() {
 }
 
 app.get('/api/kajabi/offers', async (req, res) => {
-  const user = await requireRole(req, res, ['superadmin','manager']); if (!user) return;
+  // Advisors read it too: the enroll forms' Course Package picker.
+  const user = await requireRole(req, res, ['superadmin','manager','advisor']); if (!user) return;
   const { clientId, clientSecret } = await getKajabiCreds();
   if (!clientId || !clientSecret) return res.status(400).json({ error: 'Kajabi is not connected. Add API credentials in Settings.' });
 
@@ -3851,7 +3865,7 @@ app.post('/api/contact-enrollments', async (req, res) => {
       <table style="border-collapse:collapse;width:100%;margin:16px 0">
         ${[
           ['Name', name], ['Email', email], ['Phone', phone], ['Company', company], ['Stage', stage],
-          ['Main stream', mainStream && mainStream.name], ['Course', course && course.name], ['Package', pkg && pkg.name],
+          ['Main stream', mainStream && mainStream.name], ['Course', course && course.name], ['Package', details.kajabi_offer_title || (pkg && pkg.name)],
           ['Individual hours', details.individual_hours], ['Mock hours', details.mock_hours], ['Enrolled by', user.name],
         ].map(([label, v], i) => `<tr><td style="padding:6px 10px;color:#888">${label}</td><td style="padding:6px 10px${i === 0 ? ';font-weight:600' : ''}">${v === undefined || v === null || v === '' ? '—' : escapeHtml(v)}</td></tr>`).join('')}
       </table>
@@ -3870,7 +3884,7 @@ app.post('/api/contact-enrollments', async (req, res) => {
 app.get('/api/contact-enrollments', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin', 'manager', 'advisor']); if (!user) return;
   res.json(await db.all(
-    `SELECT ce.*, c.name AS course_name, ms.name AS main_stream_name, p.name AS package_name
+    `SELECT ce.*, c.name AS course_name, ms.name AS main_stream_name, COALESCE(NULLIF(ce.kajabi_offer_title,''), p.name) AS package_name
      FROM contact_enrollments ce
      LEFT JOIN courses c ON c.id=ce.course_id LEFT JOIN courses ms ON ms.id=ce.main_stream_id LEFT JOIN packages p ON p.id=ce.package_id
      ORDER BY ce.created_at DESC`));

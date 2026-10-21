@@ -220,6 +220,9 @@ async function initSchema() {
     await addColumnIfMissing(table, 'package_id', 'package_id INT NULL');
     await addColumnIfMissing(table, 'individual_hours', 'individual_hours DECIMAL(8,2) NULL');
     await addColumnIfMissing(table, 'mock_hours', 'mock_hours DECIMAL(8,2) NULL');
+    // Course Package = a Kajabi offer (id + title at the time it was picked).
+    await addColumnIfMissing(table, 'kajabi_offer_id', 'kajabi_offer_id VARCHAR(64) NULL');
+    await addColumnIfMissing(table, 'kajabi_offer_title', 'kajabi_offer_title VARCHAR(255) NULL');
   }
   await addColumnIfMissing('contact_enrollments', 'course_id', 'course_id INT NULL');
   // A course's tutor is optional ("None" in the course form).
