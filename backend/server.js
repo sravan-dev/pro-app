@@ -3605,58 +3605,102 @@ app.get('/api/kajabi/contacts', async (req, res) => {
   }
 });
 
-// Kajabi offers (Sales ’ Pricing) for the Packages page, read-only. Offers are
-// fetched per site (Kajabi scopes them to one) with their products included.
+// Kajabi offers (Sales -> Pricing) for the Packages page and the course form's
+// Course Package picker, read-only. Kajabi is slow, so offers are cached in
+// kajabi_offers: the first load fills it, later loads read it, and a cache
+// older than KAJABI_OFFERS_TTL refreshes in the background. ?refresh=1 waits
+// for a fresh copy. Offers are fetched per site with their products included.
+const KAJABI_OFFERS_TTL = 6 * 60 * 60 * 1000;
+let kajabiOffersSync = null; // in-flight sync, shared by concurrent callers
+
+async function fetchKajabiOffers() {
+  const token = await getKajabiToken();
+  const kget = async (p) => {
+    const r = await fetch(`${KAJABI_API_BASE}${p}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+    return { ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  // No site list (or no access to it) -> one unfiltered pass.
+  const sites = await kget('/v1/sites?page[size]=100');
+  const siteIds = sites.ok && Array.isArray(sites.body.data) && sites.body.data.length ? sites.body.data.map((s) => String(s.id)) : [null];
+
+  const offers = [];
+  const products = new Map();
+  for (const siteId of siteIds) {
+    for (let page = 1; page <= 30; page++) {
+      const params = new URLSearchParams({ 'page[size]': '100', 'page[number]': String(page), include: 'products' });
+      if (siteId) params.set('filter[site_id]', siteId);
+      const r = await kget(`/v1/offers?${params.toString()}`);
+      if (!r.ok) throw new Error(kajabiError(r.body, r.status));
+      for (const p of (r.body.included || []).filter((x) => x.type === 'products')) products.set(String(p.id), p.attributes?.title || '');
+      const data = Array.isArray(r.body.data) ? r.body.data : [];
+      offers.push(...data);
+      if (!(r.body.links && r.body.links.next) || data.length < 100) break;
+    }
+  }
+
+  const seen = new Set();
+  return offers.filter((o) => !seen.has(String(o.id)) && seen.add(String(o.id))).map((o) => {
+    const a = o.attributes || {};
+    const productRefs = (o.relationships && o.relationships.products && o.relationships.products.data) || [];
+    return {
+      id: String(o.id),
+      title: a.title || a.internal_title || 'Untitled offer',
+      internal_title: a.internal_title || '',
+      description: a.description || '',
+      image_url: a.image_url || '',
+      price_in_cents: a.price_in_cents ?? null,
+      currency: a.currency || '',
+      payment_type: a.payment_type || '',
+      price_description: a.price_description || '',
+      free: !!a.free,
+      checkout_url: a.checkout_url || '',
+      products: productRefs.map((p) => products.get(String(p.id))).filter(Boolean),
+      created_at: a.created_at || '',
+    };
+  });
+}
+
+// Replace the cache with a fresh copy from Kajabi. Concurrent calls share one run.
+function syncKajabiOffers() {
+  if (!kajabiOffersSync) {
+    kajabiOffersSync = (async () => {
+      const offers = await fetchKajabiOffers();
+      const now = Date.now();
+      await db.tx(async (t) => {
+        await t.run('DELETE FROM kajabi_offers');
+        for (let i = 0; i < offers.length; i++) {
+          await t.run('INSERT INTO kajabi_offers (id, position, data, synced_at) VALUES (?,?,?,?)', [offers[i].id, i, JSON.stringify(offers[i]), now]);
+        }
+      });
+      return offers;
+    })().finally(() => { kajabiOffersSync = null; });
+  }
+  return kajabiOffersSync;
+}
+
+async function cachedKajabiOffers() {
+  const rows = await db.all('SELECT data, synced_at FROM kajabi_offers ORDER BY position');
+  const offers = [];
+  for (const r of rows) { try { offers.push(JSON.parse(r.data)); } catch { /* skip a bad row */ } }
+  // synced_at is epoch ms (BIGINT), so no timezone handling is needed.
+  const syncedAt = rows[0] && Number(rows[0].synced_at) ? new Date(Number(rows[0].synced_at)) : null;
+  return { offers, syncedAt, hasRows: rows.length > 0 };
+}
+
 app.get('/api/kajabi/offers', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin','manager']); if (!user) return;
   const { clientId, clientSecret } = await getKajabiCreds();
   if (!clientId || !clientSecret) return res.status(400).json({ error: 'Kajabi is not connected. Add API credentials in Settings.' });
 
   try {
-    const token = await getKajabiToken();
-    const kget = async (p) => {
-      const r = await fetch(`${KAJABI_API_BASE}${p}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
-      return { ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) };
-    };
-    // No site list (or no access to it) ’ one unfiltered pass.
-    const sites = await kget('/v1/sites?page[size]=100');
-    const siteIds = sites.ok && Array.isArray(sites.body.data) && sites.body.data.length ? sites.body.data.map((s) => String(s.id)) : [null];
-
-    const offers = [];
-    const products = new Map();
-    for (const siteId of siteIds) {
-      for (let page = 1; page <= 30; page++) {
-        const params = new URLSearchParams({ 'page[size]': '100', 'page[number]': String(page), include: 'products' });
-        if (siteId) params.set('filter[site_id]', siteId);
-        const r = await kget(`/v1/offers?${params.toString()}`);
-        if (!r.ok) return res.status(UPSTREAM_FAILED).json({ error: kajabiError(r.body, r.status) });
-        for (const p of (r.body.included || []).filter((x) => x.type === 'products')) products.set(String(p.id), p.attributes?.title || '');
-        const data = Array.isArray(r.body.data) ? r.body.data : [];
-        offers.push(...data);
-        if (!(r.body.links && r.body.links.next) || data.length < 100) break;
-      }
+    let cache = await cachedKajabiOffers();
+    if (req.query.refresh === '1' || !cache.hasRows) {
+      await syncKajabiOffers();
+      cache = await cachedKajabiOffers();
+    } else if (!cache.syncedAt || Date.now() - cache.syncedAt.getTime() > KAJABI_OFFERS_TTL) {
+      syncKajabiOffers().catch((err) => console.error('[KAJABI] Offer sync failed:', err.message));
     }
-
-    const seen = new Set();
-    res.json(offers.filter((o) => !seen.has(String(o.id)) && seen.add(String(o.id))).map((o) => {
-      const a = o.attributes || {};
-      const productRefs = (o.relationships && o.relationships.products && o.relationships.products.data) || [];
-      return {
-        id: String(o.id),
-        title: a.title || a.internal_title || 'Untitled offer',
-        internal_title: a.internal_title || '',
-        description: a.description || '',
-        image_url: a.image_url || '',
-        price_in_cents: a.price_in_cents ?? null,
-        currency: a.currency || '',
-        payment_type: a.payment_type || '',
-        price_description: a.price_description || '',
-        free: !!a.free,
-        checkout_url: a.checkout_url || '',
-        products: productRefs.map((p) => products.get(String(p.id))).filter(Boolean),
-        created_at: a.created_at || '',
-      };
-    }));
+    res.json({ offers: cache.offers, synced_at: cache.syncedAt ? cache.syncedAt.toISOString() : null });
   } catch (err) {
     res.status(UPSTREAM_FAILED).json({ error: err.message });
   }

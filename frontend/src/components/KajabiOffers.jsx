@@ -19,11 +19,13 @@ const price = (o, currency) => {
 export default function KajabiOffers({ currency }) {
   const [offers, setOffers] = useState(null); // null while loading
   const [error, setError] = useState('');
+  const [syncedAt, setSyncedAt] = useState(null);
 
-  const load = useCallback(() => {
+  // Offers come from the server's cache; Refresh pulls a fresh copy from Kajabi.
+  const load = useCallback((refresh = false) => {
     setOffers(null); setError('');
-    api.getKajabiOffers()
-      .then(setOffers)
+    api.getKajabiOffers(refresh)
+      .then((d) => { setOffers(d.offers || []); setSyncedAt(d.synced_at); })
       .catch((err) => { setError(err.message || 'Could not load Kajabi offers'); setOffers([]); });
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -57,7 +59,8 @@ export default function KajabiOffers({ currency }) {
     <div>
       <p style={{ ...muted, marginTop: '-0.5rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
         Offers from Kajabi (Sales → Pricing). Read-only — edit them in Kajabi.
-        <button type="button" className="btn btn-sm btn-ghost" onClick={load} disabled={offers === null}>↻ Refresh</button>
+        {syncedAt && <span>Last synced {new Date(syncedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>}
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => load(true)} disabled={offers === null}>↻ Sync from Kajabi</button>
       </p>
       {error && <div className="alert alert-error">{error}</div>}
       {offers === null ? (

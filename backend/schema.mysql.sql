@@ -525,3 +525,12 @@ CREATE TABLE IF NOT EXISTS packages (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_packages_course (course_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Cache of Kajabi offers (Sales -> Pricing). Filled on first load; refreshed
+-- from Kajabi in the background when stale. synced_at is epoch milliseconds.
+CREATE TABLE IF NOT EXISTS kajabi_offers (
+  id VARCHAR(64) PRIMARY KEY,
+  position INT NOT NULL DEFAULT 0,
+  data MEDIUMTEXT NOT NULL,
+  synced_at BIGINT NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
