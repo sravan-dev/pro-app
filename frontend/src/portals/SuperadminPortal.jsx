@@ -18,6 +18,7 @@ import ZoomRecordings from '../components/ZoomRecordings';
 import MeetingsManager from '../components/MeetingsManager';
 import ContactsDirectory from '../components/ContactsDirectory';
 import Packages from '../components/Packages';
+import SearchSelect from '../components/SearchSelect';
 import { EnrollHours } from '../components/ContactEnrollments';
 import EnrollDetailsFields, { emptyEnrollDetails } from '../components/EnrollDetailsFields';
 import usePersistedTab from '../hooks/usePersistedTab';
@@ -157,7 +158,14 @@ export default function SuperadminPortal() {
   const [showCourseForm, setShowCourseForm] = useState(false);
   const [showCourseMgr, setShowCourseMgr] = useState(false);
   const [editingCourse, setEditingCourse] = useState(null);
-  const [courseForm, setCourseForm] = useState({ name: '', category: 'Technology', tutor_id: '', color: '#3B82F6', icon: 'book' });
+  const [courseForm, setCourseForm] = useState({ name: '', category: 'Technology', tutor_id: '', color: '#3B82F6', icon: 'book', kajabi_offer_id: '', kajabi_offer_title: '' });
+  // Kajabi offers for the course form's picker, fetched the first time it opens.
+  const [kajabiOffers, setKajabiOffers] = useState({ list: null, error: '' });
+  const loadKajabiOffers = () => {
+    if (kajabiOffers.list) return;
+    setKajabiOffers({ list: null, error: '' });
+    api.getKajabiOffers().then((list) => setKajabiOffers({ list, error: '' })).catch((err) => setKajabiOffers({ list: null, error: err.message || 'Could not load Kajabi offers' }));
+  };
 
   const [inviteResult, setInviteResult] = useState(null);
   const [inviteAllBusy, setInviteAllBusy] = useState(false);
@@ -635,8 +643,9 @@ export default function SuperadminPortal() {
   // ===== COURSE CRUD =====
   const openCreateCourse = () => {
     setEditingCourse(null);
-    setCourseForm({ name: '', category: categories[0]?.name || '', tutor_id: '', color: '#3B82F6', icon: 'book' });
+    setCourseForm({ name: '', category: categories[0]?.name || '', tutor_id: '', color: '#3B82F6', icon: 'book', kajabi_offer_id: '', kajabi_offer_title: '' });
     setShowCourseForm(true);
+    loadKajabiOffers();
   };
 
   // ===== CATEGORY CRUD =====
@@ -769,8 +778,9 @@ export default function SuperadminPortal() {
 
   const openEditCourse = (course) => {
     setEditingCourse(course);
-    setCourseForm({ name: course.name, category: course.category, tutor_id: course.tutor_id || '', color: course.color, icon: course.icon || 'book', status: course.status });
+    setCourseForm({ name: course.name, category: course.category, tutor_id: course.tutor_id || '', color: course.color, icon: course.icon || 'book', status: course.status, kajabi_offer_id: course.kajabi_offer_id || '', kajabi_offer_title: course.kajabi_offer_title || '' });
     setShowCourseForm(true);
+    loadKajabiOffers();
   };
 
   const saveCourse = async (e) => {
@@ -1263,6 +1273,7 @@ export default function SuperadminPortal() {
     { key: 'name', label: 'Course', accessor: 'name' },
     { key: 'category', label: 'Category', accessor: 'category', render: (r) => <span className="role-badge role-advisor">{r.category}</span> },
     { key: 'tutor', label: 'Tutor', accessor: 'tutor_name', render: (r) => r.tutor_name || <span style={{ color: 'var(--color-text-secondary)' }}>None</span> },
+    { key: 'kajabi', label: 'Kajabi package', accessor: 'kajabi_offer_title', render: (r) => r.kajabi_offer_title || <span style={{ color: 'var(--color-text-secondary)' }}>—</span> },
     { key: 'students', label: 'Students', accessor: 'students_count' },
     { key: 'progress', label: 'Progress', accessor: 'progress', render: (r) => progressCol(r, 'progress') },
     { key: 'status', label: 'Status', accessor: 'status', render: statusCol },
@@ -1703,6 +1714,21 @@ export default function SuperadminPortal() {
                 {tutors.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
+          </div>
+          <div className="form-group">
+            <label htmlFor="course-kajabi-offer">Kajabi package</label>
+            <SearchSelect
+              id="course-kajabi-offer"
+              value={courseForm.kajabi_offer_id || ''}
+              options={(kajabiOffers.list || []).map((o) => ({ value: o.id, label: o.title, hint: o.products.join(', ') || o.internal_title }))
+                .concat(courseForm.kajabi_offer_id && !(kajabiOffers.list || []).some((o) => o.id === courseForm.kajabi_offer_id)
+                  ? [{ value: courseForm.kajabi_offer_id, label: courseForm.kajabi_offer_title || courseForm.kajabi_offer_id, hint: 'No longer in Kajabi' }] : [])}
+              onChange={(v, o) => setCourseForm({ ...courseForm, kajabi_offer_id: v, kajabi_offer_title: v ? o.label : '' })}
+              placeholder="Select a Kajabi offer…"
+              clearLabel="None"
+              loading={!kajabiOffers.list && !kajabiOffers.error}
+              error={kajabiOffers.error}
+            />
           </div>
           <div className="form-row">
             <div className="form-group">

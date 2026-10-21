@@ -172,6 +172,9 @@ async function initSchema() {
   await addColumnIfMissing('users', 'blacklist_reason', 'blacklist_reason TEXT NULL');
   await addColumnIfMissing('users', 'blacklisted_at', 'blacklisted_at DATETIME NULL');
   await addColumnIfMissing('users', 'blacklisted_by', 'blacklisted_by INT NULL');
+  // Kajabi offer a course is sold through (picked in the course form).
+  await addColumnIfMissing('courses', 'kajabi_offer_id', "kajabi_offer_id VARCHAR(64) DEFAULT ''");
+  await addColumnIfMissing('courses', 'kajabi_offer_title', "kajabi_offer_title VARCHAR(255) DEFAULT ''");
   await addColumnIfMissing('tutor_applications', 'tutor_user_id', 'tutor_user_id INT NULL');
   // Owner of each login session, so a password change can sign that user out everywhere.
   await addColumnIfMissing('user_sessions', 'user_id', 'user_id INT NULL');

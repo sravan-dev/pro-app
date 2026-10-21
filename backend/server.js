@@ -809,11 +809,20 @@ app.get('/api/courses', async (req, res) => {
   res.json(await db.all("SELECT c.*,u.name as tutor_name FROM courses c LEFT JOIN users u ON u.id=c.tutor_id WHERE (c.tutor_id IS NULL OR u.id IS NOT NULL) ORDER BY c.name"));
 });
 
+// Linked Kajabi offer: id + title (title kept so the list shows it without a
+// Kajabi call). A blank id unlinks.
+const kajabiOfferFields = (b) => {
+  const id = String(b.kajabi_offer_id || '').trim();
+  if (!/^[\w-]{1,64}$/.test(id)) return { kajabi_offer_id: '', kajabi_offer_title: '' };
+  return { kajabi_offer_id: id, kajabi_offer_title: String(b.kajabi_offer_title || '').trim().slice(0, 255) };
+};
+
 app.post('/api/courses', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin','manager']); if (!user) return;
   const { name, category, tutor_id, color, icon } = req.body;
   if (!name || !category) return res.status(400).json({ error: 'Name and category required' });
-  const r = await db.run("INSERT INTO courses (name,category,tutor_id,color,icon) VALUES (?,?,?,?,?)", [name, category, tutor_id || null, color || '#3B82F6', icon || 'book']);
+  const offer = kajabiOfferFields(req.body);
+  const r = await db.run("INSERT INTO courses (name,category,tutor_id,color,icon,kajabi_offer_id,kajabi_offer_title) VALUES (?,?,?,?,?,?,?)", [name, category, tutor_id || null, color || '#3B82F6', icon || 'book', offer.kajabi_offer_id, offer.kajabi_offer_title]);
   auditLog(user.id, 'create_course', 'course', r.lastInsertRowid, `Created: ${name}`);
   res.status(201).json({ id: r.lastInsertRowid, message: 'Course created' });
 });
@@ -822,7 +831,8 @@ app.put('/api/courses', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin','manager']); if (!user) return;
   const { id, ...fields } = req.body;
   if (!id) return res.status(400).json({ error: 'Course ID required' });
-  const allowed = ['name','category','tutor_id','color','icon','status'];
+  if (fields.kajabi_offer_id !== undefined) Object.assign(fields, kajabiOfferFields(fields));
+  const allowed = ['name','category','tutor_id','color','icon','status','kajabi_offer_id','kajabi_offer_title'];
   const sets = []; const vals = [];
   for (const k of allowed) { if (fields[k] !== undefined) { sets.push(`${k}=?`); vals.push(k === 'tutor_id' ? (fields[k] || null) : fields[k]); } }
   if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
