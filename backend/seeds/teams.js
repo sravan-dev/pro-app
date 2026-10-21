@@ -8,13 +8,17 @@
 //
 // Safe to re-run: an existing email is never re-created and keeps its password
 // and role. An existing advisor with no team is placed in the team; one already
-// in another team is left there and reported. A team that already exists (same
-// name) is reused, and gets this manager only if it has none.
+// in another team is left there and reported. A team that already exists is
+// reused — matched loosely, so 'Champions Team' finds an existing 'Champion' —
+// and its manager is set to this team manager.
 
 const bcrypt = require('bcryptjs');
 const db = require('../db');
 
 const AVATAR_COLOR = '#E97A2B';
+
+// 'Champions Team' / 'Champion' / 'champions' → 'champion'.
+const teamKey = (n) => String(n || '').toLowerCase().replace(/team/g, '').replace(/[^a-z0-9]+/g, '').replace(/s$/, '');
 
 // [name, phone, email] — as supplied.
 const TEAMS = [
@@ -59,7 +63,7 @@ const TEAMS = [
   },
 ];
 
-// Returns { dryRun, teams: [{ name, team: 'created'|'existing', manager: {...}, advisors: [{...}] }] }
+// Returns { dryRun, teams: [{ name, team: 'created'|'existing', previous_manager, manager: {...}, advisors: [{...}] }] }
 // where each person is { name, email, role, status } and status is one of
 // created | existing | team_set | other_team (team holds that other team's name).
 async function seedTeams({ dryRun = false, password = '' } = {}) {
@@ -79,9 +83,10 @@ async function seedTeams({ dryRun = false, password = '' } = {}) {
     return r.lastInsertRowid;
   };
 
+  const allTeams = await db.all("SELECT t.id, t.name, t.manager_id, u.name AS manager_name FROM teams t LEFT JOIN users u ON u.id=t.manager_id");
   const out = [];
   for (const t of TEAMS) {
-    const report = { name: t.name, team: 'existing', manager: null, advisors: [] };
+    const report = { name: t.name, team: 'existing', previous_manager: null, manager: null, advisors: [] };
 
     // Manager first, so the team can point at them.
     const [mName, mPhone, mEmail] = t.manager;
@@ -89,12 +94,16 @@ async function seedTeams({ dryRun = false, password = '' } = {}) {
     const managerId = mRow ? mRow.id : await createUser(mName, mPhone, mEmail, 'manager', null);
     report.manager = { name: mName, email: mEmail, role: mRow ? mRow.role : 'manager', status: mRow ? 'existing' : 'created' };
 
-    let team = await db.get("SELECT id, manager_id FROM teams WHERE LOWER(name)=?", [t.name.toLowerCase()]);
+    let team = allTeams.find((x) => teamKey(x.name) === teamKey(t.name));
     if (!team) {
       report.team = 'created';
       team = { id: dryRun ? null : (await db.run("INSERT INTO teams (name, manager_id) VALUES (?,?)", [t.name, managerId])).lastInsertRowid, manager_id: managerId };
-    } else if (!team.manager_id && managerId && !dryRun) {
-      await db.run("UPDATE teams SET manager_id=? WHERE id=?", [managerId, team.id]);
+    } else {
+      report.name = team.name; // keep the existing team's name
+      if (team.manager_id !== managerId) {
+        report.previous_manager = team.manager_name || null;
+        if (!dryRun) await db.run("UPDATE teams SET manager_id=? WHERE id=?", [managerId, team.id]);
+      }
     }
 
     for (const [name, phone, email] of t.advisors) {

@@ -33,8 +33,9 @@ export default function SeedTeams() {
     <div className="portal-page" style={{ marginTop: '2rem' }}>
       <h2>Seed Sales Teams</h2>
       <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.75rem' }}>
-        Creates Winners, Champions, Fighters and Warriors teams, each team manager (as the team&apos;s manager) and their
-        advisors. Existing accounts keep their password and role; an advisor without a team is placed in theirs.
+        Sets up the Winners, Champions, Fighters and Warriors teams (reusing existing ones like &quot;Champion&quot;), makes
+        each team manager the team&apos;s manager, and adds their advisors. Existing accounts keep their password and
+        role; an advisor without a team is placed in theirs.
       </p>
 
       <div className="form-group" style={{ maxWidth: 320, marginTop: '1rem' }}>
@@ -52,7 +53,10 @@ export default function SeedTeams() {
       {result && !busy && result.teams.map((t) => (
         <div key={t.name} style={{ overflowX: 'auto', marginBottom: '1.25rem' }}>
           <p style={{ fontWeight: 600, margin: '0 0 0.4rem' }}>
-            {t.name} <span style={{ fontWeight: 400, color: 'var(--color-text-secondary)' }}>({t.team === 'created' ? (result.dryRun ? 'team would be created' : 'team created') : 'team exists'})</span>
+            {t.name} <span style={{ fontWeight: 400, color: 'var(--color-text-secondary)' }}>
+              ({t.team === 'created' ? (result.dryRun ? 'team would be created' : 'team created') : 'existing team'}
+              {t.previous_manager ? `; manager ${result.dryRun ? 'would change' : 'changed'} from ${t.previous_manager} to ${t.manager.name}` : ''})
+            </span>
           </p>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <tbody>
