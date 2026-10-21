@@ -11,6 +11,7 @@ const nodemailer = require('nodemailer');
 const db = require('./db');
 const { MySQLSessionStore, revokeUserSessions } = require('./sessionStore');
 const { seedTutors } = require('./seeds/tutors');
+const { seedTeams } = require('./seeds/teams');
 
 const app = express();
 // Status for "an outside service (Zoom, HubSpot, Kajabi) rejected the request".
@@ -504,6 +505,32 @@ app.post('/api/seed/tutors', async (req, res) => {
   } catch (err) {
     console.error('[seed] tutors failed:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Sales team seed  the /seed page. Superadmin only. The first-time password
+// is typed on the page. ?dry_run=1 previews; re-running skips existing emails.
+app.post('/api/seed/teams', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin']); if (!user) return;
+  const dryRun = req.query.dry_run === '1' || req.body?.dry_run === true;
+  try {
+    const result = await seedTeams({ dryRun, password: req.body?.password || '' });
+    if (!dryRun) {
+      const people = result.teams.flatMap((t) => [t.manager, ...t.advisors]);
+      const created = people.filter((p) => p.status === 'created');
+      const placed = people.filter((p) => p.status === 'team_set');
+      const newTeams = result.teams.filter((t) => t.team === 'created');
+      if (created.length || placed.length || newTeams.length) {
+        await auditLog(user.id, 'seed_teams', 'team', null,
+          [newTeams.length && `Teams: ${newTeams.map((t) => t.name).join(', ')}`,
+           created.length && `Created: ${created.map((p) => `${p.email} (${p.role})`).join(', ')}`,
+           placed.length && `Placed in team: ${placed.map((p) => p.email).join(', ')}`].filter(Boolean).join('; '));
+      }
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[seed] teams failed:', err.message);
+    res.status(400).json({ error: err.message });
   }
 });
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
+import SeedTeams from './SeedTeams';
 
 // /seed — superadmin-only page that runs the tutor seed (backend/seeds/tutors.js)
 // for hosts where the import script can't be run from a terminal. Preview first;
@@ -81,6 +82,7 @@ export default function SeedPage() {
           </div>
         )}
       </div>
+      <SeedTeams />
     </div>
   );
 }

@@ -49,6 +49,7 @@ export const api = {
 
   // Seed
   seedTutors: (dryRun) => request('/seed/tutors', { method: 'POST', body: { dry_run: !!dryRun } }),
+  seedTeams: (dryRun, password) => request('/seed/teams', { method: 'POST', body: { dry_run: !!dryRun, password } }),
 
   // Users
   getUsers: () => request('/users'),
