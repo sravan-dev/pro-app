@@ -18,7 +18,7 @@ const db = require('../db');
 const AVATAR_COLOR = '#E97A2B';
 
 // 'Champions Team' / 'Champion' / 'champions' → 'champion'.
-const teamKey = (n) => String(n || '').toLowerCase().replace(/team/g, '').replace(/[^a-z0-9]+/g, '').replace(/s$/, '');
+const teamKey = (n) => String(n || '').toLowerCase().replace(/\bteam\b/g, '').replace(/[^a-z0-9]+/g, '').replace(/s$/, '');
 
 // [name, phone, email] — as supplied.
 const TEAMS = [
