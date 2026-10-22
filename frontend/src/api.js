@@ -288,6 +288,7 @@ export const api = {
 
   // Teams, assignment & ratings
   getTeams: () => request('/teams'),
+  getTeamDetail: (id) => request(`/teams/${id}/detail`),
   createTeam: (data) => request('/teams', { method: 'POST', body: data }),
   updateTeam: (data) => request('/teams', { method: 'PUT', body: data }),
   deleteTeam: (id) => request(`/teams?id=${id}`, { method: 'DELETE' }),

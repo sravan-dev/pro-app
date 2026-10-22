@@ -13,6 +13,7 @@ import Tickets from '../components/Tickets';
 import TutorApplications from '../components/TutorApplications';
 import BlacklistModal from '../components/BlacklistModal';
 import TutorProfile from '../components/TutorProfile';
+import TeamDetail from '../components/TeamDetail';
 import ZoomMeetings from '../components/ZoomMeetings';
 import ZoomRecordings from '../components/ZoomRecordings';
 import MeetingsManager from '../components/MeetingsManager';
@@ -76,6 +77,8 @@ export default function SuperadminPortal() {
   const [showTeamForm, setShowTeamForm] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
   const [teamForm, setTeamForm] = useState({ name: '', manager_id: '' });
+  const [teamDetailId, setTeamDetailId] = useState(null); // Teams → click a row
+  const [teamDetailKey, setTeamDetailKey] = useState(0); // bump to reload after edits
   const [allSessions, setAllSessions] = useState([]);
   const [allAttendance, setAllAttendance] = useState([]);
   const [recordings, setRecordings] = useState([]);
@@ -554,6 +557,7 @@ export default function SuperadminPortal() {
         showMsg('Team created', 'success');
       }
       setShowTeamForm(false);
+      setTeamDetailKey((k) => k + 1);
       api.getTeams().then(setTeams).catch(() => {});
     } catch (err) { showMsg(err.message, 'error'); }
   };
@@ -2769,14 +2773,17 @@ export default function SuperadminPortal() {
 
 
         {/* ===== TEAMS ===== */}
-        {activeTab === 'teams' && (
+        {activeTab === 'teams' && teamDetailId && (
+          <TeamDetail key={`${teamDetailId}-${teamDetailKey}`} teamId={teamDetailId} onBack={() => setTeamDetailId(null)} onEdit={openEditTeam} />
+        )}
+        {activeTab === 'teams' && !teamDetailId && (
           <div className="portal-page">
             <div className="page-header">
               <h2>Teams</h2>
               <button className="btn btn-primary" onClick={openCreateTeam}>+ Add Team</button>
             </div>
             <p style={{ color: 'var(--color-text-secondary)', marginTop: '-0.5rem' }}>
-              Each team is owned by a manager. Assign advisors, tutors and students to a team via their user profile.
+              Each team is owned by a manager. Click a team to see its hierarchy. Assign advisors, tutors and students to a team via their user profile.
             </p>
             <DataTable
               columns={[
@@ -2795,6 +2802,7 @@ export default function SuperadminPortal() {
               ]}
               data={teams}
               pageSize={15}
+              onRowClick={(r) => setTeamDetailId(r.id)}
             />
           </div>
         )}

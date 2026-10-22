@@ -1854,3 +1854,24 @@ input[type="color"] { padding: 0.25rem; height: 40px; cursor: pointer; }
 .ss-none { color: var(--color-text-secondary); font-style: italic; }
 .ss-hint { font-size: 0.78rem; color: var(--color-text-secondary); font-weight: 400; }
 .ss-empty { padding: 0.6rem; font-size: 0.85rem; color: var(--color-text-secondary); }
+
+/* Team detail: hierarchy tree (Admin → Teams → click a team) */
+.team-tree { display: flex; flex-direction: column; align-items: stretch; }
+.team-tree-root { display: flex; justify-content: center; position: relative; padding-bottom: 1.5rem; }
+.team-tree-root::after { content: ''; position: absolute; bottom: 0; left: 50%; width: 2px; height: 1.5rem; background: var(--color-border); }
+.team-tree-level-label { text-align: center; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); border-top: 2px solid var(--color-border); padding-top: 0.5rem; margin-bottom: 0.75rem; }
+.team-tree-children { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; align-items: start; }
+.team-node { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 0.875rem; box-shadow: 0 1px 2px rgba(0,0,0,0.04); min-width: 0; }
+.team-node-manager { min-width: 280px; max-width: 420px; width: 100%; border-top: 3px solid var(--color-primary); }
+.team-node-head { display: flex; align-items: center; gap: 0.75rem; }
+.team-node-role { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-primary); font-weight: 600; }
+.team-node-name { font-weight: 600; color: var(--color-text); }
+.team-node-meta { font-size: 0.8rem; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-node-count { margin-left: auto; background: var(--color-bg); border-radius: 999px; padding: 0.15rem 0.6rem; font-size: 0.8rem; font-weight: 600; color: var(--color-text); }
+.team-node-toggle { background: none; border: none; color: var(--color-primary); font-size: 0.8rem; cursor: pointer; padding: 0.5rem 0 0; }
+.team-node-empty { font-size: 0.8rem; color: var(--color-text-secondary); padding-top: 0.5rem; }
+.team-student-list { list-style: none; margin: 0.5rem 0 0; padding: 0.5rem 0 0 0.75rem; border-left: 2px solid var(--color-border); display: flex; flex-direction: column; gap: 0.4rem; }
+.team-student-list li { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; min-width: 0; }
+.team-student-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-student-progress { margin-left: auto; font-size: 0.75rem; color: var(--color-text-secondary); }
+@media (max-width: 600px) { .team-node-manager { min-width: 0; } }

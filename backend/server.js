@@ -4273,6 +4273,37 @@ app.get('/api/teams', async (req, res) => {
   res.json(teams);
 });
 
+// Team detail: the full hierarchy for one team -- manager, advisors with the
+// students they advise, tutors with their assigned students, and students
+// with no advisor yet.
+app.get('/api/teams/:id/detail', async (req, res) => {
+  const user = await requireRole(req, res, ['superadmin', 'manager']); if (!user) return;
+  const team = await db.get("SELECT * FROM teams WHERE id=?", [req.params.id]);
+  if (!team) return res.status(404).json({ error: 'Team not found' });
+  if (user.role === 'manager' && team.manager_id !== user.id) return res.status(403).json({ error: 'Not your team' });
+  const manager = team.manager_id
+    ? await db.get("SELECT id,name,email,phone,status,avatar_color,avatar_url FROM users WHERE id=?", [team.manager_id])
+    : null;
+  const advisors = await db.all(
+    `SELECT id,name,email,phone,status,avatar_color,avatar_url FROM users WHERE role='advisor' AND team_id=? ORDER BY name`, [team.id]);
+  const tutors = await db.all(
+    `SELECT id,name,email,phone,status,avatar_color,avatar_url,specialization FROM users WHERE role='tutor' AND team_id=? ORDER BY name`, [team.id]);
+  const students = await db.all(
+    `SELECT u.id,u.name,u.email,u.phone,u.status,u.avatar_color,u.avatar_url,u.advisor_id,u.assigned_tutor_id,
+       a.name AS advisor_name, t.name AS tutor_name,
+       COUNT(DISTINCT e.enrollment_id) AS enrolled_courses,
+       GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ', ') AS course_names,
+       ROUND(AVG(e.progress_percentage),1) AS avg_progress
+     FROM users u
+     LEFT JOIN users a ON a.id=u.advisor_id
+     LEFT JOIN users t ON t.id=u.assigned_tutor_id
+     LEFT JOIN enrollments e ON e.student_id=u.id
+     LEFT JOIN courses c ON c.id=e.course_id
+     WHERE u.role='student' AND u.team_id=?
+     GROUP BY u.id ORDER BY u.name`, [team.id]);
+  res.json({ team, manager, advisors, tutors, students });
+});
+
 app.post('/api/teams', async (req, res) => {
   const user = await requireRole(req, res, ['superadmin']); if (!user) return;
   const { name, manager_id } = req.body || {};
