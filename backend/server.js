@@ -277,6 +277,8 @@ const avatarUpload = multer({
 // Allowed MIME types per field, mapped to the extension stored on disk. The
 // extension comes from this map, never from the client's filename, so a file
 // can't be saved (and later served) as .html/.svg.
+
+
 const APPLICATION_FILE_TYPES = {
   photo: { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp' },
   resume: {
