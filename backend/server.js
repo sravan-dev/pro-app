@@ -1256,6 +1256,16 @@ app.post('/api/sessions', async (req, res) => {
   // student_id null/empty/'all' => a common session visible to every enrolled
   // student; a numeric id => a private session for just that student.
   const sid = (student_id && student_id !== 'all') ? parseInt(student_id) || null : null;
+  // A tutor scheduling on a course they don't own may only run a private
+  // session for a student assigned to them who is enrolled in that course.
+  if (user.role === 'tutor') {
+    const ownsCourse = await db.get("SELECT 1 FROM courses WHERE id=? AND tutor_id=?", [course_id, user.id]);
+    if (!ownsCourse) {
+      if (!sid) return res.status(403).json({ error: 'Pick your assigned student for a course you do not teach' });
+      const ok = await db.get("SELECT 1 FROM users u JOIN enrollments e ON e.student_id=u.id AND e.course_id=? WHERE u.id=? AND (u.assigned_tutor_id=? OR EXISTS(SELECT 1 FROM student_tutors st WHERE st.student_id=u.id AND st.tutor_id=?)) LIMIT 1", [course_id, sid, user.id, user.id]);
+      if (!ok) return res.status(403).json({ error: 'Not your student for this course' });
+    }
+  }
   const r = await db.run("INSERT INTO sessions (course_id,tutor_id,student_id,start_time,end_time,room_name) VALUES (?,?,?,?,?,?)", [course_id, tid, sid, start_time, end_time, room]);
   auditLog(user.id, 'create_session', 'session', r.lastInsertRowid);
   res.status(201).json({ session_id: r.lastInsertRowid, room_name: room });

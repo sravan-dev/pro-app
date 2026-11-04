@@ -170,6 +170,15 @@ export default function TutorPortal() {
   const sessions = data?.sessions || [];
   const teachingStats = data?.teaching_stats || { total_sessions: 0, total_hours: 0 };
   const uniqueStudents = [...new Set(students.map((s) => s.id))].length;
+  // Session courses: the tutor's own courses plus courses their assigned
+  // students are enrolled in (those allow private 1-on-1 sessions only).
+  const sessionCourses = [...courses.map((c) => ({ id: c.id, name: c.name, own: true }))];
+  for (const s of students) {
+    if (s.course_id && !sessionCourses.some((c) => String(c.id) === String(s.course_id))) {
+      sessionCourses.push({ id: s.course_id, name: s.course_name, own: false });
+    }
+  }
+  const selectedCourseOwn = sessionCourses.find((c) => String(c.id) === String(sessionForm.course_id))?.own ?? true;
   const upcomingSessions = sessions.filter((s) => s.status === 'scheduled');
 
   const studentColumns = [
@@ -376,16 +385,16 @@ export default function TutorPortal() {
                       <label>Course</label>
                       <select value={sessionForm.course_id} onChange={(e) => setSessionForm({ ...sessionForm, course_id: e.target.value, student_id: '' })} required>
                         <option value="">Select course...</option>
-                        {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        {sessionCourses.map((c) => <option key={c.id} value={c.id}>{c.name}{c.own ? '' : ' (assigned student)'}</option>)}
                       </select>
                     </div>
                     <div className="form-group">
                       <label>Student</label>
-                      <select value={sessionForm.student_id} onChange={(e) => setSessionForm({ ...sessionForm, student_id: e.target.value })} disabled={!sessionForm.course_id}>
-                        <option value="">All Students (common session)</option>
+                      <select value={sessionForm.student_id} onChange={(e) => setSessionForm({ ...sessionForm, student_id: e.target.value })} disabled={!sessionForm.course_id} required={!!sessionForm.course_id && !selectedCourseOwn}>
+                        <option value="">{selectedCourseOwn || !sessionForm.course_id ? 'All Students (common session)' : 'Select student...'}</option>
                         {students.filter((s) => String(s.course_id) === String(sessionForm.course_id)).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.email})</option>)}
                       </select>
-                      <small style={{ color: 'var(--color-text-secondary)' }}>{sessionForm.course_id ? 'Pick a student for a private 1-on-1, or leave on "All" for everyone enrolled.' : 'Select a course first to choose a student.'}</small>
+                      <small style={{ color: 'var(--color-text-secondary)' }}>{!sessionForm.course_id ? 'Select a course first to choose a student.' : selectedCourseOwn ? 'Pick a student for a private 1-on-1, or leave on "All" for everyone enrolled.' : 'This course belongs to another tutor, so pick your assigned student for a private 1-on-1.'}</small>
                     </div>
                     <div className="form-group">
                       <label>Start Time</label>
