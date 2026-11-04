@@ -176,9 +176,9 @@ export default function TutorPortal() {
     { key: 'avatar', label: '', sortable: false, render: (r) => <div className="avatar-sm" style={{ backgroundColor: r.avatar_color }}>{r.name?.[0]}</div> },
     { key: 'name', label: 'Name', accessor: 'name' },
     { key: 'email', label: 'Email', accessor: 'email' },
-    { key: 'course', label: 'Course', accessor: 'course_name' },
+    { key: 'course', label: 'Course', accessor: 'course_name', render: (r) => r.course_name || '-' },
     { key: 'progress', label: 'Progress', accessor: 'progress_percentage', render: (r) => (
-      <div className="progress-bar-inline"><div className="progress-fill" style={{ width: `${r.progress_percentage}%` }} /><span>{Math.round(r.progress_percentage)}%</span></div>
+      <div className="progress-bar-inline"><div className="progress-fill" style={{ width: `${r.progress_percentage || 0}%` }} /><span>{Math.round(r.progress_percentage || 0)}%</span></div>
     )},
     { key: 'grade', label: 'Grade', accessor: 'grade', render: (r) => r.grade || '-' },
     { key: 'status', label: 'Status', accessor: 'status', render: (r) => <span className={`status-dot status-${r.status}`}>{r.status}</span> },

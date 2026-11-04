@@ -619,7 +619,7 @@ app.get('/api/bootstrap', async (req, res) => {
     data.courses = await db.all("SELECT c.*,u.name as tutor_name,e.progress_percentage,e.grade,e.status as enrollment_status FROM courses c JOIN enrollments e ON e.course_id=c.id LEFT JOIN users u ON u.id=c.tutor_id WHERE e.student_id=?", [user.id]);
   } else if (user.role === 'tutor') {
     data.courses = await db.all("SELECT c.* FROM courses c WHERE c.tutor_id=?", [user.id]);
-    data.students = await db.all("SELECT u.id,u.name,u.email,u.status,u.avatar_color,e.course_id,e.progress_percentage,e.grade,c.name as course_name FROM users u JOIN enrollments e ON e.student_id=u.id JOIN courses c ON c.id=e.course_id WHERE c.tutor_id=? ORDER BY u.name", [user.id]);
+    data.students = await db.all("SELECT DISTINCT u.id,u.name,u.email,u.status,u.avatar_color,e.course_id,e.progress_percentage,e.grade,c.name as course_name FROM users u LEFT JOIN enrollments e ON e.student_id=u.id LEFT JOIN courses c ON c.id=e.course_id WHERE u.role='student' AND (c.tutor_id=? OR u.assigned_tutor_id=? OR EXISTS(SELECT 1 FROM student_tutors st WHERE st.student_id=u.id AND st.tutor_id=?)) ORDER BY u.name", [user.id, user.id, user.id]);
   } else {
     data.courses = await db.all("SELECT c.*,u.name as tutor_name FROM courses c LEFT JOIN users u ON u.id=c.tutor_id WHERE (c.tutor_id IS NULL OR u.id IS NOT NULL) ORDER BY c.name");
     data.students = await db.all("SELECT id,name,email,status,avatar_color,specialization FROM users WHERE role='student' ORDER BY name");
@@ -644,7 +644,7 @@ app.get('/api/portal-data', async (req, res) => {
     }
     case 'tutor': {
       data.courses = await db.all("SELECT c.* FROM courses c WHERE c.tutor_id=? ORDER BY c.name", [user.id]);
-      data.students = await db.all("SELECT DISTINCT u.id,u.name,u.email,u.status,u.avatar_color,e.course_id,e.progress_percentage,e.grade,c.name as course_name FROM users u JOIN enrollments e ON e.student_id=u.id JOIN courses c ON c.id=e.course_id WHERE c.tutor_id=? ORDER BY u.name", [user.id]);
+      data.students = await db.all("SELECT DISTINCT u.id,u.name,u.email,u.status,u.avatar_color,e.course_id,e.progress_percentage,e.grade,c.name as course_name FROM users u LEFT JOIN enrollments e ON e.student_id=u.id LEFT JOIN courses c ON c.id=e.course_id WHERE u.role='student' AND (c.tutor_id=? OR u.assigned_tutor_id=? OR EXISTS(SELECT 1 FROM student_tutors st WHERE st.student_id=u.id AND st.tutor_id=?)) ORDER BY u.name", [user.id, user.id, user.id]);
       // A session counts as "conducted" if it was completed OR anyone actually
       // joined (attendance log exists).
       data.sessions = await db.all("SELECT s.*, c.name as course_name, (s.status='completed' OR EXISTS(SELECT 1 FROM attendance_logs a WHERE a.session_id=s.session_id)) as conducted FROM sessions s JOIN courses c ON c.id=s.course_id WHERE s.tutor_id=? ORDER BY s.start_time DESC LIMIT 50", [user.id]);
@@ -744,9 +744,9 @@ app.get('/api/students', async (req, res) => {
 app.get('/api/students/:id', async (req, res) => {
   const user = await requireRole(req, res, ['tutor','advisor','manager','superadmin']); if (!user) return;
   const id = parseInt(req.params.id);
-  // A tutor may only view a student enrolled in one of their own courses.
+  // A tutor may only view a student assigned to them or enrolled in one of their courses.
   if (user.role === 'tutor') {
-    const own = await db.get("SELECT 1 FROM enrollments e JOIN courses c ON c.id=e.course_id WHERE e.student_id=? AND c.tutor_id=? LIMIT 1", [id, user.id]);
+    const own = await db.get("SELECT 1 FROM users u WHERE u.id=? AND (u.assigned_tutor_id=? OR EXISTS(SELECT 1 FROM student_tutors st WHERE st.student_id=u.id AND st.tutor_id=?) OR EXISTS(SELECT 1 FROM enrollments e JOIN courses c ON c.id=e.course_id WHERE e.student_id=u.id AND c.tutor_id=?)) LIMIT 1", [id, user.id, user.id, user.id]);
     if (!own) return res.status(403).json({ error: 'Not your student' });
   }
   const profile = await db.get("SELECT id,name,email,status,avatar_color,avatar_url,created_at FROM users WHERE id=? AND role='student'", [id]);
