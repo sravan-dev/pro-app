@@ -100,6 +100,7 @@ export const api = {
   // Sessions
   getSessions: () => request('/sessions'),
   createSession: (data) => request('/sessions', { method: 'POST', body: data }),
+  updateSession: (id, data) => request(`/sessions/${id}`, { method: 'PUT', body: data }),
   deleteSession: (id) => request(`/sessions?id=${id}`, { method: 'DELETE' }),
   joinSession: (sessionId) => request('/join-session', { method: 'POST', body: { session_id: sessionId } }),
   leaveSession: (sessionId) => request('/leave-session', { method: 'POST', body: { session_id: sessionId } }),

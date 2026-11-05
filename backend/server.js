@@ -1247,6 +1247,41 @@ app.get('/api/sessions', async (req, res) => {
   res.json(rows);
 });
 
+// A tutor scheduling on a course they don't own may only run a private
+// session for a student assigned to them who is enrolled in that course.
+// Returns an error message, or null when allowed.
+async function tutorScheduleError(user, course_id, sid) {
+  if (user.role !== 'tutor') return null;
+  const ownsCourse = await db.get("SELECT 1 FROM courses WHERE id=? AND tutor_id=?", [course_id, user.id]);
+  if (ownsCourse) return null;
+  if (!sid) return 'Pick your assigned student for a course you do not teach';
+  const ok = await db.get("SELECT 1 FROM users u JOIN enrollments e ON e.student_id=u.id AND e.course_id=? WHERE u.id=? AND (u.assigned_tutor_id=? OR EXISTS(SELECT 1 FROM student_tutors st WHERE st.student_id=u.id AND st.tutor_id=?)) LIMIT 1", [course_id, sid, user.id, user.id]);
+  return ok ? null : 'Not your student for this course';
+}
+
+// Edit a scheduled session (course, student, times). Tutors may edit only
+// their own sessions; live or finished sessions can't be changed.
+app.put('/api/sessions/:id', async (req, res) => {
+  const user = await requireRole(req, res, ['tutor','superadmin']); if (!user) return;
+  const id = parseInt(req.params.id);
+  const sess = await db.get("SELECT * FROM sessions WHERE session_id=?", [id]);
+  if (!sess) return res.status(404).json({ error: 'Session not found' });
+  if (user.role === 'tutor' && sess.tutor_id !== user.id) return res.status(403).json({ error: 'Not your session' });
+  if (sess.status !== 'scheduled') return res.status(400).json({ error: 'Only scheduled sessions can be edited' });
+  const b = req.body || {};
+  const course_id = b.course_id !== undefined ? parseInt(b.course_id) || null : sess.course_id;
+  const start_time = b.start_time || sess.start_time;
+  const end_time = b.end_time || sess.end_time;
+  const sid = b.student_id !== undefined ? ((b.student_id && b.student_id !== 'all') ? parseInt(b.student_id) || null : null) : sess.student_id;
+  if (!course_id) return res.status(400).json({ error: 'Course required' });
+  if (String(end_time).replace(' ', 'T') <= String(start_time).replace(' ', 'T')) return res.status(400).json({ error: 'End time must be after start time' });
+  const denied = await tutorScheduleError(user, course_id, sid);
+  if (denied) return res.status(403).json({ error: denied });
+  await db.run("UPDATE sessions SET course_id=?, student_id=?, start_time=?, end_time=? WHERE session_id=?", [course_id, sid, start_time, end_time, id]);
+  auditLog(user.id, 'update_session', 'session', id);
+  res.json({ ok: true });
+});
+
 app.post('/api/sessions', async (req, res) => {
   const user = await requireRole(req, res, ['tutor','superadmin']); if (!user) return;
   const { course_id, start_time, end_time, tutor_id, student_id } = req.body;
@@ -1256,16 +1291,8 @@ app.post('/api/sessions', async (req, res) => {
   // student_id null/empty/'all' => a common session visible to every enrolled
   // student; a numeric id => a private session for just that student.
   const sid = (student_id && student_id !== 'all') ? parseInt(student_id) || null : null;
-  // A tutor scheduling on a course they don't own may only run a private
-  // session for a student assigned to them who is enrolled in that course.
-  if (user.role === 'tutor') {
-    const ownsCourse = await db.get("SELECT 1 FROM courses WHERE id=? AND tutor_id=?", [course_id, user.id]);
-    if (!ownsCourse) {
-      if (!sid) return res.status(403).json({ error: 'Pick your assigned student for a course you do not teach' });
-      const ok = await db.get("SELECT 1 FROM users u JOIN enrollments e ON e.student_id=u.id AND e.course_id=? WHERE u.id=? AND (u.assigned_tutor_id=? OR EXISTS(SELECT 1 FROM student_tutors st WHERE st.student_id=u.id AND st.tutor_id=?)) LIMIT 1", [course_id, sid, user.id, user.id]);
-      if (!ok) return res.status(403).json({ error: 'Not your student for this course' });
-    }
-  }
+  const denied = await tutorScheduleError(user, course_id, sid);
+  if (denied) return res.status(403).json({ error: denied });
   const r = await db.run("INSERT INTO sessions (course_id,tutor_id,student_id,start_time,end_time,room_name) VALUES (?,?,?,?,?,?)", [course_id, tid, sid, start_time, end_time, room]);
   auditLog(user.id, 'create_session', 'session', r.lastInsertRowid);
   res.status(201).json({ session_id: r.lastInsertRowid, room_name: room });

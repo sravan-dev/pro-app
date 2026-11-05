@@ -21,6 +21,7 @@ export default function TutorPortal() {
   const [activeSession, setActiveSession] = useState(null);
   const [sessionMinimized, setSessionMinimized] = useState(false);
   const [showSessionForm, setShowSessionForm] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState(null);
   const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
   const [sessionForm, setSessionForm] = useState({ course_id: '', student_id: '', start_time: '', end_time: '' });
   const [message, setMessage] = useState('');
@@ -99,12 +100,45 @@ export default function TutorPortal() {
     if (activeTab === 'availability') loadAvailability();
   }, [activeTab]);
 
+  const emptySessionForm = { course_id: '', student_id: '', start_time: '', end_time: '' };
+  // Stored times are 'YYYY-MM-DD HH:MM[:SS]'; datetime-local wants 'YYYY-MM-DDTHH:MM'.
+  const toInputDt = (v) => (v ? String(v).replace(' ', 'T').slice(0, 16) : '');
+
+  const openNewSession = () => {
+    setEditingSessionId(null);
+    setSessionForm(emptySessionForm);
+    setShowSessionForm(true);
+  };
+
+  const openEditSession = (s) => {
+    setEditingSessionId(s.session_id);
+    setSessionForm({
+      course_id: s.course_id ? String(s.course_id) : '',
+      student_id: s.student_id ? String(s.student_id) : '',
+      start_time: toInputDt(s.start_time),
+      end_time: toInputDt(s.end_time),
+    });
+    setShowSessionForm(true);
+  };
+
+  const closeSessionForm = () => {
+    setShowSessionForm(false);
+    setEditingSessionId(null);
+    setSessionForm(emptySessionForm);
+  };
+
   const handleCreateSession = async (e) => {
     e.preventDefault();
     try {
-      await api.createSession(sessionForm);
-      setMessage('Session created!');
+      if (editingSessionId) {
+        await api.updateSession(editingSessionId, sessionForm);
+        setMessage('Session updated!');
+      } else {
+        await api.createSession(sessionForm);
+        setMessage('Session created!');
+      }
       setShowSessionForm(false);
+      setEditingSessionId(null);
       setSessionForm({ course_id: '', student_id: '', start_time: '', end_time: '' });
       const d = await api.portalData();
       setData(d);
@@ -201,6 +235,7 @@ export default function TutorPortal() {
       r.status !== 'completed' && (
         <div style={{ display: 'flex', gap: '6px' }}>
           <button className="btn btn-sm btn-primary" onClick={() => handleJoinSession(r)}>{r.status === 'live' ? 'Join' : 'Start'}</button>
+          {r.status === 'scheduled' && <button className="btn btn-sm btn-ghost" onClick={() => openEditSession(r)}>Edit</button>}
           {r.status === 'live' && <button className="btn btn-sm btn-danger" onClick={() => handleEndSession(r)}>End</button>}
         </div>
       )
@@ -372,14 +407,14 @@ export default function TutorPortal() {
               <h2>Sessions</h2>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button className="btn btn-ghost" onClick={() => setShowScheduleCalendar(true)}>📅 View Schedules</button>
-                <button className="btn btn-primary" onClick={() => setShowSessionForm(true)}>+ Schedule Session</button>
+                <button className="btn btn-primary" onClick={openNewSession}>+ Schedule Session</button>
               </div>
             </div>
 
             {showSessionForm && (
               <div className="modal-overlay">
                 <div className="modal">
-                  <h3>Schedule New Session</h3>
+                  <h3>{editingSessionId ? 'Edit Session' : 'Schedule New Session'}</h3>
                   <form onSubmit={handleCreateSession}>
                     <div className="form-group">
                       <label>Course</label>
@@ -405,8 +440,8 @@ export default function TutorPortal() {
                       <input type="datetime-local" value={sessionForm.end_time} onChange={(e) => setSessionForm({ ...sessionForm, end_time: e.target.value })} required />
                     </div>
                     <div className="form-actions">
-                      <button type="button" className="btn btn-ghost" onClick={() => setShowSessionForm(false)}>Cancel</button>
-                      <button type="submit" className="btn btn-primary">Create</button>
+                      <button type="button" className="btn btn-ghost" onClick={closeSessionForm}>Cancel</button>
+                      <button type="submit" className="btn btn-primary">{editingSessionId ? 'Save' : 'Create'}</button>
                     </div>
                   </form>
                 </div>
