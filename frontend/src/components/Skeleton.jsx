@@ -49,6 +49,30 @@ export function MainSkeleton({ kpis = 6, rows = 8 }) {
   );
 }
 
+// Shimmer stand-in for a data table while its rows load. `avatar` adds a round
+// first cell; `head` adds the toolbar strip.
+export function TableSkeleton({ rows = 8, avatar = false, head = true, style = {} }) {
+  return (
+    <div className="skeleton-table" aria-busy="true" aria-label="Loading" style={style}>
+      {head && (
+        <div className="skeleton-table-head">
+          <Skeleton width="180px" height={20} />
+          <Skeleton width="120px" height={20} />
+        </div>
+      )}
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="skeleton-table-row">
+          {avatar && <Skeleton width={32} height={32} radius="50%" />}
+          <Skeleton width="28%" height={14} />
+          <Skeleton width="22%" height={14} />
+          <Skeleton width="15%" height={14} />
+          <Skeleton width="12%" height={14} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Full-page placeholder used before we know the user/role (e.g. during the
 // initial auth check), so we render a sidebar shell too.
 export function AppShellSkeleton() {

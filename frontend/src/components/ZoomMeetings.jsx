@@ -3,6 +3,7 @@ import { api } from '../api';
 import DataTable from './DataTable';
 import ZoomMeetingSummary from './ZoomMeetingSummary';
 import ZoomContacts from './ZoomContacts';
+import { Skeleton, TableSkeleton } from './Skeleton';
 
 // Admin → Zoom: create, edit and delete real Zoom meetings through the Zoom
 // app saved in Settings → Video provider. Meetings belong to a Zoom user (the
@@ -194,7 +195,7 @@ export default function ZoomMeetings({ view: viewProp, onViewChange, onContactsC
     }},
   ];
 
-  if (!status) return <div className="portal-page"><div className="spinner" /></div>;
+  if (!status) return <div className="portal-page"><Skeleton width="160px" height={28} style={{ marginBottom: '1.5rem' }} /><TableSkeleton /></div>;
 
   if (!status.connected) {
     return (
@@ -258,7 +259,7 @@ export default function ZoomMeetings({ view: viewProp, onViewChange, onContactsC
       )}
       {error && <div className="alert alert-error">{error}</div>}
 
-      {view === 'contacts' ? <ZoomContacts onCountChange={onContactsCount} /> : loading ? <div className="spinner" /> : meetings.length === 0 ? (
+      {view === 'contacts' ? <ZoomContacts onCountChange={onContactsCount} /> : loading ? <TableSkeleton /> : meetings.length === 0 ? (
         <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>
           {view === 'upcoming' ? 'No upcoming Zoom meetings. Click “New Zoom Meeting” to schedule one.' : 'No past meetings.'}
         </div>

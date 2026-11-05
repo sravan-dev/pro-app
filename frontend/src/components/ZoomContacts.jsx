@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 import DataTable from './DataTable';
+import { Skeleton, TableSkeleton } from './Skeleton';
 
 // Zoom page → Contacts: everyone who has joined your Zoom meetings, one row
 // per person (by email; guests without one by name). Opening the tab checks
@@ -138,7 +139,7 @@ export default function ZoomContacts({ onCountChange }) {
       )}
       {error && <div className="alert alert-error">{error}</div>}
 
-      {!data ? <div className="spinner" /> : data.contacts.length === 0 ? (
+      {!data ? <TableSkeleton avatar /> : data.contacts.length === 0 ? (
         <div className="card" style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>
           No Zoom contacts yet. Everyone who joined your past meetings is added here automatically.
         </div>
@@ -158,7 +159,7 @@ export default function ZoomContacts({ onCountChange }) {
               </div>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPerson(null)} aria-label="Close">✕</button>
             </div>
-            {!sessions ? <div className="spinner" style={{ margin: '2rem auto' }} /> : (
+            {!sessions ? <div style={{ marginTop: '1rem', display: 'grid', gap: 10 }}>{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} height={16} />)}</div> : (
               <table className="data-table" style={{ width: '100%', fontSize: 13, marginTop: '1rem' }}>
                 <thead><tr><th>Meeting</th><th>When</th><th>Time in meeting</th></tr></thead>
                 <tbody>

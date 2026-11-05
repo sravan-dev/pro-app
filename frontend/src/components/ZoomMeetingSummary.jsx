@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
+import { Skeleton } from './Skeleton';
 
 // Zoom page → click a meeting: its summary. Past meetings add, for one session
 // (picker when the meeting ran more than once), the actual times, Zoom's AI
@@ -211,7 +212,16 @@ export default function ZoomMeetingSummary({ meeting, past, onClose, onStart, on
         </div>
 
         {error && <div className="alert alert-error" style={{ marginTop: '1rem' }}>{error}</div>}
-        {!data && !error && <div className="spinner" style={{ margin: '2rem auto' }} />}
+        {!data && !error && (
+          <div style={{ marginTop: '1.25rem', display: 'grid', gap: 10 }} aria-busy="true" aria-label="Loading">
+            <Skeleton width="40%" height={14} />
+            <Skeleton width="65%" height={14} />
+            <Skeleton width="55%" height={14} />
+            <Skeleton height={90} radius={10} style={{ marginTop: 8 }} />
+            <Skeleton width="30%" height={14} style={{ marginTop: 8 }} />
+            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} height={32} radius={6} />)}
+          </div>
+        )}
 
         {data && (past ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
