@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api';
 import KajabiContactDetail from './KajabiContactDetail';
 import EnrollDetailsFields, { emptyEnrollDetails } from './EnrollDetailsFields';
+import { Skeleton } from './Skeleton';
 
 const PAGE_SIZE = 100;
 const contactName = (c) => (c.name && c.name !== '—' ? c.name : '');
@@ -190,7 +191,21 @@ export default function ContactsDirectory({ source, title, onMessage, onOpenSett
           Failed to load contacts: {error}
         </div>
       ) : loading && contacts.length === 0 ? (
-        <div><div className="spinner" /><p>Loading contacts…</p></div>
+        <div className="skeleton-table" aria-busy="true" aria-label="Loading contacts">
+          <div className="skeleton-table-head">
+            <Skeleton width="280px" height={36} />
+            <Skeleton width="120px" height={20} />
+          </div>
+          {Array.from({ length: 10 }).map((_, i) => (
+            <div key={i} className="skeleton-table-row">
+              <Skeleton width={32} height={32} radius="50%" />
+              <Skeleton width="20%" height={14} />
+              <Skeleton width="28%" height={14} />
+              <Skeleton width="15%" height={14} />
+              <Skeleton width={70} height={28} radius={6} />
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="data-table-container">
           <div className="data-table-toolbar">
