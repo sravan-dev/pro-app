@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import SessionRoom from './SessionRoom';
@@ -11,6 +11,15 @@ export default function CallPage() {
   const [activeSession, setActiveSession] = useState(null);
   const [error, setError] = useState('');
   const [joining, setJoining] = useState(false);
+  // The Tijus LMS Android app opens /call/<id>?autojoin=1 and exposes
+  // window.TijusApp so hanging up closes the app's class screen.
+  const [searchParams] = useSearchParams();
+  const autoJoin = searchParams.get('autojoin') === '1';
+  const autoTried = useRef(false);
+  const leave = () => {
+    if (window.TijusApp && typeof window.TijusApp.leave === 'function') window.TijusApp.leave();
+    else navigate('/');
+  };
 
   useEffect(() => {
     if (authLoading) return;
@@ -33,6 +42,12 @@ export default function CallPage() {
     }
   };
 
+  useEffect(() => {
+    if (authLoading || !user || !autoJoin || autoTried.current) return;
+    autoTried.current = true;
+    joinCall();
+  }, [authLoading, user, autoJoin]);
+
   if (authLoading) {
     return <div className="loading-screen"><div className="spinner" /><p>Loading...</p></div>;
   }
@@ -40,7 +55,7 @@ export default function CallPage() {
   if (activeSession) {
     return (
       <div style={{ height: '100vh' }}>
-        <SessionRoom session={activeSession} onLeave={() => navigate('/')} />
+        <SessionRoom session={activeSession} onLeave={leave} />
       </div>
     );
   }

@@ -1,0 +1,12 @@
+<resources>
+    <style name="Theme.TijusLMS" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#2D2A6E</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+    <style name="Theme.TijusLMS.Call" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#0F172A</item>
+        <item name="android:navigationBarColor">#0F172A</item>
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>
