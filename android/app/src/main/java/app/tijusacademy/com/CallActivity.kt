@@ -103,8 +103,15 @@ class CallActivity : ComponentActivity() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url
                 // Our own pages stay in the room; anything else (e.g. a shared link) opens outside.
-                if (url.host == Uri.parse(Api.baseUrl).host) return false
-                runCatching { startActivity(Intent(Intent.ACTION_VIEW, url)) }
+                if (url.scheme == "https" && url.host == Uri.parse(Api.baseUrl).host) return false
+                // Only plain web links go to the browser; intent:, file: etc. are dropped.
+                if (url.scheme == "http" || url.scheme == "https") {
+                    val out = Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE).apply {
+                        component = null
+                        selector = null
+                    }
+                    runCatching { startActivity(out) }
+                }
                 return true
             }
 

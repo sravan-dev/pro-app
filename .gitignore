@@ -13,3 +13,6 @@ ftp.txt
 *.sql
 !backend/schema.mysql.sql
 backend/uploads/applications/*
+
+# Built Android packages copied to the repo root
+/*.apk

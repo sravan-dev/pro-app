@@ -14,7 +14,10 @@ export default function CallPage() {
   // The Tijus LMS Android app opens /call/<id>?autojoin=1 and exposes
   // window.TijusApp so hanging up closes the app's class screen.
   const [searchParams] = useSearchParams();
-  const autoJoin = searchParams.get('autojoin') === '1';
+  // Only the app may skip the Join button; in a browser a crafted link must not
+  // pull someone into a call (camera/mic) without their click.
+  const inApp = typeof window !== 'undefined' && !!window.TijusApp;
+  const autoJoin = inApp && searchParams.get('autojoin') === '1';
   const autoTried = useRef(false);
   const leave = () => {
     if (window.TijusApp && typeof window.TijusApp.leave === 'function') window.TijusApp.leave();
