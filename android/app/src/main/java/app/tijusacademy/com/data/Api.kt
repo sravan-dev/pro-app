@@ -97,7 +97,16 @@ object Api {
     fun syncCookiesToWebView() {
         val cm = CookieManager.getInstance()
         cm.setAcceptCookie(true)
-        jar.all().forEach { c -> cm.setCookie(baseUrl, "${c.name}=${c.value}; Path=${c.path}") }
+        // Keep HttpOnly/Secure so page scripts can't read the session cookie.
+        jar.all().forEach { c ->
+            val attrs = buildString {
+                append("${c.name}=${c.value}; Path=${c.path}")
+                if (c.httpOnly) append("; HttpOnly")
+                if (c.secure || baseUrl.startsWith("https://")) append("; Secure")
+                if (c.persistent) append("; Max-Age=${((c.expiresAt - System.currentTimeMillis()) / 1000).coerceAtLeast(0)}")
+            }
+            cm.setCookie(baseUrl, attrs)
+        }
         cm.flush()
     }
 
